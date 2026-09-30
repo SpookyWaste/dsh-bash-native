@@ -1,0 +1,250 @@
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index 563f25b..531d54d 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -1789,8 +1789,12 @@ pub(crate) async fn setup_redirect(
+                         return Err(error::ErrorKind::InvalidRedirection.into());
+                     }
+ 
++                    // Keep the target as the script spelled it: a descriptor path such as
++                    // `/dev/stdout` or `/dev/fd/63` has to be recognized before the absolute form
++                    // buries it under a drive root, and `open_file` absolutizes ordinary paths itself.
++                    let redirect_target = expanded_fields.remove(0);
+                     let expanded_file_path: PathBuf =
+-                        shell.absolute_path(Path::new(expanded_fields.remove(0).as_str()));
++                        shell.absolute_path(Path::new(redirect_target.as_str()));
+ 
+                     let default_fd_if_unspecified = get_default_fd_for_redirect_kind(kind);
+                     match kind {
+@@ -1842,7 +1846,7 @@ pub(crate) async fn setup_redirect(
+                     let fd_num = specified_fd_num.unwrap_or(default_fd_if_unspecified);
+ 
+                     let opened_file = shell
+-                        .open_file(&options, &expanded_file_path, params)
++                        .open_file(&options, redirect_target.as_str(), params)
+                         .map_err(|err| {
+                             error::ErrorKind::RedirectionFailure(
+                                 expanded_file_path.to_string_lossy().to_string(),
+@@ -2011,7 +2015,7 @@ fn setup_redirect_output_and_error_to(
+         .append(append);
+ 
+     let stdout_file = shell
+-        .open_file(&file_options, &abs_file_path, params)
++        .open_file(&file_options, file_path, params)
+         .map_err(|err| {
+             error::ErrorKind::RedirectionFailure(
+                 abs_file_path.to_string_lossy().to_string(),
+diff --git a/brush-core/src/openfiles.rs b/brush-core/src/openfiles.rs
+index f51ece0..ccbcef6 100644
+--- a/brush-core/src/openfiles.rs
++++ b/brush-core/src/openfiles.rs
+@@ -463,3 +463,113 @@ where
+         Self { files }
+     }
+ }
++
++/// A path that names one of the calling process's own descriptors rather than a file.
++///
++/// Opening such a path for real reaches the *process's* descriptor table, and a shell embedded in a
++/// larger host shares that process, so `/dev/stdout` would be the host's stdout rather than the
++/// command's. Callers resolve these paths against the shell's descriptors instead. Ported from
++/// oh-my-pi's vendored copy of this crate, which added the grammar this project needed on Windows,
++/// where these paths are otherwise read as `<drive>:\dev\...`.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum DescriptorPath {
++    /// `/dev/stdin`, `/dev/stdout`, `/dev/stderr`, or `N` under `/dev/fd`, `/proc/self/fd`,
++    /// `/proc/thread-self/fd`, or `/proc/<this pid>/fd`.
++    Fd(ShellFd),
++    /// `/dev/tty`, which names a controlling terminal this platform does not have.
++    Terminal,
++}
++
++impl DescriptorPath {
++    /// Classifies an absolute path; `None` for every other path, including relative paths and the
++    /// descriptor directories themselves.
++    ///
++    /// A Windows drive or UNC prefix is skipped first, so both the spelling a script uses
++    /// (`/dev/stdout`) and the one `Shell::absolute_path` produces (`D:\dev\stdout`) are recognized.
++    /// That is deliberate: redirection targets reach `Shell::open_file` from more than one call site,
++    /// and one of them makes the path absolute before opening it.
++    pub fn parse(path: &std::path::Path) -> Option<Self> {
++        use std::path::Component;
++
++        let mut components = path.components().peekable();
++        if matches!(components.peek(), Some(Component::Prefix(_))) {
++            // A drive letter or UNC host carries no meaning for a descriptor path.
++            components.next();
++        }
++        if components.next() != Some(Component::RootDir) {
++            return None;
++        }
++
++        let mut names = [""; 4];
++        let mut len = 0;
++        for component in components {
++            let Component::Normal(name) = component else {
++                return None;
++            };
++            *names.get_mut(len)? = name.to_str()?;
++            len += 1;
++        }
++
++        match names[..len] {
++            ["dev", "stdin"] => Some(Self::Fd(OpenFiles::STDIN_FD)),
++            ["dev", "stdout"] => Some(Self::Fd(OpenFiles::STDOUT_FD)),
++            ["dev", "stderr"] => Some(Self::Fd(OpenFiles::STDERR_FD)),
++            ["dev", "tty"] => Some(Self::Terminal),
++            ["dev", "fd", fd] | ["proc", "self" | "thread-self", "fd", fd] => decimal(fd).map(Self::Fd),
++            ["proc", pid, "fd", fd] if decimal::<u32>(pid) == Some(std::process::id()) => {
++                decimal(fd).map(Self::Fd)
++            }
++            _ => None,
++        }
++    }
++}
++
++/// Parses an unsigned decimal path component, as the kernel spells descriptor numbers and pids; signs
++/// and other text are not numbers here.
++fn decimal<T: std::str::FromStr>(name: &str) -> Option<T> {
++    if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
++        return None;
++    }
++    name.parse().ok()
++}
++
++#[cfg(test)]
++mod descriptor_path_tests {
++    use super::DescriptorPath::{self, Fd, Terminal};
++    use super::OpenFiles;
++    use std::path::Path;
++
++    fn parse(path: &str) -> Option<DescriptorPath> {
++        DescriptorPath::parse(Path::new(path))
++    }
++
++    #[test]
++    fn standard_streams_and_descriptor_directories_are_recognized() {
++        assert_eq!(parse("/dev/stdin"), Some(Fd(OpenFiles::STDIN_FD)));
++        assert_eq!(parse("/dev/stdout"), Some(Fd(OpenFiles::STDOUT_FD)));
++        assert_eq!(parse("/dev/stderr"), Some(Fd(OpenFiles::STDERR_FD)));
++        assert_eq!(parse("/dev/fd/63"), Some(Fd(63)));
++        assert_eq!(parse("/proc/self/fd/3"), Some(Fd(3)));
++        assert_eq!(parse("/proc/thread-self/fd/3"), Some(Fd(3)));
++        assert_eq!(parse("/dev/tty"), Some(Terminal));
++    }
++
++    #[test]
++    fn others_are_left_to_the_filesystem() {
++        assert_eq!(parse("/dev/null"), None, "the platform-specific open handles the null device");
++        assert_eq!(parse("/dev/fd"), None, "the directory itself is not a descriptor");
++        assert_eq!(parse("/dev/fd/nope"), None);
++        assert_eq!(parse("dev/stdout"), None, "relative paths are not descriptor paths");
++        assert_eq!(parse("/dev/stdout/extra"), None);
++        assert_eq!(parse(&std::format!("/proc/{}/fd/1", std::process::id() + 1)), None, "another process");
++    }
++
++    #[test]
++    #[cfg(windows)]
++    fn an_absolute_windows_spelling_is_recognized_too() {
++        // Shell::absolute_path turns /dev/stdout into the drive-rooted spelling; a call site that
++        // absolutizes before opening must still land on the shell's descriptor.
++        assert_eq!(parse(r"D:\dev\stdout"), Some(Fd(OpenFiles::STDOUT_FD)));
++        assert_eq!(parse(r"C:\dev\fd\5"), Some(Fd(5)));
++    }
++}
+diff --git a/brush-core/src/shell/fs.rs b/brush-core/src/shell/fs.rs
+index f42a12e..efaf078 100644
+--- a/brush-core/src/shell/fs.rs
++++ b/brush-core/src/shell/fs.rs
+@@ -230,13 +230,20 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+             return result.map(openfiles::OpenFile::from);
+         }
+ 
+-        // A descriptor path names one of the shell's own open files, so it is recognized before the
+-        // path is made absolute: afterwards `/dev/stdin` reads as `D:\dev\stdin` and the comparison
+-        // can never match, which is why descriptor paths did not work on Windows at all.
+-        if let Some(fd_num) = shell_fd_path_to_fd(path.as_ref())
+-            && let Some(open_file) = params.try_fd(self, fd_num)
+-        {
+-            return Ok(open_file);
++        // A path naming one of this process's descriptors resolves against the shell's descriptors, and
++        // is recognized before the path is made absolute: afterwards `/dev/stdin` reads as
++        // `<drive>:\dev\stdin` and can never match. The process's own table is not the shell's: when
++        // the shell is embedded, fd 0 is the host's terminal, and a redirect that opened it would block
++        // on the host's keystrokes.
++        match openfiles::DescriptorPath::parse(path.as_ref()) {
++            Some(openfiles::DescriptorPath::Fd(fd_num)) => {
++                if let Some(open_file) = params.try_fd(self, fd_num) {
++                    return Ok(open_file);
++                }
++            }
++            // Windows has no controlling terminal, and this shell may be embedded, so `/dev/tty` cannot
++            // name one: fall through and let the open fail, which reports the path it tried.
++            Some(openfiles::DescriptorPath::Terminal) | None => {}
+         }
+ 
+         let path_to_open = self.absolute_path(path.as_ref());
+@@ -261,21 +268,3 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+         &self.open_files
+     }
+ }
+-
+-fn shell_fd_path_to_fd(path: &Path) -> Option<ShellFd> {
+-    match path.to_str()? {
+-        "/dev/stdin" => return Some(openfiles::OpenFiles::STDIN_FD),
+-        "/dev/stdout" => return Some(openfiles::OpenFiles::STDOUT_FD),
+-        "/dev/stderr" => return Some(openfiles::OpenFiles::STDERR_FD),
+-        _ => {}
+-    }
+-
+-    if let Some(parent) = path.parent()
+-        && parent == Path::new("/dev/fd")
+-        && let Some(filename) = path.file_name()
+-    {
+-        filename.to_string_lossy().parse::<ShellFd>().ok()
+-    } else {
+-        None
+-    }
+-}
+diff --git a/brush-core/src/sys/stubs/commands.rs b/brush-core/src/sys/stubs/commands.rs
+index 03e9a3a..9c10d99 100644
+--- a/brush-core/src/sys/stubs/commands.rs
++++ b/brush-core/src/sys/stubs/commands.rs
+@@ -66,11 +66,17 @@ pub trait CommandFdInjectionExt {
+ impl CommandFdInjectionExt for std::process::Command {
+     fn inject_fds(
+         &mut self,
+-        mut open_files: impl Iterator<Item = (ShellFd, openfiles::OpenFile)>,
++        open_files: impl Iterator<Item = (ShellFd, openfiles::OpenFile)>,
+     ) -> Result<(), error::Error> {
+-        if open_files.next().is_some() {
+-            return Err(error::ErrorKind::NotSupportedOnThisPlatform("fd redirections").into());
+-        }
++        // A child process on this platform has no descriptor table to receive extra descriptors, and no
++        // way to name one it did not inherit. The descriptors this shell holds stay usable *here*, which
++        // is what makes `/dev/fd/N` redirects work, but a spawned program cannot be handed fd 63.
++        //
++        // Dropping them is deliberate rather than refusing the spawn: refusing breaks the half of process
++        // substitution that does work, because `cat < <(echo hi)` needs only stdin even though the
++        // substitution's descriptor is still registered. A program that reaches for a descriptor it was
++        // not given reports that itself.
++        drop(open_files);
+ 
+         Ok(())
+     }
+diff --git a/brush-core/src/sys/windows/fs.rs b/brush-core/src/sys/windows/fs.rs
+index 7865008..ec5d27a 100644
+--- a/brush-core/src/sys/windows/fs.rs
++++ b/brush-core/src/sys/windows/fs.rs
+@@ -148,7 +148,10 @@ pub fn open_null_file() -> Result<std::fs::File, error::Error> {
+ 
+ /// Gives the platform an opportunity to handle a special file path (e.g. `/dev/null`).
+ pub fn try_open_special_file(path: &Path) -> Option<Result<std::fs::File, std::io::Error>> {
+-    if path.ends_with("dev/null") && path.is_absolute() {
++    // `/dev/null` arrives both as the script spells it and as the drive-rooted form
++    // `Shell::absolute_path` produces; only the latter satisfies `is_absolute` on Windows, because a
++    // root-relative path has no prefix. The test is therefore "rooted and ending in `dev/null`".
++    if path.has_root() && path.ends_with("dev/null") {
+         Some(open_null_file().map_err(std::io::Error::other))
+     } else {
+         None

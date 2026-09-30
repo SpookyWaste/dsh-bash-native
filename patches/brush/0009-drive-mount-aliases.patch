@@ -1,0 +1,312 @@
+diff --git a/brush-core/src/patterns.rs b/brush-core/src/patterns.rs
+index 833da32..5a3e58f 100644
+--- a/brush-core/src/patterns.rs
++++ b/brush-core/src/patterns.rs
+@@ -227,30 +227,33 @@ impl Pattern {
+         // On Unix, a leading `/` produces an empty first component. On Windows, a
+         // drive-letter prefix like `c:` is also recognized. The platform-specific
+         // logic lives in `sys::fs::pattern_path_root`.
+-        // A `/tmp` root is the POSIX scratch tree, which this platform keeps in the system temporary
+-        // directory. Pattern expansion builds its own root instead of going through
+-        // `normalize_shell_path`, so the rewrite has to be repeated here or `> /tmp/x` resolves to a
+-        // drive-root `tmp` directory that usually does not exist. This mirrors oh-my-pi's fix for the
++        // Two POSIX roots are aliases rather than drive-relative paths: `/tmp` is the system temporary
++        // directory, and a single-letter first component is a drive mount (`/c/Windows` is
++        // `C:\Windows`). Pattern expansion builds its own root instead of going through
++        // `normalize_shell_path`, so both rules have to be repeated here — otherwise `> /tmp/x` lands in
++        // a drive-root `tmp` directory and `/c/...` never matches. This mirrors oh-my-pi's fix for the
+         // same gap in `pattern_drive_alias_root`.
+         #[cfg(windows)]
+-        let tmp_root = match (components.first(), components.get(1)) {
++        let alias_root = match (components.first(), components.get(1)) {
+             (Some(first), Some(second)) => {
+                 // Compare the flattened components, exactly as the root lookup below does: the leading
+                 // separator arrives as either an empty component or one holding an empty string.
+                 let first_flat: String = first.iter().map(|piece| piece.as_str()).collect();
+                 let second_flat: String = second.iter().map(|piece| piece.as_str()).collect();
+-                if first_flat.is_empty() && second_flat == "tmp" {
++                if !first_flat.is_empty() {
++                    None
++                } else if second_flat == "tmp" {
+                     Some((std::env::temp_dir(), 2usize))
+                 } else {
+-                    None
++                    sys::fs::drive_mount_root(&second_flat).map(|root| (root, 2usize))
+                 }
+             }
+             _ => None,
+         };
+         #[cfg(not(windows))]
+-        let tmp_root: Option<(std::path::PathBuf, usize)> = None;
++        let alias_root: Option<(std::path::PathBuf, usize)> = None;
+ 
+-        let absolute_root = tmp_root.or_else(|| {
++        let absolute_root = alias_root.or_else(|| {
+             components.first().and_then(|first_component| {
+                 let flattened: String = first_component.iter().map(|p| p.as_str()).collect();
+                 sys::fs::pattern_path_root(&flattened).map(|root| (root, 1usize))
+@@ -260,7 +263,7 @@ impl Pattern {
+         let prefix_to_remove;
+         let mut paths_so_far = if let Some((root, consumed)) = absolute_root {
+             prefix_to_remove = None;
+-            // Skip the components the root consumed; normally one, two for the `/tmp` alias.
++            // Skip the components the root consumed; one normally, two for either alias.
+             for _ in 0..consumed {
+                 components.remove(0);
+             }
+diff --git a/brush-core/src/sys/fs.rs b/brush-core/src/sys/fs.rs
+index 8e19ee6..dc1fb1f 100644
+--- a/brush-core/src/sys/fs.rs
++++ b/brush-core/src/sys/fs.rs
+@@ -16,13 +16,20 @@ use std::path::{Component, PathBuf};
+ /// passes through — keeps in-process builtins, external tools and redirections agreeing instead of
+ /// scattering files into a drive-root `tmp`.
+ ///
++/// A single-letter first component is a drive mount, the way Git Bash and Cygwin spell one: `/c/Windows`
++/// is `C:\Windows`, not `<current drive>:\c\Windows`. The mount is tried second, so `/tmp` keeps its
++/// temporary-directory meaning and a multi-letter first component (`/dev`, `/proc`, `/usr`) is left
++/// alone.
++///
+ /// Transcribed from oh-my-pi (`can1357/oh-my-pi`, commits `48c96e2e` and `93da2fc1`), which fixed the
+ /// same defect in their vendored copy of this crate.
+ #[allow(clippy::missing_const_for_fn, reason = "the Windows implementation allocates")]
+ pub fn normalize_shell_path(path: &Path) -> Cow<'_, Path> {
+     #[cfg(windows)]
+     {
+-        translate_unix_tmp_path(path, std::env::temp_dir).map_or(Cow::Borrowed(path), Cow::Owned)
++        translate_unix_tmp_path(path, std::env::temp_dir)
++            .or_else(|| translate_drive_mount_path(path))
++            .map_or(Cow::Borrowed(path), Cow::Owned)
+     }
+     #[cfg(not(windows))]
+     {
+@@ -67,49 +74,127 @@ fn translate_unix_tmp_path(path: &Path, temp_dir: impl FnOnce() -> PathBuf) -> O
+     Some(native)
+ }
+ 
++/// Maps a POSIX drive mount (`/d/Pi`) onto the Windows drive it names (`D:\Pi`).
++///
++/// Git Bash and Cygwin mount every drive at `/<letter>`, so scripts written against them say
++/// `/c/Windows/System32`; this engine used to resolve that against the current drive's root
++/// (`<current>:\c\Windows\System32`), which fails. `.` and `..` collapse against the logical POSIX path
++/// first, clamped at the mount root, so `/d/../e/f` resolves like `/e/f`.
++#[cfg(any(windows, test))]
++fn translate_drive_mount_path(path: &Path) -> Option<PathBuf> {
++    let mut components = path.components();
++    if components.next() != Some(Component::RootDir) {
++        return None;
++    }
++
++    let mut logical: Vec<&OsStr> = Vec::new();
++    for component in components {
++        match component {
++            Component::CurDir => {}
++            Component::ParentDir => {
++                logical.pop();
++            }
++            Component::Normal(part) => logical.push(part),
++            // A second root or a drive prefix cannot appear in a POSIX operand.
++            Component::RootDir | Component::Prefix(_) => return None,
++        }
++    }
++
++    let mut tail = logical.into_iter();
++    let mut native = drive_mount_root(tail.next()?.to_str()?)?;
++    for part in tail {
++        native.push(part);
++    }
++    Some(native)
++}
++
++/// The Windows root one `/<letter>` mount stands for, or `None` when the component is not a single
++/// ASCII letter.
++///
++/// Pattern expansion builds its own root instead of going through [`normalize_shell_path`], so it asks
++/// this function for the same rule rather than repeating it.
++#[cfg(any(windows, test))]
++#[must_use]
++pub fn drive_mount_root(component: &str) -> Option<PathBuf> {
++    let mut characters = component.chars();
++    let first = characters.next()?;
++    if !first.is_ascii_alphabetic() || characters.next().is_some() {
++        return None;
++    }
++    Some(PathBuf::from(format!("{}:\\", first.to_ascii_uppercase())))
++}
++
++/// Like [`translate_drive_mount_path`], but refuses the bare mount root.
++///
++/// A bare `/<letter>` argument is how Windows' own tools spell their switches — `cmd.exe /c` is the
++/// common one — so an argument that is exactly a mount root is left alone. The shell's own path
++/// resolution has no such ambiguity (`cd /c` is always the drive root), and an option's attached value
++/// is unambiguous too, so both still accept it. Git Bash converts the bare form as well, which is why
++/// its users have to reach for `MSYS_NO_PATHCONV` before calling `cmd.exe /c`; this engine does not
++/// copy that footgun.
++#[cfg(any(windows, test))]
++fn translate_drive_mount_argument(path: &Path) -> Option<PathBuf> {
++    let mounted = translate_drive_mount_path(path)?;
++    // RootDir plus the letter is the whole path; a trailing separator adds no component.
++    if path.components().count() <= 2 {
++        return None;
++    }
++    Some(mounted)
++}
++
+ /// Rewrites one argument a script hands to an external program.
+ ///
+ /// The shell's own path resolution covers what the shell opens (redirections, `cd`, `test`, globs),
+ /// but arguments reach the child verbatim, so a bundled utility, a toolchain program and any foreign
+-/// program all see a literal `/tmp/...`, which Windows resolves against the current drive's root
+-/// (`<drive>:\tmp`) rather than the temporary directory. Translating here — at the one boundary
+-/// every external spawn passes through, including the shim that re-enters this binary for the
+-/// bundled utilities — keeps the shell, the bundled tools and foreign programs agreeing.
++/// program all see a literal `/tmp/...` (which Windows resolves against the current drive's root) or a
++/// drive mount (`/c/...`, which Windows resolves against the current drive's root as well). Translating
++/// here — at the one boundary every external spawn passes through, including the shim that re-enters
++/// this binary for the bundled utilities — keeps the shell, the bundled tools and foreign programs
++/// agreeing, which is also what Git Bash's own argument conversion achieves.
+ ///
+-/// Two forms are rewritten, both measured against Git Bash's behaviour: a bare `/tmp`-rooted
+-/// operand, and an option's attached value (`--file=/tmp/x`). Everything else is returned unchanged:
+-/// this engine has no `/c/...` mount, so `/dev/...` and `/etc/...` keep their existing meaning, and
+-/// an argument that merely *contains* the alias — a search pattern or a commit message — is never
+-/// rewritten. Set `DSH_BASH_NATIVE_NO_PATHCONV` to disable the rewrite entirely.
++/// Two forms are rewritten: a bare rooted operand, and an option's attached value (`--file=/tmp/x`).
++/// Everything else is returned unchanged: `/dev/...` and `/proc/...` keep their existing meaning, and an
++/// argument that merely *contains* an alias — a search pattern or a commit message — is never rewritten.
++/// Set `DSH_BASH_NATIVE_NO_PATHCONV` to disable the rewrite entirely.
+ #[must_use]
+ pub fn normalize_shell_arg(arg: &std::ffi::OsStr) -> std::ffi::OsString {
+     #[cfg(windows)]
+-    if let Some(converted) = translate_tmp_argument(arg, &std::env::temp_dir) {
++    if let Some(converted) = translate_shell_argument(arg, &std::env::temp_dir) {
+         return converted;
+     }
+     arg.to_os_string()
+ }
+ 
+-/// `Some(path)` when the argument names a `/tmp`-rooted path, in either supported form.
++/// `Some(path)` when the argument names an aliased rooted path, in either supported form.
+ #[cfg(any(windows, test))]
+-fn translate_tmp_argument(arg: &OsStr, temp_dir: &impl Fn() -> PathBuf) -> Option<std::ffi::OsString> {
+-    if let Some(path) = translate_unix_tmp_path(Path::new(arg), temp_dir) {
++fn translate_shell_argument(arg: &OsStr, temp_dir: &impl Fn() -> PathBuf) -> Option<std::ffi::OsString> {
++    if let Some(path) = translate_unix_tmp_path(Path::new(arg), temp_dir)
++        .or_else(|| translate_drive_mount_argument(Path::new(arg)))
++    {
+         return Some(path.into_os_string());
+     }
+     let (option, value) = arg.to_str()?.split_once('=')?;
+     if !option.starts_with('-') {
+         return None;
+     }
+-    let path = translate_unix_tmp_path(Path::new(value), temp_dir)?;
++    let path = translate_argument_path(Path::new(value), temp_dir)?;
+     let mut converted = std::ffi::OsString::from(option);
+     converted.push("=");
+     converted.push(path);
+     Some(converted)
+ }
+ 
++/// The two aliases an option's attached value may name, in the same order the shell resolves them.
++///
++/// An attached value cannot be a switch, so the bare mount root is accepted here.
++#[cfg(any(windows, test))]
++fn translate_argument_path(arg: &Path, temp_dir: &impl Fn() -> PathBuf) -> Option<PathBuf> {
++    translate_unix_tmp_path(arg, temp_dir).or_else(|| translate_drive_mount_path(arg))
++}
++
+ #[cfg(test)]
+ mod normalize_shell_path_tests {
+-    use super::translate_unix_tmp_path;
++    use super::{translate_drive_mount_path, translate_unix_tmp_path};
+     use std::path::{Path, PathBuf};
+ 
+     fn temp() -> PathBuf {
+@@ -136,11 +221,35 @@ mod normalize_shell_path_tests {
+         assert_eq!(translate_unix_tmp_path(Path::new("/tmp/.."), temp), None);
+         assert_eq!(translate_unix_tmp_path(Path::new("/tmp/../var/f"), temp), None);
+     }
++
++    #[test]
++    fn drive_mounts_map_onto_drive_roots() {
++        assert_eq!(translate_drive_mount_path(Path::new("/c")), Some(PathBuf::from(r"C:\")));
++        assert_eq!(translate_drive_mount_path(Path::new("/c/Windows")), Some(PathBuf::from(r"C:\Windows")));
++        assert_eq!(translate_drive_mount_path(Path::new("/d/Pi/dsh")), Some(PathBuf::from(r"D:\Pi\dsh")));
++        // The letter's case does not matter, and the mount is not drive-relative.
++        assert_eq!(translate_drive_mount_path(Path::new("/D/Pi")), Some(PathBuf::from(r"D:\Pi")));
++        assert_eq!(translate_drive_mount_path(Path::new("d/Pi")), None);
++    }
++
++    #[test]
++    fn drive_mounts_collapse_dot_segments_and_leave_multi_letter_roots_alone() {
++        assert_eq!(translate_drive_mount_path(Path::new("/d/../e/f")), Some(PathBuf::from(r"E:\f")));
++        assert_eq!(translate_drive_mount_path(Path::new("/c/./Windows/../Windows")), Some(PathBuf::from(r"C:\Windows")));
++        // Multi-letter and non-letter first components are not mounts: `/dev`, `/proc`, `/usr`, `/1`.
++        assert_eq!(translate_drive_mount_path(Path::new("/dev/null")), None);
++        assert_eq!(translate_drive_mount_path(Path::new("/proc/self/fd/1")), None);
++        assert_eq!(translate_drive_mount_path(Path::new("/usr/bin")), None);
++        assert_eq!(translate_drive_mount_path(Path::new("/1/x")), None);
++        // `/tmp` is handled by the temporary-directory alias, which is consulted first.
++        assert_eq!(translate_drive_mount_path(Path::new("/tmp")), None);
++        assert_eq!(translate_drive_mount_path(Path::new("/")), None);
++    }
+ }
+ 
+ #[cfg(test)]
+ mod normalize_shell_arg_tests {
+-    use super::translate_tmp_argument;
++    use super::translate_shell_argument;
+     use std::ffi::{OsStr, OsString};
+     use std::path::PathBuf;
+ 
+@@ -149,7 +258,7 @@ mod normalize_shell_arg_tests {
+     }
+ 
+     fn rewrite(arg: &str) -> Option<OsString> {
+-        translate_tmp_argument(OsStr::new(arg), &temp)
++        translate_shell_argument(OsStr::new(arg), &temp)
+     }
+ 
+     #[test]
+@@ -168,16 +277,39 @@ mod normalize_shell_arg_tests {
+         assert_eq!(rewrite("--file=/tmp/probe"), Some(expected));
+     }
+ 
++    #[test]
++    fn drive_mount_arguments_are_rewritten_in_both_forms() {
++        assert_eq!(rewrite("/c/Windows"), Some(OsString::from(r"C:\Windows")));
++        assert_eq!(rewrite("/c/Windows/System32/.."), Some(OsString::from(r"C:\Windows")));
++        assert_eq!(rewrite("--out=/c/Windows/Temp"), Some(OsString::from(r"--out=C:\Windows\Temp")));
++        // The command path goes through the same function, so `/c/.../cmd.exe` is reachable.
++        assert_eq!(rewrite("/c/Windows/System32/cmd.exe"), Some(OsString::from(r"C:\Windows\System32\cmd.exe")));
++    }
++
++    #[test]
++    fn bare_mount_arguments_are_left_alone_so_switches_survive() {
++        // `cmd.exe /c` is the reason: a bare `/<letter>` is a switch far more often than a drive root.
++        assert_eq!(rewrite("/c"), None);
++        assert_eq!(rewrite("/d"), None);
++        assert_eq!(rewrite("/c/"), None);
++        // An option's attached value cannot be a switch, so a bare mount root is rewritten there.
++        assert_eq!(rewrite("--out=/c"), Some(OsString::from(r"--out=C:\")));
++    }
++
+     #[test]
+     fn data_arguments_are_left_alone() {
+-        // A pattern or a message that merely contains the alias keeps its meaning, and a bare
++        // A pattern or a message that merely contains an alias keeps its meaning, and a bare
+         // `name=value` is data rather than an option's attached value.
+         assert_eq!(rewrite("commit message /tmp/x"), None);
+         assert_eq!(rewrite("a=/tmp/x"), None);
++        assert_eq!(rewrite("a=/c/Windows"), None);
+         assert_eq!(rewrite("-x"), None);
+         assert_eq!(rewrite("/tmpfile"), None);
+         assert_eq!(rewrite("/var/tmp/x"), None);
++        // A multi-letter first component is not a mount, so `/dev`, `/proc` and `/usr` keep their meaning.
+         assert_eq!(rewrite("/dev/null"), None);
++        assert_eq!(rewrite("/proc/self/fd/1"), None);
++        assert_eq!(rewrite("/usr/bin/grep"), None);
+     }
+ }
+ 

@@ -1,0 +1,18 @@
+uutils/awk at the pinned commit does not compile for Windows: `parser/src/lib.rs` imports `PathBuf`
+twice under `#[cfg(not(unix))]` (E0252), because the unconditional import just below already brings it
+in. `Cow`, the other name in that import, is used only inside `#[cfg(not(unix))] fn make_path`, so the
+cfg'd import keeps `Cow` and drops the duplicate `PathBuf`. Drop this patch when upstream fixes it.
+
+diff --git a/parser/src/lib.rs b/parser/src/lib.rs
+index f96debf..876e8a7 100644
+--- a/parser/src/lib.rs
++++ b/parser/src/lib.rs
+@@ -13,7 +13,7 @@ mod sexpr;
+ mod tests;
+ 
+ #[cfg(not(unix))]
+-use std::{borrow::Cow, path::PathBuf};
++use std::borrow::Cow;
+ use std::{
+     fs::File,
+     mem::{replace, take},

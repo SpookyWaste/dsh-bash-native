@@ -1,0 +1,20 @@
+diff --git a/src/sed/mod.rs b/src/sed/mod.rs
+index 3a51974..0967c5f 100644
+--- a/src/sed/mod.rs
++++ b/src/sed/mod.rs
+@@ -33,9 +33,14 @@ use uucore::format_usage;
+ const ABOUT: &str = "Stream editor for filtering and transforming text";
+ const USAGE: &str = "sed [OPTION]... [script] [file]...";
+ 
++// The aliases have to hold for this binary too: `find -exec`, `xargs` and `timeout` start it
++// themselves, with no shell in between to rewrite the arguments.
++#[path = "../../dsh_path_alias.rs"]
++mod dsh_path_alias;
++
+ #[uucore::main]
+ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+-    let args = normalize_in_place_option(args);
++    let args = normalize_in_place_option(args.map(dsh_path_alias::translate));
+     let matches = uu_app().try_get_matches_from(args)?;
+     let (scripts, files) = get_scripts_files(&matches)?;
+     let mut context = build_context(&matches);

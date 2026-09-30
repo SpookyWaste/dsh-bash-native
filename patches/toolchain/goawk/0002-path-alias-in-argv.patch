@@ -1,0 +1,31 @@
+goawk is the one component this toolchain builds from Go source, so it cannot link the module the Rust
+components share (`patches/toolchain/path-alias/dsh_path_alias.rs`); `dsh_path_alias.go` is its twin,
+`scripts/build-toolchain.mjs` injects it into this checkout, and this patch is where it is applied. The
+rule has to be applied inside the program because the engine only rewrites the command path and the
+arguments **it** spawns: a program that another program starts — the child of `xargs` or `find -exec` —
+gets its arguments from that program, so `printf '/tmp/alias-a.txt\n' | xargs awk '{print}'` handed `awk`
+a literal `/tmp/alias-a.txt`, which Windows resolves against the current drive's root and reports as a
+missing file. `alias-chain-xargs-awk` in `corpus/compat.json` pins exactly that chain, and was a
+`knownGap` until this patch landed; the other programs in the chain (`rm`, `grep`, `sed`, `jq`) already
+carried the rule. `argv-semantics` pins the same rule for a directly spawned program, which is what keeps
+this file and the Rust twin in step.
+
+Arguments are translated as they are read, before the manual parse below looks at them, so every operand
+this program handles — the program text, the input files, a `-f progfile` value — is one boundary rather
+than one per flag.
+
+diff --git a/goawk.go b/goawk.go
+--- a/goawk.go
++++ b/goawk.go
+@@ -83,6 +83,11 @@ GoAWK debugging arguments:
+ )
+ 
+ func main() {
++	// A program that another program starts — the child of `xargs` or `find -exec` — gets its arguments
++	// from that program rather than from the shell, which is where the engine's own rewrite cannot
++	// reach. `dsh_path_alias.go` applies the same `/tmp` and `/<letter>` rule to the arguments here.
++	dshTranslateArguments(os.Args[1:], os.TempDir)
++
+ 	// Parse command line arguments manually rather than using the
+ 	// "flag" package, so we can support flags with no space between
+ 	// flag and argument, like '-F:' (allowed by POSIX)

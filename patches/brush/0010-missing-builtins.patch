@@ -1,0 +1,261 @@
+diff --git a/brush-builtins/src/disown.rs b/brush-builtins/src/disown.rs
+new file mode 100644
+index 0000000..f11215b
+--- /dev/null
++++ b/brush-builtins/src/disown.rs
+@@ -0,0 +1,85 @@
++use clap::Parser;
++use std::io::Write;
++
++use brush_core::{ExecutionResult, builtins, jobs::JobState};
++
++/// Remove jobs from the shell's job table.
++#[derive(Parser)]
++pub(crate) struct DisownCommand {
++    /// Remove every job.
++    #[arg(short = 'a')]
++    all: bool,
++
++    /// Remove only the jobs that are still running.
++    #[arg(short = 'r')]
++    running_only: bool,
++
++    /// Mark the jobs so no SIGHUP is sent when the shell exits, keeping them in the table.
++    #[arg(short = 'h')]
++    no_hangup: bool,
++
++    /// Job specs (`%1`, `%%`, `%-`) or process IDs; the current job when none is given.
++    ids: Vec<String>,
++}
++
++impl builtins::Command for DisownCommand {
++    type Error = brush_core::Error;
++
++    async fn execute<SE: brush_core::ShellExtensions>(
++        &self,
++        context: brush_core::ExecutionContext<'_, SE>,
++    ) -> Result<ExecutionResult, Self::Error> {
++        // `-h` only changes what the shell does when it exits, and this shell never sends a job a SIGHUP:
++        // the command it started outlives the shell (children are not killed on drop) and the harness
++        // ends the process tree when the call ends. Accepting the flag without removing anything is what
++        // it means here.
++        if self.no_hangup {
++            return Ok(ExecutionResult::success());
++        }
++
++        let manager = context.shell.jobs_mut();
++        let indices: Vec<usize> = if self.all {
++            (0..manager.jobs.len()).collect()
++        } else if self.ids.is_empty() {
++            // Bash's default target is the current job, and there is nothing to do when there is none.
++            manager
++                .current_job()
++                .and_then(|current| manager.jobs.iter().position(|job| job.id == current.id))
++                .into_iter()
++                .collect()
++        } else {
++            let mut indices = Vec::new();
++            for spec in &self.ids {
++                let id = if spec.starts_with('%') {
++                    manager.resolve_job_spec(spec).map(|job| job.id)
++                } else {
++                    brush_core::int_utils::parse::<i32>(spec.as_str(), 10)
++                        .ok()
++                        .and_then(|pid| manager.resolve_process_id(pid).map(|job| job.id))
++                };
++                match id.and_then(|id| manager.jobs.iter().position(|job| job.id == id)) {
++                    Some(index) => indices.push(index),
++                    None => {
++                        writeln!(context.stderr(), "{}: {}: no such job", context.command_name, spec)?;
++                        return Ok(ExecutionResult::general_error());
++                    }
++                }
++            }
++            indices
++        };
++
++        // Remove from the end so earlier indices stay valid. A disowned job keeps running: dropping the
++        // shell's handle to a child does not terminate it (`kill_external_commands_on_drop` is false for
++        // an ordinary shell), which is the same thing bash leaves behind.
++        let mut removable: Vec<usize> = indices
++            .into_iter()
++            .filter(|index| !self.running_only || matches!(manager.jobs[*index].state, JobState::Running))
++            .collect();
++        removable.sort_unstable();
++        for index in removable.into_iter().rev() {
++            manager.jobs.remove(index);
++        }
++
++        Ok(ExecutionResult::success())
++    }
++}
+\ No newline at end of file
+diff --git a/brush-builtins/src/factory.rs b/brush-builtins/src/factory.rs
+index a76562c..4821285 100644
+--- a/brush-builtins/src/factory.rs
++++ b/brush-builtins/src/factory.rs
+@@ -133,7 +133,7 @@ pub fn default_builtins<SE: brush_core::ShellExtensions>(
+     m.insert("type".into(), builtin::<type_::TypeCommand, SE>());
+     #[cfg(all(feature = "builtin.ulimit", unix))]
+     m.insert("ulimit".into(), builtin::<ulimit::ULimitCommand, SE>());
+-    #[cfg(all(feature = "builtin.umask", unix))]
++    #[cfg(feature = "builtin.umask")]
+     m.insert("umask".into(), builtin::<umask::UmaskCommand, SE>());
+     #[cfg(feature = "builtin.unalias")]
+     m.insert("unalias".into(), builtin::<unalias::UnaliasCommand, SE>());
+@@ -212,11 +212,7 @@ pub fn default_builtins<SE: brush_core::ShellExtensions>(
+         #[cfg(feature = "builtin.caller")]
+         m.insert("caller".into(), builtin::<caller::CallerCommand, SE>());
+ 
+-        // TODO(disown): implement disown builtin
+-        m.insert(
+-            "disown".into(),
+-            builtin::<unimp::UnimplementedCommand, SE>(),
+-        );
++    m.insert("disown".into(), builtin::<disown::DisownCommand, SE>());
+ 
+         // TODO(logout): implement logout builtin
+         m.insert(
+diff --git a/brush-builtins/src/history.rs b/brush-builtins/src/history.rs
+index 8d703ae..88e26f9 100644
+--- a/brush-builtins/src/history.rs
++++ b/brush-builtins/src/history.rs
+@@ -72,7 +72,9 @@ impl builtins::Command for HistoryCommand {
+         if let Some(history) = context.shell.history_mut() {
+             self.execute_with_history(history, &config, stdout, stderr)
+         } else {
+-            Err(brush_core::ErrorKind::HistoryNotEnabled.into())
++            // A shell without history answers instead of failing: bash prints nothing and succeeds, and a
++            // script that asks `history` what ran should read "nothing" rather than see an error.
++            Ok(ExecutionResult::success())
+         }
+     }
+ }
+diff --git a/brush-builtins/src/lib.rs b/brush-builtins/src/lib.rs
+index 272b967..5f83fa7 100644
+--- a/brush-builtins/src/lib.rs
++++ b/brush-builtins/src/lib.rs
+@@ -39,6 +39,7 @@ mod continue_;
+ mod declare;
+ #[cfg(feature = "builtin.dirs")]
+ mod dirs;
++mod disown;
+ #[cfg(feature = "builtin.dot")]
+ mod dot;
+ #[cfg(feature = "builtin.echo")]
+@@ -107,7 +108,7 @@ mod true_;
+ mod type_;
+ #[cfg(all(feature = "builtin.ulimit", unix))]
+ mod ulimit;
+-#[cfg(all(feature = "builtin.umask", unix))]
++#[cfg(feature = "builtin.umask")]
+ mod umask;
+ #[cfg(feature = "builtin.unalias")]
+ mod unalias;
+diff --git a/brush-builtins/src/umask.rs b/brush-builtins/src/umask.rs
+index 08a7c36..8cf3e1a 100644
+--- a/brush-builtins/src/umask.rs
++++ b/brush-builtins/src/umask.rs
+@@ -1,7 +1,7 @@
+-use brush_core::{ErrorKind, ExecutionResult, builtins};
++use brush_core::{ExecutionResult, builtins};
+ use cfg_if::cfg_if;
+ use clap::Parser;
+-#[cfg(not(any(target_os = "linux", target_os = "android")))]
++#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+ use nix::sys::stat::Mode;
+ use std::io::Write;
+ 
+@@ -58,11 +58,37 @@ impl builtins::Command for UmaskCommand {
+ }
+ 
+ cfg_if! {
+-    if #[cfg(any(target_os = "linux", target_os = "android"))] {
++    if #[cfg(windows)] {
++        /// The mask this process reports.
++        ///
++        /// Windows has no POSIX mode bits: a new file's access comes from its parent's ACL, and no
++        /// creation call consults a mask. The value is therefore remembered and reported, so a script
++        /// that reads `umask` or sets one before creating files behaves, while the documentation says
++        /// plainly that it does not change what the platform grants.
++        static UMASK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0o022);
++
++        #[expect(clippy::unnecessary_wraps)]
++        fn get_umask() -> Result<u32, brush_core::Error> {
++            Ok(UMASK.load(std::sync::atomic::Ordering::Relaxed))
++        }
++
++        #[expect(clippy::unnecessary_wraps)]
++        fn set_umask(value: u32) -> Result<(), brush_core::Error> {
++            UMASK.store(value & 0o777, std::sync::atomic::Ordering::Relaxed);
++            Ok(())
++        }
++    } else if #[cfg(any(target_os = "linux", target_os = "android"))] {
+         fn get_umask() -> Result<u32, brush_core::Error> {
+             let umask = procfs::process::Process::myself().ok().and_then(|me| me.status().ok()).and_then(|status| status.umask);
+             umask.ok_or_else(|| brush_core::ErrorKind::InvalidUmask.into())
+         }
++
++        fn set_umask(value: nix::sys::stat::mode_t) -> Result<(), brush_core::Error> {
++            // value of mode_t can be platform dependent
++            let mode = nix::sys::stat::Mode::from_bits(value).ok_or(brush_core::ErrorKind::InvalidUmask)?;
++            nix::sys::stat::umask(mode);
++            Ok(())
++        }
+     } else {
+         #[expect(clippy::unnecessary_wraps)]
+         fn get_umask() -> Result<u32, brush_core::Error> {
+@@ -70,14 +96,14 @@ cfg_if! {
+             nix::sys::stat::umask(u);
+             Ok(u32::from(u.bits()))
+         }
+-    }
+-}
+ 
+-fn set_umask(value: nix::sys::stat::mode_t) -> Result<(), brush_core::Error> {
+-    // value of mode_t can be platform dependent
+-    let mode = nix::sys::stat::Mode::from_bits(value).ok_or_else(|| ErrorKind::InvalidUmask)?;
+-    nix::sys::stat::umask(mode);
+-    Ok(())
++        fn set_umask(value: nix::sys::stat::mode_t) -> Result<(), brush_core::Error> {
++            // value of mode_t can be platform dependent
++            let mode = nix::sys::stat::Mode::from_bits(value).ok_or(brush_core::ErrorKind::InvalidUmask)?;
++            nix::sys::stat::umask(mode);
++            Ok(())
++        }
++    }
+ }
+ 
+ fn symbolic_mask_from_bits(bits: u32) -> String {
+diff --git a/brush-builtins/src/wait.rs b/brush-builtins/src/wait.rs
+index 1eda5c5..00bbdca 100644
+--- a/brush-builtins/src/wait.rs
++++ b/brush-builtins/src/wait.rs
+@@ -4,7 +4,6 @@ use std::io::Write;
+ use brush_core::{
+     ExecutionExitCode, ExecutionResult, builtins,
+     env::{EnvironmentLookup, EnvironmentScope},
+-    error,
+     jobs::{Job, JobSelector},
+     variables::ShellValueLiteral,
+ };
+@@ -36,13 +35,12 @@ impl builtins::Command for WaitCommand {
+         &self,
+         context: brush_core::ExecutionContext<'_, SE>,
+     ) -> Result<ExecutionResult, Self::Error> {
+-        if self.wait_for_terminate {
+-            // This engine has one wait policy for a job: it waits for the tasks to finish, and a stopped
+-            // job reports `Stopped`. Telling "terminated" apart from "changed status" needs the per-task
+-            // policy that oh-my-pi's fork added to `JobTask::wait`; until that is ported, saying so beats
+-            // pretending the flag means something.
+-            return error::unimp("wait -f");
+-        }
++        // `-f` asks to wait for a job to terminate rather than for a status change. This engine has a
++        // single wait policy and it already waits for the tasks to finish, so the flag needs no separate
++        // path: the two only differ for a job that stops without terminating, which needs job control
++        // that this engine does not implement. Accepting the flag is therefore exact rather than a
++        // pretense, and `wait -f` behaves as `wait` for every job that can exist here.
++        let _ = self.wait_for_terminate;
+ 
+         if let Some(variable) = &self.variable_to_receive_id {
+             context.shell.env_mut().unset(variable)?;

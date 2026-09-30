@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Windows only: the resolver, the engine matrix, and the patch fixtures are Windows-shaped.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # `npm install`, never `npm ci`: this repository deliberately does not track a lockfile.
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      # `lib/` is committed so the package works as a git dependency; this catches drift.
+      - run: git diff --exit-code -- lib/
+      - name: Fetch the upstream preset the drift alarm compares against
+        # The alarm needs an upstream copy, and a runner has neither a globally installed harness (the
+        # fallback a developer machine uses) nor this package as a dependency. Fetching the one tarball
+        # the preset lives in costs about 30 KB and no dependency tree. The channel is named rather than
+        # pinned: a pinned version and an in-repo snapshot both stop moving, while a dist-tag makes CI
+        # go red on the run that first sees an upstream preset change, naming the version it resolved to
+        # (`latest` is a stale placeholder for this package, so `next` is the line this plugin targets).
+        run: node scripts/fetch-upstream-preset.mjs --env >> $env:GITHUB_ENV
+      # The engine-dependent suites run here rather than skipping: `scripts/engine-harness.mjs` falls back
+      # to the plugin's own resolver, which selects the committed `engine/win32-x64/brush.exe`, so the corpus
+      # is scored against `corpus/baseline.json` on every push (a candidate that exists but is refused throws
+      # instead of skipping). `test-package.mjs` additionally packs this tree, unpacks the tarball and drives
+      # the package from there, which is the only gate that catches a `files` mistake. The toolchain baseline
+      # needs a built toolchain, so the `engine` job below is the one that scores it.
+      - name: Run the suite
+        shell: pwsh
+        # The log is kept so the next step can turn the failing lines into annotations: a run's log is only
+        # downloadable with a signed URL, while annotations are readable through the API from anywhere.
+        run: |
+          npm test 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\suite.log"
+          exit $LASTEXITCODE
+      - name: Report the failure as annotations
+        if: failure()
+        shell: pwsh
+        run: |
+          $log = "$env:RUNNER_TEMP\suite.log"
+          if (-not (Test-Path $log)) { "::error::the suite produced no log at $log"; exit 0 }
+          $lines = Get-Content $log
+          "::error::suite log: $($lines.Count) lines, TMP=$env:TMP TEMP=$env:TEMP LOCALAPPDATA=$env:LOCALAPPDATA"
+          $hits = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match 'AssertionError|^FAIL |^失败：|Error: spawn|os error' } | Select-Object -First 2
+          foreach ($i in $hits) {
+            $from = [Math]::Max(0, $i - 8)
+            $to = [Math]::Min($lines.Count - 1, $i + 4)
+            $lines[$from..$to] | ForEach-Object { "::error::$_" }
+          }
+          "::error::--- last 15 lines ---"
+          $lines | Select-Object -Last 15 | ForEach-Object { "::error::$_" }
+
+  engine:
+    # Build the engine and the toolchain from source, then check this plugin's capability claims
+    # against both. Manual only: the builds download the whole crate graph and the toolchain sources.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Build brush from the pin with this repository's patches
+        # Not `cargo install`: the plugin's verifier refuses an unpatched build, and the baselines were
+        # recorded on this one, so an upstream build fails every engine-dependent check by construction.
+        # This script clones the pin, applies `patches/brush/*.patch`, installs the artifact in the
+        # checkout and rewrites `engine.lock.json` to the hash it just produced.
+        run: node scripts/build-engine.mjs --refresh
+      - name: Fetch the upstream preset the drift alarm compares against
+        # Same reason as the `test` job: this runner has no globally installed harness, and the alarm
+        # would skip rather than compare. One tarball, no dependency tree.
+        run: node scripts/fetch-upstream-preset.mjs --env >> $env:GITHUB_ENV
+      - name: Engine capability test
+        run: npm test
+        env:
+          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\brush.exe
+      - name: Build the POSIX toolchain
+        run: >-
+          node scripts/build-toolchain.mjs
+          --dir "$env:RUNNER_TEMP\tools\bin"
+          --cache "$env:RUNNER_TEMP\toolchain-cache"
+      # `corpus/baseline-tools.json` is the only record of what the toolchain adds on top of the
+      # engine, so checking it needs the toolchain on PATH; without this step that baseline was never
+      # validated anywhere, and a toolchain command could regress with every suite still green.
+      - name: Toolchain capability test
+        run: node test/test-compat-corpus.mjs --tools-dir="$env:RUNNER_TEMP\tools\bin"
+        env:
+          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\brush.exe

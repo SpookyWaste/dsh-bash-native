@@ -1,0 +1,37 @@
+# dsh-bash-native single-agent overlay — NOT applied automatically.
+#
+# A bundle patch reaches every profile that includes the bundle, and on the Web surface the shell
+# tools belong to agent presets, so replacing the host plane's executor from `cordis.patch.yml`
+# would break the shipped presets' `pwsh` tool. This overlay is the explicit opt-in for a
+# single-agent surface whose shell tools live on the host plane (`dsh tui`, `dsh headless`,
+# `dsh acp`):
+#
+#   dsh tui --patch <this file>
+#
+# It disables both shipped executors, enables this plugin's executor and the bash tool, and
+# disables the PowerShell tool so PowerShell text can never reach a bash engine. The executor is
+# configured exactly as the shipped full preset configures it — the same keys, and the engine
+# verified before the plane serves bash — because a surface whose engine cannot be verified must
+# fail loudly rather than run an unverified binary with the harness file policy behind it.
+#
+# Verified by composing it: `dsh --profile dsh-tui --patch <this file> --dump-config` shows one
+# enabled shell provider (this plugin), one enabled bash tool, and no PowerShell tool.
+
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- id: tool-bash
+  disabled: false
+
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: bash-native
+      name: dsh-bash-native
+      config:
+        confine: true
+        requireEngineOnLoad: true

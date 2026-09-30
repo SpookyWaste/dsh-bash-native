@@ -1,0 +1,55 @@
+goawk expands wildcards inside its own arguments on Windows (`expandWildcardsOnWindows`,
+ported from `mattn/getwild`, no longer present after this patch). POSIX leaves pathname expansion to the
+shell, and this engine's shell has already resolved quoting by the time a program is spawned, so a quoted
+pattern must reach awk as data: without this, `awk '{print FILENAME}' "*.txt"` reads every .txt file
+instead of reporting that `*.txt` cannot be opened, which is the silent class of wrong answer this project
+does not ship. goawk's own test suite does not cover it, so the corpus does:
+`awk-quoted-wildcard-stays-literal`, which this patch turns green and which is a `must-match` case since
+the patch landed. Drop the patch if upstream ever removes the behaviour.
+
+diff --git a/goawk.go b/goawk.go
+index 3de2240..3c80d4b 100644
+--- a/goawk.go
++++ b/goawk.go
+@@ -249,7 +249,6 @@ argsLoop:
+ 	fileReader := &parseutil.FileReader{}
+ 	if len(progFiles) > 0 {
+ 		// Read source: the concatenation of all source files specified
+-		progFiles = expandWildcardsOnWindows(progFiles)
+ 		for _, progFile := range progFiles {
+ 			if progFile == "-" {
+ 				err := fileReader.AddFile("<stdin>", os.Stdin)
+@@ -347,7 +346,7 @@ argsLoop:
+ 
+ 	config := &interp.Config{
+ 		Argv0:         filepath.Base(os.Args[0]),
+-		Args:          expandWildcardsOnWindows(args),
++		Args:          args,
+ 		Chars:         useChars,
+ 		NoArgVars:     noArgVars,
+ 		Output:        stdout,
+@@ -467,24 +466,3 @@ func errorExitf(format string, args ...any) {
+ 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+ 	os.Exit(1)
+ }
+-
+-func expandWildcardsOnWindows(args []string) []string {
+-	if runtime.GOOS != "windows" {
+-		return args
+-	}
+-	return expandWildcards(args)
+-}
+-
+-// Originally from https://github.com/mattn/getwild (compatible LICENSE).
+-func expandWildcards(args []string) []string {
+-	result := make([]string, 0, len(args))
+-	for _, arg := range args {
+-		matches, err := filepath.Glob(arg)
+-		if err == nil && len(matches) > 0 {
+-			result = append(result, matches...)
+-		} else {
+-			result = append(result, arg)
+-		}
+-	}
+-	return result
+-}

@@ -1,0 +1,282 @@
+diff --git a/brush-core/Cargo.toml b/brush-core/Cargo.toml
+index f9f92f6..6753e3b 100644
+--- a/brush-core/Cargo.toml
++++ b/brush-core/Cargo.toml
+@@ -64,7 +64,7 @@ tokio = { version = "1.52.3", features = [
+ [target.'cfg(windows)'.dependencies]
+ check_elevation = "0.2.7"
+ whoami = "2.1.1"
+-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
++windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+ 
+ [target.'cfg(unix)'.dependencies]
+ command-fds = "0.3.2"
+diff --git a/brush-core/src/shell.rs b/brush-core/src/shell.rs
+index bca769d..33190e8 100644
+--- a/brush-core/src/shell.rs
++++ b/brush-core/src/shell.rs
+@@ -220,7 +220,13 @@ impl<SE: extensions::ShellExtensions> Shell<SE> {
+             args: options.shell_args.unwrap_or_default(),
+             version: options.shell_version,
+             product_display_str: options.shell_product_display_str,
+-            working_dir: options.working_dir.map_or_else(std::env::current_dir, Ok)?,
++            // `current_dir` reports whatever spelling the process was started with, which on Windows
++            // can be the short (8.3) name; taking the long form here is what makes the initial `$PWD`
++            // and a `cd` into the same directory agree.
++            working_dir: options
++                .working_dir
++                .map_or_else(std::env::current_dir, Ok)
++                .map(|dir| crate::sys::fs::expand_to_long_path(&dir))?,
+             builtins: options.builtins,
+             parser_impl: options.parser,
+             key_bindings: options.key_bindings,
+diff --git a/brush-core/src/shell/fs.rs b/brush-core/src/shell/fs.rs
+index efaf078..49668b3 100644
+--- a/brush-core/src/shell/fs.rs
++++ b/brush-core/src/shell/fs.rs
+@@ -32,8 +32,10 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+             }
+         }
+ 
+-        // Normalize the path (but don't canonicalize it).
+-        let cleaned_path = abs_path.normalize();
++        // Normalize the path (but don't canonicalize it), then take the long spelling: Windows reports
++        // the short (8.3) name for some components, so the same directory reached through `$TEMP` and
++        // through `/tmp` would otherwise leave two different `$PWD` values behind.
++        let cleaned_path = crate::sys::fs::expand_to_long_path(&abs_path.normalize());
+ 
+         let pwd = cleaned_path.to_string_lossy().to_string();
+ 
+diff --git a/brush-core/src/sys/fs.rs b/brush-core/src/sys/fs.rs
+index dc1fb1f..2d0d15a 100644
+--- a/brush-core/src/sys/fs.rs
++++ b/brush-core/src/sys/fs.rs
+@@ -4,10 +4,13 @@ pub use super::platform::fs::*;
+ 
+ use std::borrow::Cow;
+ use std::path::Path;
++// `PathBuf` is the return type of `expand_to_long_path`, which every platform compiles, so it is
++// imported unconditionally; `Component` and `OsStr` only appear in the Windows aliasing below.
++use std::path::PathBuf;
+ #[cfg(any(windows, test))]
+ use std::ffi::OsStr;
+ #[cfg(any(windows, test))]
+-use std::path::{Component, PathBuf};
++use std::path::Component;
+ 
+ /// Normalizes shell-facing path aliases before `std::fs` sees them.
+ ///
+@@ -27,7 +30,7 @@ use std::path::{Component, PathBuf};
+ pub fn normalize_shell_path(path: &Path) -> Cow<'_, Path> {
+     #[cfg(windows)]
+     {
+-        translate_unix_tmp_path(path, std::env::temp_dir)
++        translate_unix_tmp_path(path, long_temp_dir)
+             .or_else(|| translate_drive_mount_path(path))
+             .map_or(Cow::Borrowed(path), Cow::Owned)
+     }
+@@ -38,6 +41,78 @@ pub fn normalize_shell_path(path: &Path) -> Cow<'_, Path> {
+     }
+ }
+ 
++/// Expands a path that names an existing file or directory into its long form.
++///
++/// Windows keeps a second, 8.3 name for most directories, and both spellings name the same place:
++/// `C:\Users\EXAMPL~1\AppData\Local\Temp` and `C:\Users\Example\AppData\Local\Temp` are one
++/// directory. The short spelling arrives from the host — `%TEMP%` and the directory the process was
++/// started in are whatever Windows reports — while a script that writes the same path out in full
++/// produces the long one. Measured here: `cd /tmp` and `cd "C:/Users/Example/AppData/Local/Temp"`
++/// landed on the same directory and left two different `$PWD` values, so a comparison between them was
++/// false for one location.
++///
++/// `GetLongPathNameW` answers only for a path that exists. Anything else — a name that is not there, a
++/// volume with 8.3 names disabled, a query that fails — comes back unchanged, which is what every call
++/// site did before this existed.
++///
++/// This is deliberately not `canonicalize`: that resolves symlinks and junctions and prefixes the
++/// result with `\\?\`, and a `cd` into a symlinked directory has to keep the spelling the script used.
++#[must_use]
++pub fn expand_to_long_path(path: &Path) -> PathBuf {
++    #[cfg(windows)]
++    {
++        // A relative path is left alone rather than resolved against the current directory: the Win32
++        // query would answer with an absolute path, and turning one into the other is not what a caller
++        // asking for a spelling is asking for.
++        if path.is_absolute()
++            && let Some(expanded) = expand_to_long_path_win32(path)
++        {
++            return expanded;
++        }
++    }
++    path.to_path_buf()
++}
++
++/// [`expand_to_long_path`] applied to the process's temporary directory.
++///
++/// `/tmp` resolves through this, and the shell's `$TEMP` is normalized to the same spelling (see
++/// `sys::windows::env`), so the two names a script is most likely to compare agree.
++#[cfg(windows)]
++#[must_use]
++pub fn long_temp_dir() -> PathBuf {
++    expand_to_long_path(&std::env::temp_dir())
++}
++
++/// The `GetLongPathNameW` query behind [`expand_to_long_path`], or `None` when it has no answer.
++#[cfg(windows)]
++fn expand_to_long_path_win32(path: &Path) -> Option<PathBuf> {
++    use std::os::windows::ffi::{OsStrExt, OsStringExt};
++    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
++
++    // The input is wide and NUL-terminated because the API takes no length for it. `encode_wide` never
++    // yields a NUL, so the one pushed here is the only terminator.
++    let mut source: Vec<u16> = path.as_os_str().encode_wide().collect();
++    source.push(0);
++
++    // The sizing call answers the length it needs *including* the terminator, and zero when it cannot
++    // resolve the path at all.
++    let needed = unsafe { GetLongPathNameW(source.as_ptr(), std::ptr::null_mut(), 0) };
++    if needed == 0 {
++        return None;
++    }
++
++    // The filling call answers the length it wrote *excluding* the terminator. A rename between the two
++    // calls makes it answer a size larger than the buffer, and that is the one case to refuse rather
++    // than truncate: half a path is worse than the short spelling this returns instead.
++    let mut buffer = vec![0u16; needed as usize];
++    let written = unsafe { GetLongPathNameW(source.as_ptr(), buffer.as_mut_ptr(), needed) };
++    if written == 0 || written > needed {
++        return None;
++    }
++    buffer.truncate(written as usize);
++    Some(PathBuf::from(std::ffi::OsString::from_wide(&buffer)))
++}
++
+ /// Maps the POSIX `/tmp` tree onto the Windows system temporary directory.
+ ///
+ /// `.` and `..` are collapsed against the logical POSIX path first, clamping at the root, so
+@@ -159,7 +234,7 @@ fn translate_drive_mount_argument(path: &Path) -> Option<PathBuf> {
+ #[must_use]
+ pub fn normalize_shell_arg(arg: &std::ffi::OsStr) -> std::ffi::OsString {
+     #[cfg(windows)]
+-    if let Some(converted) = translate_shell_argument(arg, &std::env::temp_dir) {
++    if let Some(converted) = translate_shell_argument(arg, &long_temp_dir) {
+         return converted;
+     }
+     arg.to_os_string()
+@@ -313,6 +388,38 @@ mod normalize_shell_arg_tests {
+     }
+ }
+ 
++#[cfg(test)]
++mod expand_to_long_path_tests {
++    use super::expand_to_long_path;
++    use std::path::{Path, PathBuf};
++
++    #[test]
++    fn a_path_that_is_not_there_is_returned_unchanged() {
++        // The Win32 query has no answer for a name that does not exist, and the call sites keep the
++        // behaviour they had before: the path is used exactly as it was given.
++        let missing = PathBuf::from(r"C:\dsh-bash-native-does-not-exist\EXAMPL~1\tail");
++        assert_eq!(expand_to_long_path(&missing), missing);
++        assert_eq!(expand_to_long_path(Path::new(r"D:\dsh-bash-native-does-not-exist")), PathBuf::from(r"D:\dsh-bash-native-does-not-exist"));
++    }
++
++    #[test]
++    fn a_relative_path_is_returned_unchanged() {
++        // Resolving it against the current directory would turn a relative path into an absolute one,
++        // which is a different answer to a different question.
++        let relative = Path::new(r"EXAMPL~1\tail");
++        assert_eq!(expand_to_long_path(relative), relative);
++    }
++
++    #[test]
++    fn expanding_twice_changes_nothing_further() {
++        // The process's temporary directory always exists, and a long name has no 8.3 component left in
++        // it, so the second call has to reproduce the first.
++        let once = expand_to_long_path(&std::env::temp_dir());
++        assert!(once.is_absolute(), "the temporary directory is absolute");
++        assert_eq!(expand_to_long_path(&once), once);
++    }
++}
++
+ /// Extension trait for path-related filesystem operations.
+ pub trait PathExt {
+     /// Returns true if the path exists and is readable by the current user.
+diff --git a/brush-core/src/sys/windows/env.rs b/brush-core/src/sys/windows/env.rs
+index 342e5b7..2fa2c3c 100644
+--- a/brush-core/src/sys/windows/env.rs
++++ b/brush-core/src/sys/windows/env.rs
+@@ -55,6 +55,7 @@ where
+     // Normalize host env vars and inject them into the map.
+     for (k, v) in source {
+         let normalized = normalize_env_name(&k);
++        let v = expand_well_known_path(&normalized, v);
+         if let Some(existing) = vars.get(&normalized)
+             && existing != &v
+         {
+@@ -118,6 +119,35 @@ fn normalize_env_name(name: &str) -> String {
+     name.to_string()
+ }
+ 
++/// Expands a well-known directory variable into its long form, so one directory has one spelling.
++///
++/// `%TEMP%` is what `/tmp` resolves to, and Windows reports the short (8.3) spelling when the profile
++/// directory has one (`C:\Users\EXAMPL~1\AppData\Local\Temp`), while a script that names the same
++/// directory in full produces the long one. Two spellings of one place is what makes a comparison
++/// between `$TEMP` and a written-out path false.
++///
++/// Only the three temporary-directory names are touched, because those are the ones the engine itself
++/// resolves paths against. `PATH` and the rest keep exactly the value the host set: rewriting them would
++/// change what a script reads back, and none of them is compared against an engine-produced path.
++///
++/// A value that is not an absolute path is left alone — a relative `TMPDIR` has no long form to take,
++/// and `expand_to_long_path` would resolve it against the current directory.
++fn expand_well_known_path(name: &str, value: String) -> String {
++    if !matches!(name, "TEMP" | "TMP" | "TMPDIR") {
++        return value;
++    }
++    let path = std::path::Path::new(&value);
++    if !path.is_absolute() {
++        return value;
++    }
++    match crate::sys::fs::expand_to_long_path(path).into_os_string().into_string() {
++        Ok(expanded) => expanded,
++        // An expansion that is not valid Unicode cannot replace a value that is: keeping the original
++        // leaves the shell with the spelling it had rather than with a lossy one.
++        Err(_) => value,
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -250,4 +280,29 @@ mod tests {
+         let by_value: Vec<_> = decode_host_env([(good, broken)]).collect();
+         assert!(by_value.is_empty());
+     }
++
++    #[test]
++    fn expand_well_known_path_only_touches_the_temporary_directory_names() {
++        // The value is left exactly as given for every other name, `PATH` included.
++        for name in ["PATH", "HOME", "USERPROFILE", "APPDATA", "ComSpec"] {
++            let value = r"C:\Users\EXAMPL~1\AppData\Local\Microsoft\WindowsApps".to_string();
++            assert_eq!(expand_well_known_path(name, value.clone()), value);
++        }
++    }
++
++    #[test]
++    fn expand_well_known_path_leaves_a_relative_value_alone() {
++        for name in ["TEMP", "TMP", "TMPDIR"] {
++            let value = "relative\\tmp".to_string();
++            assert_eq!(expand_well_known_path(name, value.clone()), value);
++        }
++    }
++
++    #[test]
++    fn expand_well_known_path_returns_an_absent_directory_unchanged() {
++        // `expand_to_long_path` has no answer for a path that is not there, so the value survives the
++        // trip — which is what keeps the existing tests that use invented directories meaningful.
++        let value = r"C:\dsh-bash-native-does-not-exist\EXAMPL~1".to_string();
++        assert_eq!(expand_well_known_path("TEMP", value.clone()), value);
++    }
+ }

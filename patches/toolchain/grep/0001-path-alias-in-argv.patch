@@ -1,0 +1,20 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 2d05fda..44d3eca 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -135,9 +135,14 @@ fn read_error(label: impl std::fmt::Display, err: &std::io::Error) -> Box<dyn UE
+     USimpleError::new(2, format!("{label}: {}", strip_errno(err)))
+ }
+ 
++// The aliases have to hold for this binary too: `find -exec`, `xargs` and `timeout` start it
++// themselves, with no shell in between to rewrite the arguments.
++#[path = "../dsh_path_alias.rs"]
++mod dsh_path_alias;
++
+ #[uucore::main(no_signals)]
+ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+-    let args = expand_num_shorthand(args);
++    let args = expand_num_shorthand(args.map(dsh_path_alias::translate));
+     let matches = uucore::clap_localization::handle_clap_result_with_exit_code(uu_app(), args, 2)?;
+ 
+     let grep_color = std::env::var("GREP_COLOR").unwrap_or_default();

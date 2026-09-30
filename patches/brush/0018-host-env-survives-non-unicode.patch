@@ -1,0 +1,72 @@
+diff --git a/brush-core/src/sys/windows/env.rs b/brush-core/src/sys/windows/env.rs
+index 900da98..342e5b7 100644
+--- a/brush-core/src/sys/windows/env.rs
++++ b/brush-core/src/sys/windows/env.rs
+@@ -11,14 +11,36 @@ use std::collections::BTreeMap;
+ ///
+ /// Normalizes well-known variable names to POSIX conventions, copies
+ /// `TEMP`/`TMP` to `TMPDIR` (preserving originals for native Windows apps),
+-/// and synthesizes `HOME` if it is not natively defined.
++/// and synthesizes `HOME` if it is not natively defined. Entries whose name or
++/// value is not valid Unicode are dropped rather than aborting the process.
+ ///
+ /// A [`BTreeMap`] is used (rather than `HashMap`) so iteration order is
+ /// deterministic across runs. If two source variables collide under the same
+ /// canonical name (e.g. both `Path` and `PATH` are set to different values),
+ /// the conflict is logged and the last-seen value wins.
+ pub(crate) fn get_host_env_vars() -> impl Iterator<Item = (String, String)> {
+-    collect_host_env_vars(std::env::vars())
++    collect_host_env_vars(decode_host_env(std::env::vars_os()))
++}
++
++/// Decodes the host process's environment, dropping any entry that is not valid Unicode.
++///
++/// `std::env::vars()` panics on the first such entry, and it is asked for this early: the host's
++/// variables are inherited when the shell is created, before the first command runs. Windows
++/// environment blocks are UTF-16 and Windows does not require them to be well-formed, so one
++/// malformed entry in the parent's environment turns every invocation into an abort rather than a
++/// shell that is merely missing that one variable.
++///
++/// Dropping instead of substituting: a name or value holding an unpaired surrogate has no
++/// representation as a `String`, and rewriting it with U+FFFD would turn "this entry is unusable"
++/// into a plausible wrong path. A dropped `PATH` costs the shell the host's search path, which is
++/// still a working shell; an abort costs it every command.
++fn decode_host_env<I>(source: I) -> impl Iterator<Item = (String, String)>
++where
++    I: IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
++{
++    source
++        .into_iter()
++        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+ }
+ 
+ /// Collects and normalizes a set of environment variables. Exposed as a
+@@ -204,4 +226,28 @@ mod tests {
+         let vars = run(&[("Path", "first"), ("PATH", "second")]);
+         assert_eq!(vars.get("PATH").map(String::as_str), Some("second"));
+     }
++
++    #[test]
++    fn decode_host_env_keeps_well_formed_entries() {
++        let decoded: Vec<_> = decode_host_env([("PATH".into(), r"C:\Windows".into())]).collect();
++        assert_eq!(decoded, vec![("PATH".to_string(), r"C:\Windows".to_string())]);
++    }
++
++    #[test]
++    fn decode_host_env_drops_an_entry_that_is_not_unicode() {
++        use std::os::windows::ffi::OsStringExt;
++
++        // A lone high surrogate is exactly what `std::env::vars()` panics on, and it is the shape a
++        // launcher that fills the environment block from a byte string produces.
++        let broken = std::ffi::OsString::from_wide(&[0xD800, 0x0074, 0x0061, 0x0069, 0x006C]);
++        let good = std::ffi::OsString::from("PATH");
++
++        // An entry whose key is the malformed half has no name to be looked up under...
++        let by_key: Vec<_> = decode_host_env([(broken.clone(), std::ffi::OsString::from("x"))]).collect();
++        assert!(by_key.is_empty());
++
++        // ...and one whose value is the malformed half has no usable value.
++        let by_value: Vec<_> = decode_host_env([(good, broken)]).collect();
++        assert!(by_value.is_empty());
++    }
+ }

@@ -1,0 +1,123 @@
+diff --git a/brush-shell/src/bundled.rs b/brush-shell/src/bundled.rs
+index d410bd2..af156e7 100644
+--- a/brush-shell/src/bundled.rs
++++ b/brush-shell/src/bundled.rs
+@@ -14,6 +14,13 @@
+ //! dispatched function has the same signature as `uutils`' `uumain`:
+ //! `fn(Vec<OsString>) -> i32`, with the bundled name as `argv[0]`.
+ //!
++//! The same dispatch also answers to the executable's own name: when
++//! `argv[0]`'s file stem names a registered command (`rm.exe`, which is a hard
++//! link to this binary), brush runs that command before shell startup. A child
++//! process cannot exec a shell builtin, so this name is the only way `xargs rm`
++//! or `find -exec rm` can reach the bundled set at all. The registry is the
++//! gate: a copy of this binary under any other name still starts a shell.
++//!
+ //! ## Shell integration
+ //!
+ //! For every entry in the registry, [`register_shims`] installs a brush
+@@ -27,9 +34,9 @@
+ //! anything matching the signature can be registered.
+ 
+ use std::collections::HashMap;
+-use std::ffi::OsString;
++use std::ffi::{OsStr, OsString};
+ use std::io::Write;
+-use std::path::PathBuf;
++use std::path::{Path, PathBuf};
+ use std::sync::OnceLock;
+ 
+ use brush_core::ExecutionExitCode;
+@@ -88,26 +95,38 @@ pub fn registry() -> Option<&'static HashMap<String, BundledFn>> {
+ 
+ /// Runs the bundled-command fast path if the process was invoked for it.
+ ///
+-/// If the process was invoked as `brush <DISPATCH_FLAG> <NAME> [ARGS...]`
+-/// (with `<DISPATCH_FLAG>` as the very first argument after `argv[0]`), runs
+-/// the registered function and returns its exit code as `Some(code)`. The
+-/// caller is responsible for exiting the process with that code —
+-/// centralizing the exit call in the binary's `main()` keeps destructors /
+-/// panic hooks / tracing guards in the loop.
++/// Two spellings reach it. `brush <DISPATCH_FLAG> <NAME> [ARGS...]` (with
++/// `<DISPATCH_FLAG>` as the very first argument after `argv[0]`) is what the
++/// shell's own shim builtins use. A process whose **executable name** is a
++/// registered command — `rm.exe`, a hard link to this binary — dispatches that
++/// command with the remaining arguments, which is how a child process reaches
++/// the bundled set: a shell builtin cannot be exec'd, so `xargs rm` and
++/// `find -exec rm` can only find an `rm` on `PATH`. Either way the registered
++/// function runs and its exit code comes back as `Some(code)`. The caller is
++/// responsible for exiting the process with that code — centralizing the exit
++/// call in the binary's `main()` keeps destructors / panic hooks / tracing
++/// guards in the loop.
+ ///
+-/// Returns `None` when the process was not invoked as a bundled dispatch, so
+-/// normal shell startup can proceed.
++/// Returns `None` when neither spelling applies, so normal shell startup can
++/// proceed.
+ ///
+ /// The dispatch flag is only recognized in the leading position so that
+ /// ordinary scripts and command lines containing the literal token elsewhere
+-/// are not affected.
++/// are not affected, and name dispatch only fires for a registered command, so
++/// a copy of this binary under any other name is still a shell.
+ #[must_use]
+ pub fn maybe_dispatch() -> Option<i32> {
+     let mut raw = std::env::args_os();
+-    let _argv0 = raw.next();
+-    let first = raw.next()?;
+-    if first != DISPATCH_FLAG {
+-        return None;
++    let argv0 = raw.next();
++    let first = raw.next();
++
++    if first.as_deref() != Some(OsStr::new(DISPATCH_FLAG)) {
++        // `first` is the process's second argument, so it belongs to the command's own argv: dropping it
++        // here would silently swallow the first option (`rm.exe -r dir/` would run `rm dir/`).
++        let mut args: Vec<OsString> = Vec::new();
++        args.extend(first);
++        args.extend(raw);
++        return dispatch_by_name(argv0.as_deref(), args);
+     }
+ 
+     // Everything after `DISPATCH_FLAG` belongs to the bundled command. The
+@@ -140,6 +159,40 @@ pub fn maybe_dispatch() -> Option<i32> {
+     Some(func(argv))
+ }
+ 
++/// Dispatches to the command this process is named after, if it is registered.
++///
++/// The lookup is the gate, not the name's shape: anything not in the registry
++/// (including `brush`, `bash` and `sh`) starts a shell. The bundled name, not
++/// the executable's path, becomes `argv[0]`, so the utility reports itself as
++/// `rm` rather than as a path.
++fn dispatch_by_name(argv0: Option<&OsStr>, args: Vec<OsString>) -> Option<i32> {
++    let name = Path::new(argv0?).file_stem()?.to_str()?.to_owned();
++    let func = *REGISTRY.get()?.get(name.as_str())?;
++
++    let mut argv: Vec<OsString> = Vec::with_capacity(1 + args.len());
++    argv.push(OsString::from(name));
++    // No shell translated these arguments: in this path the utility *is* the process, and it reads them as
++    // paths. The rules are the shell's own (patch `0004`), including its environment switch, so
++    // `xargs rm /tmp/x` means what `rm /tmp/x` means typed at the prompt. The explicit dispatch flag needs
++    // none of this, because the shell that spawned it translated the arguments already.
++    let convert = !path_conversion_disabled();
++    argv.extend(
++        args.into_iter()
++            .map(|arg| if convert { brush_core::sys::fs::normalize_shell_arg(&arg) } else { arg }),
++    );
++
++    Some(func(argv))
++}
++
++/// Whether the environment switch turns the `/tmp` argument rewrite off.
++///
++/// Patch `0004` owns the rule: the switch disables the rewrite when it is set and is neither empty nor `0`,
++/// the way `MSYS_NO_PATHCONV` behaves in Git Bash.
++fn path_conversion_disabled() -> bool {
++    std::env::var_os("DSH_BASH_NATIVE_NO_PATHCONV")
++        .is_some_and(|value| !value.is_empty() && value.to_string_lossy() != "0")
++}
++
+ fn exit_code(code: ExecutionExitCode) -> i32 {
+     u8::from(code).into()
+ }

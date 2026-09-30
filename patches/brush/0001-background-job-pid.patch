@@ -1,0 +1,108 @@
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index b2d342d..f943934 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -249,7 +249,13 @@ impl Execute for ast::CompoundList {
+             let run_async = matches!(sep, ast::SeparatorOperator::Async);
+ 
+             if run_async {
+-                let job = spawn_async_ao_list_in_task(ao_list, shell, params);
++                // A pipeline of external commands is spawned directly so the job carries real child
++                // processes, which is what `$!` and `jobs -p` report; anything else keeps the
++                // in-process path unchanged.
++                let job = match try_spawn_pipeline_as_job(ao_list, shell, params).await? {
++                    Some(job) => shell.jobs_mut().add_as_current(job),
++                    None => spawn_async_ao_list_in_task(ao_list, shell, params),
++                };
+                 let job_formatted = job.to_pid_style_string();
+ 
+                 if shell.options().interactive && !shell.is_subshell() {
+@@ -304,6 +310,88 @@ fn spawn_async_ao_list_in_task<'a, SE: extensions::ShellExtensions>(
+     ))
+ }
+ 
++/// Whether a background and-or list is a single pipeline of literal, external simple commands.
++///
++/// Only such a pipeline can be spawned directly, and spawning directly is what gives the job a real
++/// child process — which is what `$!` and `jobs -p` read. The decision has to be made *before*
++/// anything is spawned: a builtin or a function has no child process, and discovering that afterwards
++/// would mean abandoning processes that had already started. A command name that is not a plain
++/// literal is declined rather than resolved, because resolving it needs expansion and expansion can
++/// run command substitution.
++fn directly_spawnable_pipeline<'a, SE: extensions::ShellExtensions>(
++    ao_list: &'a ast::AndOrList,
++    shell: &Shell<SE>,
++) -> Option<&'a ast::Pipeline> {
++    if !ao_list.additional.is_empty() {
++        return None;
++    }
++    let pipeline = &ao_list.first;
++    if pipeline.bang || pipeline.seq.is_empty() {
++        return None;
++    }
++    for command in &pipeline.seq {
++        let ast::Command::Simple(simple) = command else {
++            return None;
++        };
++        let Some(word) = &simple.word_or_name else {
++            return None;
++        };
++        let name = word.flatten();
++        if name.is_empty()
++            || shell.builtins().get(&name).is_some()
++            || shell.funcs().get(name.as_str()).is_some()
++        {
++            return None;
++        }
++    }
++    Some(pipeline)
++}
++
++/// Spawn a background pipeline directly and register its children as external job tasks.
++///
++/// Without this, every `cmd &` becomes an in-process tokio task, `Job::representative_pid()` finds no
++/// external task, and `$!` expands to the empty string — so the idiomatic `cmd & p=$!; kill $p`
++/// silently loses its target. Returns `None` when nothing directly spawnable was produced, leaving the
++/// caller to use the in-process path exactly as before.
++async fn try_spawn_pipeline_as_job<SE: extensions::ShellExtensions>(
++    ao_list: &ast::AndOrList,
++    shell: &mut Shell<SE>,
++    params: &ExecutionParameters,
++) -> Result<Option<jobs::Job>, error::Error> {
++    let Some(pipeline) = directly_spawnable_pipeline(ao_list, shell) else {
++        return Ok(None);
++    };
++
++    // Match the in-process path's environment: a background job is not interactive and reads from
++    // null, so it can neither touch the terminal nor steal the parent's stdin.
++    let mut cloned_shell = shell.clone();
++    let mut cloned_params = params.clone();
++    cloned_shell.options_mut().interactive = false;
++    if let Ok(null) = openfiles::null() {
++        cloned_params.set_fd(openfiles::OpenFiles::STDIN_FD, null);
++    }
++
++    let spawn_results = spawn_pipeline_processes(pipeline, &mut cloned_shell, &cloned_params).await?;
++    let mut tasks = VecDeque::new();
++    for spawn_result in spawn_results {
++        if let ExecutionSpawnResult::StartedProcess(child) = spawn_result {
++            tasks.push_back(jobs::JobTask::External(child));
++        } else {
++            // An internal task or an already-finished command cannot report a PID, and a job that is
++            // only half external would make `$!` report a partial answer.
++            return Ok(None);
++        }
++    }
++    if tasks.is_empty() {
++        return Ok(None);
++    }
++    Ok(Some(jobs::Job::new(
++        tasks,
++        ao_list.to_string(),
++        jobs::JobState::Running,
++    )))
++}
++
+ #[async_trait::async_trait]
+ impl Execute for ast::AndOrList {
+     async fn execute(

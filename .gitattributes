@@ -1,0 +1,9 @@
+# Line endings are part of this repository's contract: every hand-written file ends with exactly one
+# LF, and the shipped `lib/` must stay byte-identical to what `npm run build` produces on any machine.
+* text=auto eol=lf
+*.exe binary
+*.png binary
+# A patch must survive byte-exact or `git apply` rejects it, and its context lines legitimately carry
+# trailing whitespace (`+ ` marks a blank source line), so neither normalization nor the whitespace
+# check applies.
+*.patch -text -whitespace

@@ -1,0 +1,32 @@
+[package]
+name = "posix-extra"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+license = "MIT"
+publish = false
+description = "The few POSIX commands no permissively licensed Windows build provides: which, cmp, diff, stat and ps."
+
+# `similar` is the diff engine oh-my-pi also uses for its `diff` builtin; both are MIT.
+[dependencies]
+similar = "3"
+
+[[bin]]
+name = "which"
+path = "src/bin/which.rs"
+
+[[bin]]
+name = "cmp"
+path = "src/bin/cmp.rs"
+
+[[bin]]
+name = "diff"
+path = "src/bin/diff.rs"
+
+[[bin]]
+name = "stat"
+path = "src/bin/stat.rs"
+
+[[bin]]
+name = "ps"
+path = "src/bin/ps.rs"

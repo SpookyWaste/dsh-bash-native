@@ -1,0 +1,199 @@
+diff --git a/brush-core/src/patterns.rs b/brush-core/src/patterns.rs
+index 2564c6d..833da32 100644
+--- a/brush-core/src/patterns.rs
++++ b/brush-core/src/patterns.rs
+@@ -227,16 +227,43 @@ impl Pattern {
+         // On Unix, a leading `/` produces an empty first component. On Windows, a
+         // drive-letter prefix like `c:` is also recognized. The platform-specific
+         // logic lives in `sys::fs::pattern_path_root`.
+-        let absolute_root = components.first().and_then(|first_component| {
+-            let flattened: String = first_component.iter().map(|p| p.as_str()).collect();
+-            sys::fs::pattern_path_root(&flattened)
++        // A `/tmp` root is the POSIX scratch tree, which this platform keeps in the system temporary
++        // directory. Pattern expansion builds its own root instead of going through
++        // `normalize_shell_path`, so the rewrite has to be repeated here or `> /tmp/x` resolves to a
++        // drive-root `tmp` directory that usually does not exist. This mirrors oh-my-pi's fix for the
++        // same gap in `pattern_drive_alias_root`.
++        #[cfg(windows)]
++        let tmp_root = match (components.first(), components.get(1)) {
++            (Some(first), Some(second)) => {
++                // Compare the flattened components, exactly as the root lookup below does: the leading
++                // separator arrives as either an empty component or one holding an empty string.
++                let first_flat: String = first.iter().map(|piece| piece.as_str()).collect();
++                let second_flat: String = second.iter().map(|piece| piece.as_str()).collect();
++                if first_flat.is_empty() && second_flat == "tmp" {
++                    Some((std::env::temp_dir(), 2usize))
++                } else {
++                    None
++                }
++            }
++            _ => None,
++        };
++        #[cfg(not(windows))]
++        let tmp_root: Option<(std::path::PathBuf, usize)> = None;
++
++        let absolute_root = tmp_root.or_else(|| {
++            components.first().and_then(|first_component| {
++                let flattened: String = first_component.iter().map(|p| p.as_str()).collect();
++                sys::fs::pattern_path_root(&flattened).map(|root| (root, 1usize))
++            })
+         });
+ 
+         let prefix_to_remove;
+-        let mut paths_so_far = if let Some(root) = absolute_root {
++        let mut paths_so_far = if let Some((root, consumed)) = absolute_root {
+             prefix_to_remove = None;
+-            // Skip the first component; it was consumed to determine the root.
+-            components.remove(0);
++            // Skip the components the root consumed; normally one, two for the `/tmp` alias.
++            for _ in 0..consumed {
++                components.remove(0);
++            }
+             vec![root]
+         } else {
+             // Build a prefix to remove after glob expansion so results are
+diff --git a/brush-core/src/shell/fs.rs b/brush-core/src/shell/fs.rs
+index 33ffe30..f42a12e 100644
+--- a/brush-core/src/shell/fs.rs
++++ b/brush-core/src/shell/fs.rs
+@@ -198,6 +198,9 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+     ///
+     /// * `path` - The path to get the absolute form of.
+     pub fn absolute_path(&self, path: impl AsRef<Path>) -> PathBuf {
++        // Shell aliases are resolved first, because the join below is exactly what turns a drive-less
++        // `/tmp` into `<current drive>:\tmp`. See `sys::fs::normalize_shell_path`.
++        let path = crate::sys::fs::normalize_shell_path(path.as_ref());
+         let path = path.as_ref();
+         if path.as_os_str().is_empty() || path.is_absolute() {
+             path.to_owned()
+@@ -227,17 +230,17 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+             return result.map(openfiles::OpenFile::from);
+         }
+ 
+-        let path_to_open = self.absolute_path(path.as_ref());
+-
+-        // See if this is a reference to a file descriptor. These paths should
+-        // reflect the shell's current execution fds, which can differ from the
+-        // host process fds after redirections like here-docs.
+-        if let Some(fd_num) = shell_fd_path_to_fd(&path_to_open)
++        // A descriptor path names one of the shell's own open files, so it is recognized before the
++        // path is made absolute: afterwards `/dev/stdin` reads as `D:\dev\stdin` and the comparison
++        // can never match, which is why descriptor paths did not work on Windows at all.
++        if let Some(fd_num) = shell_fd_path_to_fd(path.as_ref())
+             && let Some(open_file) = params.try_fd(self, fd_num)
+         {
+             return Ok(open_file);
+         }
+ 
++        let path_to_open = self.absolute_path(path.as_ref());
++
+         Ok(options.open(path_to_open)?.into())
+     }
+ 
+diff --git a/brush-core/src/sys/fs.rs b/brush-core/src/sys/fs.rs
+index a5dabfa..252298f 100644
+--- a/brush-core/src/sys/fs.rs
++++ b/brush-core/src/sys/fs.rs
+@@ -2,6 +2,102 @@
+ 
+ pub use super::platform::fs::*;
+ 
++use std::borrow::Cow;
++use std::path::Path;
++#[cfg(any(windows, test))]
++use std::ffi::OsStr;
++#[cfg(any(windows, test))]
++use std::path::{Component, PathBuf};
++
++/// Normalizes shell-facing path aliases before `std::fs` sees them.
++///
++/// A bare `/tmp` under Win32 is drive-relative (`<cwd-drive>:\tmp`), not a scratch root, while MSYS
++/// and Cygwin tools mount it at `%TEMP%`. Rewriting it here — the single boundary every shell path
++/// passes through — keeps in-process builtins, external tools and redirections agreeing instead of
++/// scattering files into a drive-root `tmp`.
++///
++/// Transcribed from oh-my-pi (`can1357/oh-my-pi`, commits `48c96e2e` and `93da2fc1`), which fixed the
++/// same defect in their vendored copy of this crate.
++#[allow(clippy::missing_const_for_fn, reason = "the Windows implementation allocates")]
++pub fn normalize_shell_path(path: &Path) -> Cow<'_, Path> {
++    #[cfg(windows)]
++    {
++        translate_unix_tmp_path(path, std::env::temp_dir).map_or(Cow::Borrowed(path), Cow::Owned)
++    }
++    #[cfg(not(windows))]
++    {
++        let _ = path;
++        Cow::Borrowed(path)
++    }
++}
++
++/// Maps the POSIX `/tmp` tree onto the Windows system temporary directory.
++///
++/// `.` and `..` are collapsed against the logical POSIX path first, clamping at the root, so
++/// `/tmp/../tmp/f` resolves like `/tmp/f` instead of appending the raw remainder onto the nested
++/// `%TEMP%`, which would escape into a sibling directory. A `..` that climbs out of `/tmp` yields a
++/// non-`/tmp` path, which means no rewrite.
++#[cfg(any(windows, test))]
++fn translate_unix_tmp_path(path: &Path, temp_dir: impl FnOnce() -> PathBuf) -> Option<PathBuf> {
++    let mut components = path.components();
++    if components.next() != Some(Component::RootDir) {
++        return None;
++    }
++
++    let mut logical: Vec<&OsStr> = Vec::new();
++    for component in components {
++        match component {
++            Component::CurDir => {}
++            Component::ParentDir => {
++                logical.pop();
++            }
++            Component::Normal(part) => logical.push(part),
++            // A second root or a drive prefix cannot appear in a POSIX operand.
++            Component::RootDir | Component::Prefix(_) => return None,
++        }
++    }
++
++    let mut tail = logical.into_iter();
++    if tail.next() != Some(OsStr::new("tmp")) {
++        return None;
++    }
++
++    let mut native = temp_dir();
++    native.extend(tail);
++    Some(native)
++}
++
++#[cfg(test)]
++mod normalize_shell_path_tests {
++    use super::translate_unix_tmp_path;
++    use std::path::{Path, PathBuf};
++
++    fn temp() -> PathBuf {
++        PathBuf::from(r"C:\Users\Adam\AppData\Local\Temp")
++    }
++
++    #[test]
++    fn unix_tmp_alias_maps_onto_system_temp_dir() {
++        assert_eq!(translate_unix_tmp_path(Path::new("/tmp"), temp).as_deref(), Some(temp().as_path()));
++        assert_eq!(
++            translate_unix_tmp_path(Path::new("/tmp/probe/sub"), temp).as_deref(),
++            Some(temp().join("probe").join("sub").as_path())
++        );
++        // Only the `/tmp` component aliases; `/tmpfile` and `/var/tmp` do not.
++        assert_eq!(translate_unix_tmp_path(Path::new("/tmpfile"), temp), None);
++        assert_eq!(translate_unix_tmp_path(Path::new("/var/tmp"), temp), None);
++    }
++
++    #[test]
++    fn dot_segments_collapse_before_substitution() {
++        assert_eq!(translate_unix_tmp_path(Path::new("/tmp/../tmp/f"), temp).as_deref(), Some(temp().join("f").as_path()));
++        assert_eq!(translate_unix_tmp_path(Path::new("/tmp/probe/../sub"), temp).as_deref(), Some(temp().join("sub").as_path()));
++        // A `..` that climbs out of `/tmp` is no longer a tmp path.
++        assert_eq!(translate_unix_tmp_path(Path::new("/tmp/.."), temp), None);
++        assert_eq!(translate_unix_tmp_path(Path::new("/tmp/../var/f"), temp), None);
++    }
++}
++
+ /// Extension trait for path-related filesystem operations.
+ pub trait PathExt {
+     /// Returns true if the path exists and is readable by the current user.

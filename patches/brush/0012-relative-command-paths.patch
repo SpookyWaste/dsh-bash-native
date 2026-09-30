@@ -1,0 +1,29 @@
+diff --git a/brush-core/src/commands.rs b/brush-core/src/commands.rs
+index 93d9f441..e73d4d80 100644
+--- a/brush-core/src/commands.rs
++++ b/brush-core/src/commands.rs
+@@ -201,7 +201,23 @@ pub fn compose_std_command<S: AsRef<OsStr>, SE: extensions::ShellExtensions>(
+     } else {
+         sys::fs::normalize_shell_arg(OsStr::new(command_name))
+     };
+-    let mut cmd = std::process::Command::new(&converted_name);
++
++    // A relative program path is resolved by the operating system against *this process's* current
++    // directory, and this shell never changes that one: `cd` moves only the logical working directory it
++    // hands to each child, which is set below and cannot help the OS find the image. Left alone, `./tool`
++    // and `sub/dir/tool` were looked for beside wherever the engine itself had been started instead of
++    // beside the script, so a relative command never ran. A name without a separator keeps its meaning —
++    // the OS searches `PATH` for it — and `has_root` is the test rather than `is_absolute` because a
++    // rooted path such as `/usr/bin/x` is drive-relative on Windows and must stay that way.
++    let program = {
++        let path = Path::new(&converted_name);
++        if path.has_root() || !sys::fs::contains_path_separator(command_name) {
++            converted_name.clone()
++        } else {
++            context.shell.working_dir().join(path).into_os_string()
++        }
++    };
++    let mut cmd = std::process::Command::new(&program);
+ 
+     // Override argv[0].
+     // NOTE: Not supported on all platforms.

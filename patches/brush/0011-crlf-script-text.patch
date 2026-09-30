@@ -1,0 +1,158 @@
+diff --git a/brush-core/src/shell/execution.rs b/brush-core/src/shell/execution.rs
+index bea89e39..a415f8f8 100644
+--- a/brush-core/src/shell/execution.rs
++++ b/brush-core/src/shell/execution.rs
+@@ -133,8 +133,7 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+         params: &ExecutionParameters,
+         call_type: callstack::ScriptCallType,
+     ) -> Result<ExecutionResult, error::Error> {
+-        let mut reader = std::io::BufReader::new(file);
+-        let mut parser = brush_parser::Parser::new(&mut reader, &self.parser_options());
++        let mut parser = super::parsing::create_parser(file, &self.parser_options());
+ 
+         tracing::debug!(target: trace_categories::PARSE, "Parsing sourced file: {}", source_info.source);
+         let parse_result = parser.parse_program();
+diff --git a/brush-core/src/shell/parsing.rs b/brush-core/src/shell/parsing.rs
+index 963c6485..cd3a0844 100644
+--- a/brush-core/src/shell/parsing.rs
++++ b/brush-core/src/shell/parsing.rs
+@@ -60,10 +60,137 @@ fn parse_string_impl(
+     parser.parse_program()
+ }
+ 
++/// A reader that removes carriage returns from shell program text.
++///
++/// A script written on Windows separates its lines with CRLF, while this parser takes the line feed as
++/// the line ending, so a carriage return becomes an ordinary character at the end of the line's last
++/// token: `echo one` prints `one\r`, `… > /dev/null` names a file called `null\r`, and `then\r` stops
++/// being a keyword (`syntax error at end of input`). Git Bash reads the same file in text mode and
++/// drops every carriage return, so the two disagree about every line of a Windows-authored script.
++/// Measured on this pin against Git Bash 5.x: plain output, redirection targets, path operands, `if`
++/// bodies, function definitions, subshells, backslash continuations, here-document bodies, `eval`,
++/// `source` and `-c` command strings all differ on a CRLF input and agree once the carriage returns
++/// are gone.
++///
++/// Removing every carriage return — rather than only the one that precedes a line feed — is what
++/// matches that behaviour, and it is also what keeps this filter stateless: no lookahead is needed, so
++/// a boundary between two reads cannot change the result. A carriage return a program wants as data is
++/// unaffected, because it comes from an escape sequence in the program (`printf 'a\r\nb'`) rather than
++/// from the characters of the program text.
++pub(super) struct WithoutCarriageReturns<R> {
++    inner: R,
++}
++
++impl<R: Read> WithoutCarriageReturns<R> {
++    /// Wraps `inner`, removing carriage returns from everything it reads.
++    pub(super) const fn new(inner: R) -> Self {
++        Self { inner }
++    }
++}
++
++impl<R: Read> Read for WithoutCarriageReturns<R> {
++    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
++        if buf.is_empty() {
++            return Ok(0);
++        }
++
++        loop {
++            let read = self.inner.read(buf)?;
++            if read == 0 {
++                return Ok(0);
++            }
++
++            // Compact in place; `kept` never overtakes `index`, so the copy is safe.
++            let mut kept = 0;
++            for index in 0..read {
++                if buf[index] != b'\r' {
++                    buf[kept] = buf[index];
++                    kept += 1;
++                }
++            }
++
++            if kept > 0 {
++                return Ok(kept);
++            }
++            // This read held nothing but carriage returns; read again instead of reporting end of
++            // input, which would truncate the program here.
++        }
++    }
++}
++
+ pub(super) fn create_parser<R: Read>(
+     r: R,
+     parser_options: &brush_parser::ParserOptions,
+-) -> brush_parser::Parser<std::io::BufReader<R>> {
+-    let reader = std::io::BufReader::new(r);
++) -> brush_parser::Parser<std::io::BufReader<WithoutCarriageReturns<R>>> {
++    let reader = std::io::BufReader::new(WithoutCarriageReturns::new(r));
+     brush_parser::Parser::new(reader, parser_options)
+ }
++
++#[cfg(test)]
++mod without_carriage_returns_tests {
++    use super::WithoutCarriageReturns;
++    use std::io::Read;
++
++    /// A reader that hands back the prepared chunks in order, with the offsets preserved, so a test
++    /// can place a read boundary anywhere in the text.
++    struct Chunks<'a> {
++        chunks: &'a [&'a [u8]],
++        index: usize,
++        offset: usize,
++    }
++
++    impl Read for Chunks<'_> {
++        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
++            while self.index < self.chunks.len() {
++                let chunk = self.chunks[self.index];
++                if self.offset < chunk.len() {
++                    let take = (chunk.len() - self.offset).min(buf.len());
++                    buf[..take].copy_from_slice(&chunk[self.offset..self.offset + take]);
++                    self.offset += take;
++                    return Ok(take);
++                }
++                self.index += 1;
++                self.offset = 0;
++            }
++            Ok(0)
++        }
++    }
++
++    fn filter(chunks: &[&[u8]]) -> String {
++        let mut text = String::new();
++        WithoutCarriageReturns::new(Chunks {
++            chunks,
++            index: 0,
++            offset: 0,
++        })
++        .read_to_string(&mut text)
++        .unwrap();
++        text
++    }
++
++    #[test]
++    fn every_carriage_return_is_removed() {
++        assert_eq!(
++            filter(&[b"echo one\r\necho two\r\n"]),
++            "echo one\necho two\n"
++        );
++        assert_eq!(filter(&[b"printf 'a\rZ'\r\n"]), "printf 'aZ'\n");
++        assert_eq!(filter(&[b"echo one\r"]), "echo one");
++    }
++
++    #[test]
++    fn a_chunk_of_only_carriage_returns_is_not_end_of_input() {
++        assert_eq!(filter(&[b"\r", b"\r", b"echo hi\r\n"]), "echo hi\n");
++    }
++
++    #[test]
++    fn text_without_carriage_returns_is_returned_unchanged() {
++        assert_eq!(filter(&[b"echo hi\n"]), "echo hi\n");
++        assert_eq!(filter(&[b"", b""]), "");
++    }
++
++    #[test]
++    fn a_boundary_between_the_carriage_return_and_the_line_feed_changes_nothing() {
++        assert_eq!(filter(&[b"echo one\r", b"\necho two\r", b"\n"]), "echo one\necho two\n");
++    }
++}

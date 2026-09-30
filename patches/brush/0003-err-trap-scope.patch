@@ -1,0 +1,100 @@
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index f943934..c8803f0 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -751,6 +751,8 @@ impl Execute for ast::CompoundCommand {
+                 // Clone off a new subshell, and run the body of the subshell there.
+                 // TODO(source-info): Do we need to reset the line number?
+                 let mut subshell = shell.clone();
++                // Everything the parent had registered is inherited by this subshell.
++                subshell.traps_mut().mark_all_inherited();
+ 
+                 // Handle errors within the subshell context to prevent fatal errors
+                 // from propagating to the parent shell.
+diff --git a/brush-core/src/shell/callstack.rs b/brush-core/src/shell/callstack.rs
+index 91a3c97..35eda75 100644
+--- a/brush-core/src/shell/callstack.rs
++++ b/brush-core/src/shell/callstack.rs
+@@ -105,6 +105,10 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+             return Err(error::ErrorKind::MaxFunctionCallDepthExceeded.into());
+         }
+ 
++        // The handlers registered before this call belong to the enclosing scope from here on, which
++        // is what makes `-E`/`-T` decide whether they fire inside the function body.
++        self.traps_mut().mark_all_inherited();
++
+         if tracing::enabled!(target: trace_categories::FUNCTIONS, tracing::Level::DEBUG) {
+             let depth = self.call_stack.function_call_depth();
+             let prefix = repeated_char_str(' ', depth);
+diff --git a/brush-core/src/shell/traps.rs b/brush-core/src/shell/traps.rs
+index 83c4400..acde50e 100644
+--- a/brush-core/src/shell/traps.rs
++++ b/brush-core/src/shell/traps.rs
+@@ -52,18 +52,20 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
+             return Ok(ExecutionResult::success());
+         }
+ 
+-        // In functions and subshells, some traps are only inherited when the
+-        // corresponding option is enabled.
+-        if (self.in_function() || self.is_subshell())
++        let Some(handler) = self.traps.get_handler(signal).cloned() else {
++            return Ok(ExecutionResult::success());
++        };
++
++        // A handler *inherited* from the enclosing scope only fires inside a function or subshell when
++        // the matching option (`-E`/`-T`) is on. One this scope set itself always fires — bash behaves
++        // that way, and `(trap '…' ERR; false)` depends on it.
++        if handler.inherited
++            && (self.in_function() || self.is_subshell())
+             && !self.is_trap_inherited_in_current_scope(signal)
+         {
+             return Ok(ExecutionResult::success());
+         }
+ 
+-        let Some(handler) = self.traps.get_handler(signal).cloned() else {
+-            return Ok(ExecutionResult::success());
+-        };
+-
+         let mut params = params.clone();
+         params.process_group_policy = ProcessGroupPolicy::SameProcessGroup;
+ 
+diff --git a/brush-core/src/traps.rs b/brush-core/src/traps.rs
+index e432488..ecf0591 100644
+--- a/brush-core/src/traps.rs
++++ b/brush-core/src/traps.rs
+@@ -170,6 +170,13 @@ pub struct TrapHandler {
+     pub command: String,
+     /// Source information for where the trap handler was defined.
+     pub source_info: crate::SourceInfo,
++    /// Whether this handler was *inherited* into the current scope rather than set in it.
++    ///
++    /// `-E`/`-T` decide whether an `ERR`/`DEBUG`/`RETURN` handler is inherited by a function or
++    /// subshell; a handler set inside that scope always applies. The handler table alone cannot tell
++    /// the two apart, so the fact is recorded when the scope opens.
++    #[cfg_attr(feature = "serde", serde(default))]
++    pub inherited: bool,
+ }
+ 
+ /// Configuration for trap handlers in the shell.
+@@ -220,10 +227,21 @@ impl TrapHandlerConfig {
+             TrapHandler {
+                 command,
+                 source_info,
++                inherited: false,
+             },
+         );
+     }
+ 
++    /// Marks every registered handler as inherited, for a shell entering a new scope.
++    ///
++    /// Called when a subshell is cloned and when a function is entered: from then on, anything already
++    /// registered came from the enclosing scope, while anything registered afterwards is local.
++    pub fn mark_all_inherited(&mut self) {
++        for handler in self.handlers.values_mut() {
++            handler.inherited = true;
++        }
++    }
++
+     /// Removes handlers for a trap signal.
+     ///
+     /// # Arguments

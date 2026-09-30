@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "note": "The engine this plugin runs bash on. Built from source so a behaviour can be measured and, when necessary, patched; `ref` is pinned to a commit because branch tips move. `artifact` records the build shipped inside this package: `scripts/build-engine.mjs --refresh` replaces it and rewrites the hash, and the executor runs it where the package puts it — a released install sits under `$DSH_HOME/profiles/<profile>/node_modules/…`, outside the tree the sandbox labels and grants writes to, so the artifact is executable as it lies and no second copy exists. The hash is the provenance of the shipped bytes, not a reproducible-build promise: replaying the pin and the patches rebuilds the same code but not the same file (28 bytes of link-time metadata differ — the COFF timestamp and the `.rdata` debug record), so a rebuilt engine is verified behaviourally, by `npm test` and the corpus, never by comparing hashes (section 36 of docs/research.md).",
+  "repo": "https://github.com/reubeno/brush",
+  "ref": "08db87a62345f11a4fc43bf385e318677f641089",
+  "package": "brush-shell",
+  "bin": "brush",
+  "features": [
+    "experimental-bundled-coreutils"
+  ],
+  "artifact": {
+    "path": "engine/win32-x64/brush.exe",
+    "sha256": "10975819ae5bc532257b124e448bbd28b181bb5f5f2c0f989ee4763872472ae0",
+    "bytes": 15679488
+  },
+  "why": "Upstream brush implements $! as current_job().representative_pid(), and the published engine returns an empty value, while the source at this commit is what has to be measured rather than assumed. `experimental-bundled-coreutils` is required for parity with the published engine, which is where the in-process utilities the prompt contract lists come from: built with default features alone, `sleep`, `cat`, `ls` and `uname` are missing entirely and the contract's claim would be false."
+}

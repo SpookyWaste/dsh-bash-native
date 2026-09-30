@@ -1,0 +1,15 @@
+diff --git a/src/uucore/src/lib/mods/error.rs b/src/uucore/src/lib/mods/error.rs
+index c894774..74ade49 100644
+--- a/src/uucore/src/lib/mods/error.rs
++++ b/src/uucore/src/lib/mods/error.rs
+@@ -484,4 +484,10 @@ impl Display for UIoError {
+ pub fn strip_errno(err: &std::io::Error) -> String {
+     let mut msg = err.to_string();
++    // A refused file effect is the one failure a file policy is judged by, and the numeric code is
++    // the only part of that message which does not depend on the host's language: keep it, so a
++    // caller can classify the refusal without reading a localized sentence.
++    if err.kind() == std::io::ErrorKind::PermissionDenied {
++        return msg;
++    }
+     if let Some(pos) = msg.find(" (os error ") {
+         msg.truncate(pos);

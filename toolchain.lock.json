@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "target": "x86_64-pc-windows-msvc",
+  "note": "Pins for the toolchain this plugin puts ahead of the Windows PATH. `wild-stub` replaces the `wild` crate in every source: uutils reads its arguments through `uucore`, which uses `wild` to emulate Unix glob expansion, and that emulation corrupts arguments a POSIX shell has already resolved (see patches/wild-stub/src/lib.rs). `scripts/build-toolchain.mjs` publishes every name the components provide — the multi-call coreutils binary is hard-linked under all of its applets — because `find -exec`, `xargs` and `timeout` start a program and a builtin is not a file. Only `stdbuf` is withheld (this build produces no `libstdbuf` for it), and only the names `src/toolchain.ts` has no equivalent for are advertised: the rest are installed and never named. `packaged` records what was shipped inside the npm package: `scripts/pack-toolchain.mjs` copies the distinct binaries into `toolchain/win32-x64/` with a manifest naming every command each one provides, so an install needs neither Rust nor Go. `src/toolchain-artifact.ts` verifies those files against that manifest before anything runs. `uucoreErrno` marks the components whose messages have to name the OS error code when a file effect is refused: the plugin that runs them classifies a refusal by matching stderr, and the code is the only part of that message which does not depend on the host language. `coreutils` carries `uucore` in-repo and is patched by `patches/toolchain/coreutils/0002-keep-the-os-error-code.patch`; `findutils`, `grep` and `sed` resolve it from the registry, so `scripts/uucore-override.mjs` vendors the resolved version into the build cache, applies `patches/uucore/0001-keep-the-os-error-code.patch` to that copy and points `[patch.crates-io]` at it.",
+  "wildStub": "patches/wild-stub",
+  "sources": [
+    {
+      "name": "coreutils",
+      "repo": "https://github.com/uutils/coreutils",
+      "tag": "0.12.0",
+      "features": [
+        "windows"
+      ],
+      "why": "Provides the programs a pipeline needs as real executables, which `xargs` and `find -exec` require because they cannot invoke shell builtins, plus `kill` and `timeout`. `stat`, `chmod` and `id` are opt-in features: enabling `stat` does not compile (uutils 0.12.0 then imports `uucore::fs::major`/`minor` and `uucore::fsext::statfs`, which that crate does not export for this feature combination), so it stays off and is recorded as a residual gap instead. `chmod` and `id` stay off deliberately (README records the residual-command decisions).",
+      "pathAlias": true,
+      "uucoreErrno": true
+    },
+    {
+      "name": "findutils",
+      "repo": "https://github.com/uutils/findutils",
+      "tag": "0.10.0",
+      "features": [],
+      "skip": [
+        "testing-commandline"
+      ],
+      "why": "`find`, `xargs`, and `locate`. `testing-commandline` is a test helper the workspace also builds; it is not a command, so it stays out of the tools directory.",
+      "pathAlias": true,
+      "uucoreErrno": true
+    },
+    {
+      "name": "grep",
+      "repo": "https://github.com/uutils/grep",
+      "tag": "0.2.0",
+      "features": [],
+      "why": "`grep`. Young (78/128 GNU tests), so the corpus decides whether it is good enough or `ugrep` is preferred.",
+      "pathAlias": true,
+      "uucoreErrno": true
+    },
+    {
+      "name": "sed",
+      "repo": "https://github.com/uutils/sed",
+      "tag": "0.1.1",
+      "features": [],
+      "why": "`sed`. GNU sed is GPL, so this MIT implementation is the only distributable option.",
+      "pathAlias": true,
+      "uucoreErrno": true
+    },
+    {
+      "name": "jaq",
+      "repo": "https://github.com/01mf02/jaq",
+      "tag": "v3.1.1",
+      "features": [],
+      "wildStub": false,
+      "rename": {
+        "jaq": "jq"
+      },
+      "why": "`jq`, replacing the C implementation. Measured in section 28 of docs/research.md: 71/71 on the idioms a model writes, the corpus's jq cases and ten regex-dialect probes, then 40/48 on the extended list, where every remaining difference is a loud `unknown flag`/`undefined filter` on a rarely used feature (`$__loc__`, `--binary`, `--seq`, `have_decnum`/`have_literal_numbers`, `--run-tests`) except extreme-exponent formatting (`1E+1000` vs `1e1000`, the same value). Modules, `debug`, `stderr`, `input_filename`, `@uri`/`@sh`/`@html`/`@csv`/`@tsv`, `--slurpfile`, `--rawfile`, `input`/`inputs` and the whole regex surface agree. Built from source so the alias patch can reach it and so no prebuilt C binary stays in the chain.",
+      "pathAlias": true
+    }
+  ],
+  "local": [
+    {
+      "name": "posix-extra",
+      "dir": "posix-extra",
+      "bins": [
+        "which",
+        "cmp",
+        "diff",
+        "stat",
+        "ps"
+      ],
+      "license": "MIT",
+      "why": "The residual commands nothing permissively licensed provides on Windows: `which`, `cmp`, `diff`, `stat` and `ps`. Unlike the coreutils pipelines, `diff` uses the same diff engine oh-my-pi uses for its `diff` builtin."
+    }
+  ],
+  "goSources": [
+    {
+      "name": "goawk",
+      "repo": "https://github.com/benhoyt/goawk",
+      "tag": "v1.32.0",
+      "license": "MIT",
+      "pathAlias": true,
+      "rename": {
+        "goawk": "awk"
+      },
+      "why": "`awk`, built from source instead of downloaded (A1 of sections 29 and 31 of docs/research.md). The released binary expands wildcards inside its own arguments on Windows (`expandWildcardsOnWindows`, ported from `mattn/getwild`), which `patches/toolchain/goawk/0001-no-windows-wildcard-expansion.patch` removes — a prebuilt cannot be patched, so the component moved to a source build. Being a source build is also what lets `patches/toolchain/goawk/0002-path-alias-in-argv.patch` apply the `/tmp` and `/<letter>` aliases inside the program itself (`dsh_path_alias.go`, the Go twin of the module the Rust components carry), which closes the last program-chain alias gap: `alias-chain-xargs-awk` was a `knownGap` until it landed (section 35 of docs/research.md). It is a POSIX-compatible awk (its own README, and measured against gawk 5.4.0), and the Go toolchain it needs is the lighter of the two prerequisites the awk cell faced: uutils/awk would have required LLVM/libclang from every builder. Section 32 evaluates the Rust alternative quinnjr/rawk and keeps this one: rawk agreed with gawk on 45 of the same 55 idioms, with `next`, `ORS`, `RS`, `exit` + `END`, a bare `length` and `split(\"\")` wrong, while goawk agreed on all 55. Re-evaluate rawk once it fixes those and its own suite passes on this machine."
+    }
+  ],
+  "packaged": {
+    "path": "toolchain/win32-x64/manifest.json",
+    "sha256": "c19d3de3a5c521db878126c691b0ca34e6f531143792d5cffba595cd16be6869",
+    "bytes": 4756,
+    "files": 14,
+    "names": 28,
+    "bytesTotal": 37435392
+  }
+}

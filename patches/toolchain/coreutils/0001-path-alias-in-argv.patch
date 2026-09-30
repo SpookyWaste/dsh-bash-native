@@ -1,0 +1,24 @@
+diff --git a/src/bin/coreutils.rs b/src/bin/coreutils.rs
+index 4641811..f99302a 100644
+--- a/src/bin/coreutils.rs
++++ b/src/bin/coreutils.rs
+@@ -3,6 +3,10 @@
+ // For the full copyright and license information, please view the LICENSE
+ // file that was distributed with this source code.
+ 
++// The aliases have to hold for this binary too: `find -exec`, `xargs` and `timeout` start it
++// themselves, with no shell in between to rewrite the arguments.
++#[path = "../../dsh_path_alias.rs"]
++mod dsh_path_alias;
+ use clap::Command;
+ use coreutils::validation::{self, exit};
+ use itertools::Itertools as _;
+@@ -51,7 +55,7 @@ Currently defined functions:
+ #[allow(clippy::cognitive_complexity)]
+ fn main() {
+     let utils = util_map();
+-    let mut args = uucore::args_os();
++    let mut args = uucore::args_os().map(dsh_path_alias::translate);
+ 
+     let binary = validation::binary_path(&mut args);
+     let binary_as_util = validation::name(&binary).unwrap_or_else(|| {

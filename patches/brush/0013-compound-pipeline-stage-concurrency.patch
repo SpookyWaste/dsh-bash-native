@@ -1,0 +1,76 @@
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index 531d54d3..1655425d 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -718,19 +718,63 @@ impl<SE: extensions::ShellExtensions> ExecuteInPipeline<SE> for ast::Command {
+                     }
+                 }
+ 
+-                Ok(compound
+-                    .execute(&mut pipeline_context.shell, &params)
+-                    .await?
+-                    .into())
++                match pipeline_context.shell {
++                    commands::ShellForCommand::OwnedShell { target, .. } => {
++                        Ok(run_stage_concurrently(target, params, compound.clone()))
++                    }
++                    commands::ShellForCommand::ParentShell(shell) => {
++                        Ok(compound.execute(shell, &params).await?.into())
++                    }
++                }
+             }
+-            Self::Function(func) => Ok(func
+-                .execute(&mut pipeline_context.shell, &params)
+-                .await?
+-                .into()),
++            Self::Function(func) => match pipeline_context.shell {
++                commands::ShellForCommand::OwnedShell { target, .. } => {
++                    Ok(run_stage_concurrently(target, params, func.clone()))
++                }
++                commands::ShellForCommand::ParentShell(shell) => {
++                    Ok(func.execute(shell, &params).await?.into())
++                }
++            },
+         }
+     }
+ }
+ 
++/// Run one pipeline stage that executes inside this process, on a thread of its own.
++///
++/// Every stage of a multi-command pipeline is started before any of them is waited for, and the other two
++/// stage kinds both return immediately: an external command hands back a child process, and a simple
++/// command whose builtin runs in a cloned shell hands back a task. That is what lets `… | head -1` finish
++/// — the reader exists while the writer is still running, so a writer that fills the pipe buffer (64 KiB
++/// on this machine) blocks only until the reader drains it. A compound command or a function definition
++/// used to be awaited here instead, so the stages after it had not been started yet and a writer that
++/// filled the buffer blocked forever with nobody reading: `for i in $(seq 1 20000); do echo x; done |
++/// head -1` never returned, where bash runs it to completion. The stage's own shell therefore moves onto
++/// a blocking thread, exactly as `execute_via_builtin_in_owned_shell` does for a builtin; a stage that has
++/// to run in the *parent* shell — a single-command pipeline, or `lastpipe`'s last stage — still runs
++/// inline, because its effects have to be visible in the shell that owns them.
++///
++/// # Arguments
++///
++/// * `target` - the stage's own cloned shell.
++/// * `params` - the open files and process-group policy for this stage.
++/// * `stage` - the compound command or function definition to run.
++fn run_stage_concurrently<SE, T>(
++    target: Box<Shell<SE>>,
++    params: ExecutionParameters,
++    stage: T,
++) -> ExecutionSpawnResult
++where
++    SE: extensions::ShellExtensions,
++    T: Execute + Send + 'static,
++{
++    let mut shell = *target;
++    let handle = tokio::task::spawn_blocking(move || {
++        let runtime = tokio::runtime::Handle::current();
++        runtime.block_on(stage.execute(&mut shell, &params))
++    });
++    ExecutionSpawnResult::StartedTask(handle)
++}
++
+ enum WhileOrUntil {
+     While,
+     Until,

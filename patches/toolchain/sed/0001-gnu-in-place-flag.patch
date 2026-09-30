@@ -1,0 +1,54 @@
+diff --git a/src/sed/mod.rs b/src/sed/mod.rs
+index 88356e8..3a51974 100644
+--- a/src/sed/mod.rs
++++ b/src/sed/mod.rs
+@@ -35,6 +35,7 @@ const USAGE: &str = "sed [OPTION]... [script] [file]...";
+ 
+ #[uucore::main]
+ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
++    let args = normalize_in_place_option(args);
+     let matches = uu_app().try_get_matches_from(args)?;
+     let (scripts, files) = get_scripts_files(&matches)?;
+     let mut context = build_context(&matches);
+@@ -44,6 +45,33 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+     Ok(())
+ }
+ 
++/// Rewrite the in-place option into a spelling clap cannot confuse with the script operand.
++///
++/// GNU sed accepts a suffix only when it is attached (`-i.bak`), but this utility declares the
++/// option as `num_args(0..=1)`, so clap consumes the following argument as the suffix. The ordinary
++/// `sed -i 's/a/b/' file` therefore hands the script to `-i` and parses the file name as a script.
++/// Normalizing to `--in-place[=SUFFIX]` with `require_equals` keeps the operand where it belongs.
++fn normalize_in_place_option(args: impl uucore::Args) -> Vec<std::ffi::OsString> {
++    let mut normalized = Vec::new();
++    for (index, argument) in args.into_iter().enumerate() {
++        if index > 0 {
++            let text = argument.to_string_lossy();
++            if text == "-i" || text == "--in-place" {
++                normalized.push(std::ffi::OsString::from("--in-place="));
++                continue;
++            }
++            if let Some(suffix) = text.strip_prefix("-i") {
++                if !suffix.is_empty() && !suffix.starts_with('-') {
++                    normalized.push(std::ffi::OsString::from(format!("--in-place={suffix}")));
++                    continue;
++                }
++            }
++        }
++        normalized.push(argument);
++    }
++    normalized
++}
++
+ #[allow(clippy::cognitive_complexity)]
+ pub fn uu_app() -> Command {
+     #[cfg(windows)]
+@@ -93,6 +121,7 @@ pub fn uu_app() -> Command {
+                 .long("in-place")
+                 .help("Edit files in place, making a backup if SUFFIX is supplied.")
+                 .num_args(0..=1)
++                .require_equals(true)
+                 .default_missing_value(""),
+             // Access with .get_one::<u32>("line-length")
+             arg!(-l --length <NUM> "Specify the 'l' command line-wrap length.")

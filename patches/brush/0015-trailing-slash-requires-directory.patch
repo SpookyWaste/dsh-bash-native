@@ -1,0 +1,40 @@
+diff --git a/brush-core/src/patterns.rs b/brush-core/src/patterns.rs
+index 5a3e58f..b14d8f3 100644
+--- a/brush-core/src/patterns.rs
++++ b/brush-core/src/patterns.rs
+@@ -298,14 +298,27 @@ impl Pattern {
+                 paths_so_far.retain_mut(|p| {
+                     sys::fs::push_path_for_pattern(p, &flattened);
+ 
+-                    // Drop candidates that don't name an existing directory entry.
+-                    // We use `symlink_metadata` (lstat) rather than `exists` (stat) so
+-                    // that we match on directory-entry existence -- consistent with the
+-                    // `read_dir`-based matching used for glob components below, and with
+-                    // bash. In particular this keeps dangling symlinks (which bash
+-                    // includes) while still rejecting a literal like `file/` whose
+-                    // trailing slash makes lstat fail with ENOTDIR for a regular file.
+-                    p.symlink_metadata().is_ok()
++                    if flattened.is_empty() {
++                        // A separator-only component means "this must be a directory", and the check has
++                        // to be explicit: whether a trailing separator on a regular file is refused is a
++                        // property of the volume, not of the platform. On one volume `lstat("file/")`
++                        // fails with ERROR_DIRECTORY (267) and the rule holds by accident; on the volume
++                        // that hosts this project it succeeds and reports a regular file, so `*/`
++                        // expanded to every entry -- files included, with the separator already appended
++                        // (`note.md/`) -- and `*.md/` invented matches that bash never produces. `is_dir`
++                        // follows symlinks, which is what bash does for `dir/`: a symlink to a directory
++                        // matches, a dangling one does not.
++                        p.is_dir()
++                    } else {
++                        // Drop candidates that don't name an existing directory entry.
++                        // We use `symlink_metadata` (lstat) rather than `exists` (stat) so
++                        // that we match on directory-entry existence -- consistent with the
++                        // `read_dir`-based matching used for glob components below, and with
++                        // bash. In particular this keeps dangling symlinks (which bash
++                        // includes) while still rejecting a literal like `file/` whose
++                        // trailing slash makes lstat fail with ENOTDIR for a regular file.
++                        p.symlink_metadata().is_ok()
++                    }
+                 });
+                 continue;
+             }

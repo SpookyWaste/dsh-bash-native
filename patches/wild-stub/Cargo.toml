@@ -1,0 +1,13 @@
+[package]
+name = "wild"
+# Must not be lower than the version a consumer's Cargo.lock already resolved: cargo refuses to
+# apply a patch whose version is older than the locked one and only warns about it.
+version = "2.2.1"
+edition = "2021"
+description = "Stand-in for the `wild` crate that returns the process arguments verbatim."
+license = "MIT"
+publish = false
+
+[lib]
+name = "wild"
+path = "src/lib.rs"

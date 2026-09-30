@@ -1,0 +1,2949 @@
+{
+  "version": 1,
+  "note": "Compatibility corpus: the bash snippets an agent actually writes, each with the POSIX-correct expectation. `severity: must-match` means the output is asserted exactly as Linux bash would produce it; `severity: platform-difference` has no expectation because the Windows shape is recorded into the baseline instead (read-only facts such as `uname` or the `ls -l` permission column). `needs` names the external commands a case depends on: a missing one is a SKIP, which is how a partially installed toolchain still produces a meaningful score. `host: true` means the need comes from the host OS rather than this project's toolchain, so FULL mode tolerates its absence. A case whose exit status is 0 while its output is wrong is counted as `silent-wrong`, which no baseline may contain.",
+  "fixtures": {
+    "a.txt": "needle\nhay\nneedle\n",
+    "b.txt": "x:1\ny:2\n",
+    "c.txt": "1 two\n3 four\n",
+    "d.txt": "b\na\nb\n",
+    "n.txt": "10\n9\n2\n",
+    "j.json": "{\"k\":1,\"arr\":[1,2]}\n",
+    "crlf-source.sh": "echo from-sourced\r\necho second\r\n",
+    "crlf-data.txt": "a\r\nb",
+    "note.md": "x\n"
+  },
+  "cases": [
+    {
+      "id": "shell-pipeline",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'b\\na\\nb\\n' | sort | uniq -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "1 a",
+            "2 b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-command-substitution",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "x=$(echo hi); echo \"sub=$x\"; false; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "sub=hi",
+            "rc=1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-array",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "a=(x y); a+=(z); echo \"${#a[@]} ${a[2]}\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "3 z\n"
+        }
+      }
+    },
+    {
+      "id": "shell-assoc-array",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "declare -A m=([k]=v); echo \"${m[k]}\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "v\n"
+        }
+      }
+    },
+    {
+      "id": "shell-heredoc",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "cat <<EOF\nline1\nline2\nEOF",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "line1",
+            "line2"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-heredoc-expansion",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "x=1; cat <<EOF\nv=$x\nEOF",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "v=1\n"
+        }
+      }
+    },
+    {
+      "id": "shell-for-case",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "for i in 1 2; do case $i in 1) echo one;; 2) echo two;; esac; done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "one",
+            "two"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-set-e",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "(set -e; false; echo nope); echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "rc=1"
+          ],
+          "notContains": [
+            "nope"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-set-u",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "(set -u; echo \"$CORPUS_UNSET\") 2>/dev/null; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "rc=1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-pipefail",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "(set -o pipefail; false | true); echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "rc=1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-exit-code",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "false; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "shell-trap-exit",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "trap 'echo bye' EXIT; echo hi",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "hi",
+            "bye"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-trap-err",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "(trap 'echo caught' ERR; false) 2>/dev/null; echo done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "caught",
+            "done"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-trap-err-in-function-not-errtrace",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "f() { false; }; trap 'echo caught' ERR; f; echo done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "caught",
+            "done"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-trap-err-in-function-errtrace",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "set -E; f() { false; }; trap 'echo caught' ERR; f; echo done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "caught",
+            "caught",
+            "done"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-trap-err-inherited-subshell-errtrace",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "set -E; trap 'echo t' ERR; (false) 2>/dev/null; echo done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "t",
+            "t",
+            "done"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-while-read",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'a\\nb\\n' | while read -r l; do echo \"L:$l\"; done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "L:a",
+            "L:b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-continue",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "for i in 1 2 3; do [ \"$i\" = 2 ] && continue; echo \"$i\"; done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "1",
+            "3"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-function-local",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "f() { local x=1; echo \"$x\"; }; f",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "shell-positional-params",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "f() { echo \"$#:$1:${2:-d}\"; }; f a",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1:a:d\n"
+        }
+      }
+    },
+    {
+      "id": "shell-printf-q-roundtrip",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "v='a b'; eval \"echo $(printf '%q' \"$v\")\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "a b\n"
+        }
+      }
+    },
+    {
+      "id": "shell-arithmetic",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "echo $((2+3*4))",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "14\n"
+        }
+      }
+    },
+    {
+      "id": "shell-subshell-isolation",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "x=1; (x=2); echo $x",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "shell-background-wait",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "sleep 0.05 & wait; echo done",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "done\n"
+        }
+      }
+    },
+    {
+      "id": "shell-read-splits-fields",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'x y\\n' | { read -r a b; echo \"$b-$a\"; }",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "y-x\n"
+        }
+      }
+    },
+    {
+      "id": "shell-nested-substitution",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "echo \"$(echo \"$(echo deep)\")\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "deep\n"
+        }
+      }
+    },
+    {
+      "id": "shell-writes-lf",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'a\\nb\\n' > f.txt; wc -c < f.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "\\b4\\b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-crlf-passthrough",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'x\\r\\n' | wc -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "\\b3\\b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "argv-quoted-literal",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "echo \"*.txt\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "*.txt\n"
+        }
+      }
+    },
+    {
+      "id": "argv-single-quoted-literal",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "echo '*.txt'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "*.txt\n"
+        }
+      }
+    },
+    {
+      "id": "argv-quoted-variable",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "p='*.txt'; echo \"$p\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "*.txt\n"
+        }
+      }
+    },
+    {
+      "id": "argv-unquoted-variable-expands",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "p='*.txt'; echo $p",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "argv-unquoted-literal-expands",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "echo *.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "argv-external-program-argv",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "node -e 'console.log(JSON.stringify(process.argv.slice(1)))' \"*.txt\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "[\"*.txt\"]\n"
+        }
+      }
+    },
+    {
+      "id": "argv-node-direct-argv",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "node -e 'console.log(JSON.stringify(process.argv.slice(1)))' \"*.txt\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "[\"*.txt\"]\n"
+        }
+      },
+      "directArgv": {
+        "program": "node",
+        "args": [
+          "-e",
+          "console.log(JSON.stringify(process.argv.slice(1)))",
+          "*.txt"
+        ]
+      }
+    },
+    {
+      "id": "argv-grep-direct-pattern",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "grep -c \"[ab].txt\" a.txt",
+      "expect": {
+        "status": 1,
+        "stdout": {
+          "equals": "0\n"
+        }
+      },
+      "directArgv": {
+        "program": "grep",
+        "args": [
+          "-c",
+          "[ab].txt",
+          "a.txt"
+        ]
+      }
+    },
+    {
+      "id": "argv-find-direct-pattern",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "find . -name \"[ab].txt\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ]
+        }
+      },
+      "directArgv": {
+        "program": "find",
+        "args": [
+          ".",
+          "-name",
+          "[ab].txt"
+        ]
+      }
+    },
+    {
+      "id": "grep-basic",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep needle a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "needle",
+            "needle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-count",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -c needle a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "2\n"
+        }
+      }
+    },
+    {
+      "id": "grep-line-number",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -n needle a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^1:needle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-invert",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -v needle a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "hay\n"
+        }
+      }
+    },
+    {
+      "id": "grep-files-with-matches",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "grep -l needle a.txt b.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ],
+          "notContains": [
+            "b.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-extended-regex",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -E '^n(eedle)?' a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "needle",
+            "needle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-fixed-string",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -F needle a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "needle",
+            "needle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-case-insensitive",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -i NEEDLE a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "needle",
+            "needle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-recursive",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -r needle .",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "needle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-include-filter",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "grep -rn --include='*.txt' needle .",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ],
+          "notContains": [
+            "b.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "grep-quiet-status",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep -q needle a.txt; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "0\n"
+        }
+      }
+    },
+    {
+      "id": "grep-no-match-status",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "grep zzz a.txt > /dev/null 2>&1; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "grep-in-pipeline",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "snippet": "printf 'a\\nb\\n' | grep -c .",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "2\n"
+        }
+      }
+    },
+    {
+      "id": "grep-env-pipeline",
+      "category": "grep",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "snippet": "env | grep -q PATH; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "0\n"
+        }
+      }
+    },
+    {
+      "id": "sed-print-line",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "sed -n 1p a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "needle\n"
+        }
+      }
+    },
+    {
+      "id": "sed-print-range",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "sed -n 1,2p a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "needle",
+            "hay"
+          ]
+        }
+      }
+    },
+    {
+      "id": "sed-substitute-global",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "sed 's/needle/N/g' a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "N",
+            "hay",
+            "N"
+          ]
+        }
+      }
+    },
+    {
+      "id": "sed-delete-last",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "sed '$d' a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "needle",
+            "hay"
+          ]
+        }
+      }
+    },
+    {
+      "id": "sed-backreference",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'abc\\n' | sed 's/b/[&]/'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "a[b]c\n"
+        }
+      }
+    },
+    {
+      "id": "sed-in-place",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "sed -i 's/needle/N/' a.txt; head -1 a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "N\n"
+        }
+      }
+    },
+    {
+      "id": "awk-quoted-wildcard-stays-literal",
+      "category": "awk",
+      "severity": "must-match",
+      "needs": [
+        "awk"
+      ],
+      "knownGap": "docs/research.md「已知引擎差异」的「awk 的带引号通配符：已修，退出码仍与 gawk 不同」",
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "awk '{print FILENAME}' \"*.txt\" >/dev/null; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=2\n"
+        }
+      }
+    },
+    {
+      "id": "awk-field-one",
+      "category": "awk",
+      "severity": "must-match",
+      "needs": [
+        "awk"
+      ],
+      "files": [
+        "c.txt"
+      ],
+      "snippet": "awk '{print $1}' c.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "1",
+            "3"
+          ]
+        }
+      }
+    },
+    {
+      "id": "awk-field-two",
+      "category": "awk",
+      "severity": "must-match",
+      "needs": [
+        "awk"
+      ],
+      "files": [
+        "c.txt"
+      ],
+      "snippet": "awk '{print $2}' c.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "two",
+            "four"
+          ]
+        }
+      }
+    },
+    {
+      "id": "awk-field-separator",
+      "category": "awk",
+      "severity": "must-match",
+      "needs": [
+        "awk"
+      ],
+      "files": [
+        "b.txt"
+      ],
+      "snippet": "awk -F: '{print $2}' b.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "1",
+            "2"
+          ]
+        }
+      }
+    },
+    {
+      "id": "awk-sum",
+      "category": "awk",
+      "severity": "must-match",
+      "needs": [
+        "awk"
+      ],
+      "files": [
+        "c.txt"
+      ],
+      "snippet": "awk '{s+=$1} END {print s}' c.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "4\n"
+        }
+      }
+    },
+    {
+      "id": "awk-record-number",
+      "category": "awk",
+      "severity": "must-match",
+      "needs": [
+        "awk"
+      ],
+      "files": [
+        "c.txt"
+      ],
+      "snippet": "awk 'NR==2' c.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "3 four\n"
+        }
+      }
+    },
+    {
+      "id": "find-name",
+      "category": "find",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "find . -name \"*.txt\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "find-type-name",
+      "category": "find",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "find . -type f -name \"b.txt\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "b.txt"
+          ],
+          "notContains": [
+            "a.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "find-maxdepth-count",
+      "category": "find",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "files": [
+        "a.txt",
+        "b.txt",
+        "c.txt",
+        "d.txt",
+        "n.txt"
+      ],
+      "snippet": "find . -maxdepth 1 -name \"*.txt\" | wc -l",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "\\b5\\b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "find-no-match-count",
+      "category": "find",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "find . -name \"zzz*\" | wc -l",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "\\b0\\b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "find-exec",
+      "category": "find",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "find . -name \"a.txt\" -exec echo FOUND {} \\;",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "FOUND"
+          ]
+        }
+      }
+    },
+    {
+      "id": "xargs-echo",
+      "category": "xargs",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "printf 'a.txt\\n' | xargs wc -l",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "alias-chain-xargs-rm-removes",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "snippet": "printf 'x\\n' > /tmp/alias-gone.txt; printf '/tmp/alias-gone.txt\\n' | xargs rm; test -e /tmp/alias-gone.txt && echo still-there || echo removed",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "removed\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-xargs-grep-finds",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs",
+        "grep"
+      ],
+      "snippet": "printf 'needle\\n' > /tmp/alias-g.txt; printf '/tmp/alias-g.txt\\n' | xargs grep -l needle | wc -l",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-xargs-sed-edits",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs",
+        "sed"
+      ],
+      "snippet": "printf 'x\\n' > /tmp/alias-s.txt; printf '/tmp/alias-s.txt\\n' | xargs sed -i s/x/y/; cat /tmp/alias-s.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "y\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-xargs-awk",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs",
+        "awk"
+      ],
+      "snippet": "printf 'ok\\n' > /tmp/alias-a.txt; printf '/tmp/alias-a.txt\\n' | xargs awk '{print}'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-xargs-awk-program-file",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs",
+        "awk"
+      ],
+      "snippet": "printf '{print}' > /tmp/alias-awk-prog.awk; printf 'ok\\n' > /tmp/alias-awk-prog.txt; printf '/tmp/alias-awk-prog.awk\\n' | xargs -I{} awk -f {} /tmp/alias-awk-prog.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-xargs-jq-reads",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs",
+        "jq"
+      ],
+      "snippet": "printf '{\"a\":1}' > /tmp/alias-j.json; printf '/tmp/alias-j.json\\n' | xargs jq -c .a",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-find-exec-cp-copies",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "snippet": "mkdir -p /tmp/alias-out; printf 'x\\n' > alias-src.txt; find . -maxdepth 1 -name alias-src.txt -exec cp {} /tmp/alias-out \\;; test -e /tmp/alias-out/alias-src.txt && echo copied || echo missing",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "copied\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-bare-mount-root-is-a-switch",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "snippet": "printf '/c\\n' | xargs -n1 echo",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "/c\n"
+        }
+      }
+    },
+    {
+      "id": "alias-chain-attached-option-value",
+      "category": "alias",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "snippet": "printf 'x\\n' > /tmp/alias-opt.txt; xargs -a /tmp/alias-opt.txt echo read-ok",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "read-ok x\n"
+        }
+      }
+    },
+    {
+      "id": "xargs-rm-removes",
+      "category": "xargs",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "snippet": "printf 'gone.txt\\n' > gone.txt; printf 'gone.txt\\n' | xargs rm; test -e gone.txt && echo still-there || echo removed",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "removed\n"
+        }
+      }
+    },
+    {
+      "id": "find-exec-rm-removes",
+      "category": "find",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "snippet": "printf 'x\\n' > gone.txt; find . -name gone.txt -exec rm {} \\;; test -e gone.txt && echo still-there || echo removed",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "removed\n"
+        }
+      }
+    },
+    {
+      "id": "xargs-n1",
+      "category": "xargs",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "snippet": "printf '1\\n2\\n' | xargs -n1 echo item",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "item 1",
+            "item 2"
+          ]
+        }
+      }
+    },
+    {
+      "id": "xargs-replace",
+      "category": "xargs",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "snippet": "printf 'a.txt\\n' | xargs -I{} echo \"pre-{}\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "pre-a.txt\n"
+        }
+      }
+    },
+    {
+      "id": "xargs-null",
+      "category": "xargs",
+      "severity": "must-match",
+      "needs": [
+        "xargs"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "printf 'a.txt\\0' | xargs -0 wc -l",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "a.txt"
+          ]
+        }
+      }
+    },
+    {
+      "id": "xargs-from-find",
+      "category": "xargs",
+      "severity": "must-match",
+      "needs": [
+        "find",
+        "xargs"
+      ],
+      "files": [
+        "b.txt"
+      ],
+      "snippet": "find . -name \"b.txt\" | xargs cat",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "x:1",
+            "y:2"
+          ]
+        }
+      }
+    },
+    {
+      "id": "diff-unified-hunk",
+      "category": "diff",
+      "severity": "must-match",
+      "needs": [
+        "diff"
+      ],
+      "files": [
+        "a.txt",
+        "d.txt"
+      ],
+      "snippet": "diff -u a.txt d.txt | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "---"
+          ]
+        }
+      }
+    },
+    {
+      "id": "diff-quiet-differ",
+      "category": "diff",
+      "severity": "must-match",
+      "needs": [
+        "diff"
+      ],
+      "files": [
+        "a.txt",
+        "d.txt"
+      ],
+      "snippet": "diff -q a.txt d.txt > /dev/null 2>&1; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "diff-quiet-same",
+      "category": "diff",
+      "severity": "must-match",
+      "needs": [
+        "diff"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "diff -q a.txt a.txt > /dev/null 2>&1; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "cmp-identical",
+      "category": "diff",
+      "severity": "must-match",
+      "needs": [
+        "cmp"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "cmp a.txt a.txt; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "jq-field",
+      "category": "jq",
+      "severity": "must-match",
+      "needs": [
+        "jq"
+      ],
+      "files": [
+        "j.json"
+      ],
+      "snippet": "jq -r .k j.json",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "jq-length",
+      "category": "jq",
+      "severity": "must-match",
+      "needs": [
+        "jq"
+      ],
+      "files": [
+        "j.json"
+      ],
+      "snippet": "jq -r '.arr|length' j.json",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "2\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-sort-numeric",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "n.txt"
+      ],
+      "snippet": "sort -n n.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "2",
+            "9",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "id": "coreutils-cut",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "b.txt"
+      ],
+      "snippet": "cut -d: -f2 b.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "1",
+            "2"
+          ]
+        }
+      }
+    },
+    {
+      "id": "coreutils-uniq-count",
+      "category": "coreutils",
+      "severity": "must-match",
+      "snippet": "printf 'a\\na\\nb\\n' | uniq -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "2 a"
+          ]
+        }
+      }
+    },
+    {
+      "id": "coreutils-wc",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "wc -l a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "\\b3\\b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "coreutils-head-tail",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "head -1 a.txt; tail -1 a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "needle\nneedle\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-md5sum-shape",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "md5sum a.txt | cut -c1-32 | wc -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "\\b33\\b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "coreutils-base64",
+      "category": "coreutils",
+      "severity": "must-match",
+      "snippet": "printf 'a\\n' | base64",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "YQo=\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-mktemp-dir",
+      "category": "coreutils",
+      "severity": "must-match",
+      "snippet": "d=$(mktemp -d) && test -d \"$d\" && echo ok",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-stat-size",
+      "category": "coreutils",
+      "severity": "must-match",
+      "needs": [
+        "stat"
+      ],
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "stat -c %s a.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "18\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-dev-null-sink",
+      "category": "coreutils",
+      "severity": "must-match",
+      "snippet": "echo x > /dev/null && echo ok",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\n"
+        }
+      }
+    },
+    {
+      "id": "process-dollar-bang-external",
+      "category": "process",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "node -e \"setTimeout(()=>{},300)\" & p=$!; case $p in ''|*[!0-9]*) echo bad;; *) echo good;; esac",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "good\n"
+        }
+      }
+    },
+    {
+      "id": "process-jobs-p-reports-pid",
+      "category": "process",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "node -e \"setTimeout(()=>{},300)\" & jobs -p",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^\\d+$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-kill-with-dollar-bang",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c ping -n 20 127.0.0.1 >/dev/null & p=$!; kill \"$p\"; echo \"rc=$?\"; wait \"$p\"; echo \"wait=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\nwait=143\n"
+        }
+      }
+    },
+    {
+      "id": "process-dollar-bang-builtin-background",
+      "category": "process",
+      "severity": "must-match",
+      "knownGap": "docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」",
+      "snippet": "sleep 0.05 & p=$!; case $p in ''|*[!0-9]*) echo bad;; *) echo good;; esac; wait",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "good\n"
+        }
+      }
+    },
+    {
+      "id": "process-kill-list-signals",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "kill -l 15",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "TERM"
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-kill-zero-self",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "kill -0 $$; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "process-ps-lists",
+      "category": "process",
+      "severity": "must-match",
+      "needs": [
+        "ps"
+      ],
+      "snippet": "ps -e | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^\\s*PID\\s+TTY\\s+TIME\\s+CMD$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-ps-has-pid",
+      "category": "process",
+      "severity": "must-match",
+      "needs": [
+        "ps"
+      ],
+      "snippet": "ps -e | head -2 | tail -1 | awk '{print $1}'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^\\d+$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "collision-timeout-runs-command",
+      "category": "collision",
+      "severity": "must-match",
+      "needs": [
+        "timeout"
+      ],
+      "snippet": "timeout 5 echo ok",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\n"
+        }
+      }
+    },
+    {
+      "id": "collision-which-finds-program",
+      "category": "collision",
+      "severity": "must-match",
+      "needs": [
+        "which"
+      ],
+      "snippet": "which grep",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "grep"
+          ],
+          "matches": [
+            "^[A-Za-z]:[\\\\/]"
+          ],
+          "notContains": [
+            "\\\\?\\"
+          ]
+        }
+      }
+    },
+    {
+      "id": "builtin-umask-round-trip",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "umask reports and remembers a mask; patch 0010",
+      "snippet": "umask; umask 077; umask; umask 022; umask",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "0022\n0077\n0022\n"
+        }
+      }
+    },
+    {
+      "id": "builtin-umask-symbolic",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "the symbolic form matches bash",
+      "snippet": "umask -S",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "u=rwx,g=rx,o=rx\n"
+        }
+      }
+    },
+    {
+      "id": "builtin-history-without-history",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "a shell without history answers nothing and succeeds, as bash does",
+      "snippet": "history; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "builtin-disown-removes-and-leaves-the-process-running",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "disown drops the job from the table and the child outlives the shell, which is what bash leaves behind",
+      "snippet": "cmd.exe /c ping -n 3 127.0.0.1 >/dev/null 2>&1 & p=$!; disown %1; echo \"rc=$?\"; echo \"jobs=$(jobs | wc -l)\"; kill -0 \"$p\"; echo \"alive=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\njobs=0\nalive=0\n"
+        }
+      }
+    },
+    {
+      "id": "builtin-disown-no-such-job",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "an unknown job spec fails the way bash fails it",
+      "snippet": "disown %7 2>/dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "builtin-wait-f-reports-the-child-status",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "wait -f waits for the job and reports its status",
+      "snippet": "cmd.exe /c exit 7 & p=$!; wait -f \"$p\" >/dev/null 2>&1; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=7\n"
+        }
+      }
+    },
+    {
+      "id": "builtin-wait-f-unknown-pid",
+      "category": "shell",
+      "severity": "must-match",
+      "note": "an unknown pid is the same refusal bash gives",
+      "snippet": "wait -f 999999 2>/dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=127\n"
+        }
+      }
+    },
+    {
+      "id": "platform-uname",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "snippet": "uname -s",
+      "expect": {}
+    },
+    {
+      "id": "platform-ls-long",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "ls -l a.txt | cut -c1-10",
+      "expect": {
+        "stdout": {
+          "matches": [
+            "^[-dl][rwx-]{9}$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "platform-dev-stdin",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "cat /dev/stdin < a.txt 2>&1 | head -1",
+      "expect": {}
+    },
+    {
+      "id": "platform-tmp-location",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "snippet": "cd /tmp && pwd",
+      "expect": {}
+    },
+    {
+      "id": "platform-tmp-is-writable",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "cd /tmp && test -w . && echo writable",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "writable\n"
+        }
+      }
+    },
+    {
+      "id": "platform-tmp-round-trip",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-bash-native-corpus.txt; echo hi > \"$f\" && read line < \"$f\" && rm -f \"$f\" && test ! -f \"$f\" && echo \"got=$line cleaned\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "got=hi cleaned\n"
+        }
+      }
+    },
+    {
+      "id": "platform-tmp-glob-expands",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-glob-probe.txt; echo a > \"$f\"; for g in /tmp/dsh-glob-probe.*; do test -f \"$g\" && echo glob-ok; done; rm -f \"$f\"; test ! -f \"$f\" && echo cleaned",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "glob-ok",
+            "cleaned"
+          ]
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-builtin-cat-reads-temp",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-tmp-cat.txt; echo operand-ok > \"$f\"; cat \"$f\"; rm -f \"$f\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "operand-ok\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-builtin-rm-deletes-temp",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-tmp-rm.txt; echo x > \"$f\"; rm -f \"$f\"; test -f \"$f\" && echo left || echo deleted",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "deleted\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-builtin-cp-writes-temp",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-tmp-cp.txt; echo src > \"$f\"; cp \"$f\" /tmp/dsh-tmp-cp-copy.txt; test -f /tmp/dsh-tmp-cp-copy.txt && echo copied; rm -f \"$f\" /tmp/dsh-tmp-cp-copy.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "copied\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-attached-option-value",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-tmp-attached.txt; echo one > \"$f\"; sort --output=/tmp/dsh-tmp-attached-out.txt \"$f\"; cat /tmp/dsh-tmp-attached-out.txt; rm -f \"$f\" /tmp/dsh-tmp-attached-out.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "one\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-program-path-executes",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "snippet": "cp \"$(command -v grep)\" /tmp/dsh-tmp-program.exe; /tmp/dsh-tmp-program.exe --version | head -1; rm -f /tmp/dsh-tmp-program.exe",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "contains": [
+            "grep"
+          ]
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-external-tool-reads-temp",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "snippet": "f=/tmp/dsh-tmp-grep.txt; echo external-ok > \"$f\"; grep external \"$f\"; rm -f \"$f\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "external-ok\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-external-program-reads-temp",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "f=/tmp/dsh-tmp-node.txt; echo probe > \"$f\"; node -e 'const fs=require(\"fs\");console.log(fs.readFileSync(process.argv[1],\"utf8\").trim())' /tmp/dsh-tmp-node.txt; rm -f \"$f\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "probe\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-pattern-translated-unless-escaped",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "needs": [
+        "grep"
+      ],
+      "snippet": "f=/tmp/dsh-tmp-pattern.txt; printf '/tmp/x\n' > \"$f\"; grep -c /tmp/x \"$f\"; DSH_BASH_NATIVE_NO_PATHCONV=1 grep -c /tmp/x \"$TEMP/dsh-tmp-pattern.txt\"; rm -f \"$f\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "0",
+            "1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-data-argument-not-rewritten",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-tmp-data.txt; echo data > \"$f\"; echo /tmp/dsh-tmp-data.txt; rm -f \"$f\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "/tmp/dsh-tmp-data.txt\n"
+        }
+      }
+    },
+    {
+      "id": "argv-tmp-no-pathconv-disables-rewrite",
+      "category": "argv-semantics",
+      "severity": "must-match",
+      "snippet": "f=/tmp/dsh-tmp-escape.txt; echo x > \"$f\"; DSH_BASH_NATIVE_NO_PATHCONV=1 cat \"$f\"; echo \"rc=$?\"; rm -f \"$f\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "rc=1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "pipe-closed-reader-builtin-status",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "printf \"%.0sx\" $(seq 1 20000) | head -c 1; echo \" st=${PIPESTATUS[0]}\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "x st=141\n"
+        }
+      }
+    },
+    {
+      "id": "pipe-small-loop-is-served",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "i=0; while [ $i -lt 5 ]; do echo loop; i=$((i+1)); done | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "loop\n"
+        }
+      }
+    },
+    {
+      "id": "pipe-bundled-child-reports-own-status",
+      "category": "process",
+      "severity": "must-match",
+      "knownGap": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」",
+      "snippet": "seq 1 200000 2>/dev/null | head -1; echo \" st=${PIPESTATUS[0]}\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1 st=141\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-descriptor-paths",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "a",
+            "c",
+            "d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-dev-stdin-reads",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "read x < /dev/stdin <<< hi; echo \"x=$x\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "x=hi\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-arbitrary-descriptor",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "printf \"a\\nb\\n\" > /tmp/fd3.txt; while read l < /dev/fd/3; do echo \"got=$l\"; break; done 3< /tmp/fd3.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "got=a\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-dev-null-is-a-sink",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "echo hi > /dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "fd-process-substitution-shell-consumer",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "read x < <(echo hi); echo \"x=$x\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "x=hi\n"
+        }
+      }
+    },
+    {
+      "id": "fd-process-substitution-child-stdin",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "cat < <(echo hi)",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "hi\n"
+        }
+      }
+    },
+    {
+      "id": "fd-process-substitution-argument-unavailable",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "cat <(echo hi)",
+      "expect": {
+        "status": 1,
+        "stdout": {
+          "equals": ""
+        }
+      }
+    },
+    {
+      "id": "fd-process-substitution-write-side-race",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "echo hi > >(cat); sleep 0.5",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "hi\n"
+        }
+      }
+    },
+    {
+      "id": "wait-pid-status",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 7 & p=$!; wait $p; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=7\n"
+        }
+      }
+    },
+    {
+      "id": "wait-n-status",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 5 & wait -n; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=5\n"
+        }
+      }
+    },
+    {
+      "id": "wait-job-spec-status",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 4 & wait %1; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=4\n"
+        }
+      }
+    },
+    {
+      "id": "wait-n-without-children",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 5 & wait -n >/dev/null; wait -n; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=127\n"
+        }
+      }
+    },
+    {
+      "id": "wait-unknown-pid",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "wait 999999; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=127\n"
+        }
+      }
+    },
+    {
+      "id": "wait-n-reports-identifier",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 3 & p=$!; wait -n -p who; if [ \"$who\" = \"$p\" ]; then echo same; else echo other; fi",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "same\n"
+        }
+      }
+    },
+    {
+      "id": "wait-pid-after-finish",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 9 & p=$!; sleep 0.3; wait $p; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=9\n"
+        }
+      }
+    },
+    {
+      "id": "wait-n-internal-job",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "sleep 0.1 & wait -n; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "wait-two-pids-report-the-last",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c exit 2 & a=$!; cmd.exe /c exit 6 & b=$!; wait $a $b; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=6\n"
+        }
+      }
+    },
+    {
+      "id": "process-kill-job-spec",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c ping -n 20 127.0.0.1 >/dev/null & kill %1; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "process-kill-signal-status",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "cmd.exe /c ping -n 20 127.0.0.1 >/dev/null & p=$!; kill -9 \"$p\"; wait \"$p\"; echo \"wait=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "wait=137\n"
+        }
+      }
+    },
+    {
+      "id": "process-kill-unknown-pid",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "kill 999999; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "process-kill-zero-unknown-pid",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "kill -0 999999; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "platform-root-is-drive",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "snippet": "cd / && pwd",
+      "expect": {}
+    },
+    {
+      "id": "platform-drive-mount-root",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "cd /c && pwd",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "C:\\\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-subdir",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "cd /c/Windows && pwd",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "C:\\Windows\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-collapses-parent",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "cd /c/Windows/System32/.. && pwd",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "C:\\Windows\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-reads-and-tests",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "test -f /c/Windows/System32/drivers/etc/hosts && echo hosts-ok",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "hosts-ok\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-argument-copy",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "cp /c/Windows/System32/drivers/etc/hosts /tmp/hosts-probe && test -s /tmp/hosts-probe && echo copied && rm -f /tmp/hosts-probe",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "copied\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-glob",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "printf '%s\\n' /c/Windows/*.exe | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^C:/Windows/.+\\.exe$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-leaves-multi-letter-roots",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "snippet": "echo /dev/null /proc/self/fd/1 /usr/bin",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "/dev/null /proc/self/fd/1 /usr/bin\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-hits-a-script-operand",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "needs": [
+        "sed"
+      ],
+      "note": "The drive-mount rewrite reads text, not intent, so `/<letter>/…` in a program's *script* operand is rewritten with it and the program fails loudly (`sed '/x/d'` sees `X:\\d`). Recorded rather than asserted: the wording is the tool's own, and the escape hatch is the next case. The contract states this boundary so a model writes `sed '/x/d'` with `DSH_BASH_NATIVE_NO_PATHCONV=1` (or an equivalent expression) instead of debugging it.",
+      "snippet": "printf 'x\\n' > script-operand.txt; sed '/x/d' script-operand.txt 2>&1 | head -1",
+      "expect": {}
+    },
+    {
+      "id": "platform-drive-mount-script-operand-escape-hatch",
+      "category": "platform-difference",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'x\\n' > script-operand.txt; DSH_BASH_NATIVE_NO_PATHCONV=1 sed '/x/d' script-operand.txt; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "platform-drive-mount-hits-awk-program-text",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "needs": [
+        "awk"
+      ],
+      "note": "The same boundary seen from awk, where the operand that gets rewritten is the program itself (`awk '/x/{print}'` fails on `X:\\{print}`). The contract names this shape and the rewrite that avoids it (`awk '$0 ~ /x/'`).",
+      "snippet": "printf 'x\\n' > program-text.txt; awk '/x/{print}' program-text.txt 2>&1 | head -1",
+      "expect": {}
+    },
+    {
+      "id": "platform-od-bytes",
+      "category": "platform-difference",
+      "severity": "platform-difference",
+      "snippet": "printf 'x\\n' | od -c | head -1",
+      "expect": {}
+    },
+    {
+      "id": "crlf-string-plain-lines",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "echo one\r\necho two",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "one\ntwo\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-string-redirect-target",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "echo sink > /tmp/crlf-string-out.txt\r\ncat /tmp/crlf-string-out.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "sink\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-string-if-block",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "x=1\r\nif [ \"$x\" = 1 ]; then\r\necho ok\r\nfi",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-string-function",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "f() {\r\necho in-f\r\n}\r\nf",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "in-f\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-string-backslash-continuation",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "echo one \\\r\ntwo",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "one two\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-string-heredoc-body",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "cat <<EOF\r\nline-one\r\nline-two\r\nEOF",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "line-one\nline-two\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-file-sourced",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "files": [
+        "crlf-source.sh"
+      ],
+      "snippet": ". ./crlf-source.sh",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "from-sourced\nsecond\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-program-text-loses-every-carriage-return",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'a\rZ' | wc -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "2\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-escape-produced-carriage-return-is-data",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "printf 'a\\r\\nb' | wc -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "4\n"
+        }
+      }
+    },
+    {
+      "id": "crlf-file-data-keeps-its-carriage-returns",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "crlf-data.txt"
+      ],
+      "snippet": "cat crlf-data.txt | wc -c",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "4\n"
+        }
+      }
+    },
+    {
+      "id": "process-jobs-p-in-a-command-substitution",
+      "category": "process",
+      "severity": "must-match",
+      "knownGap": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」",
+      "snippet": "\"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & jobs -p > pids.txt; printf 'direct=[%s] substitution=[%s]\\n' \"$(cat pids.txt)\" \"$(jobs -p)\"; kill %1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^direct=\\[[0-9]+\\] substitution=\\[[0-9]+\\]$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-kill-refuses-several-targets",
+      "category": "process",
+      "severity": "must-match",
+      "knownGap": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」",
+      "snippet": "\"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & \"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & kill %1 %2; printf 'rc=%s\\n' \"$?\"; kill %1; kill %2",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "process-kill-one-target",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "\"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & kill \"$!\"; printf 'rc=%s\\n' \"$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "process-relative-path-command",
+      "category": "process",
+      "severity": "must-match",
+      "needs": [
+        "find"
+      ],
+      "snippet": "mkdir -p sub && cp \"$(command -v find)\" sub/relfind.exe && cd sub && ./relfind.exe --version | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "find \\(Rust\\) 0\\.10\\.0"
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-relative-path-missing-keeps-the-callers-text",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "./definitely-missing-tool 2>&1; echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "command not found: ./definitely-missing-tool",
+            "rc=127"
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-compound-stage-concurrency",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "for i in $(seq 1 20000); do echo x; done | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "x\n"
+        }
+      }
+    },
+    {
+      "id": "process-function-stage-concurrency",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "f() { for i in $(seq 1 20000); do echo x; done; }; f | head -1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "x\n"
+        }
+      }
+    },
+    {
+      "id": "process-lastpipe-runs-in-the-parent-shell",
+      "category": "process",
+      "severity": "must-match",
+      "snippet": "echo hello | read v; echo \"plain=[$v]\"; shopt -s lastpipe; echo hello | read w; echo \"lastpipe=[$w]\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "plain=\\[\\]",
+            "lastpipe=\\[hello\\]"
+          ]
+        }
+      }
+    },
+    {
+      "id": "glob-trailing-slash-requires-directory",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "files": [
+        "note.md"
+      ],
+      "snippet": "mkdir -p mydir; echo */; echo *.md/",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "mydir/\n*.md/\n"
+        }
+      }
+    },
+    {
+      "id": "xargs-rm-refuses-trailing-slash-on-a-file",
+      "category": "xargs",
+      "severity": "must-match",
+      "files": [
+        "note.md"
+      ],
+      "needs": [
+        "xargs"
+      ],
+      "note": "The program form of `rm` reaches a child process through the plugin's shim directory (patch 0016), whose path is per-engine and therefore not composable from here: `test-package.mjs` gates that the shim name is the engine itself and that this same command refuses. This case pins the rule, which holds wherever `rm` came from — a command that fails must leave the file alone.",
+      "snippet": "printf 'note.md/\\n' | xargs rm -r 2>/dev/null; rc=$?; test -f note.md && echo \"survived rc=$rc\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "^survived rc=[1-9][0-9]*$"
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-ef-same-file",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "note": "`-ef` is `stat` on Unix: two paths name one file when they resolve to the same (device, inode). This engine answered `not supported on this platform` to every form of it until patch 0020 gave it the Windows pair — the volume serial number and the file index — so the three cases here and beside it are the rule rather than an edge of it.",
+      "snippet": "[[ a.txt -ef a.txt ]]; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "0\n"
+        }
+      }
+    },
+    {
+      "id": "test-ef-different-files",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "note": "Two files that exist and differ answer false; a path-string comparison would also get this right, which is why it is `test-ef-same-file` and `test-ef-directory` that carry the weight.",
+      "snippet": "[[ a.txt -ef b.txt ]]; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "test-ef-absent-operand",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "note": "bash answers false for an operand that is not there rather than reporting an error, which is what a missing file has to keep doing once the identity query exists.",
+      "snippet": "[[ a.txt -ef absent.txt ]]; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "test-ef-directory",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "note": "A directory is the case that needs `FILE_FLAG_BACKUP_SEMANTICS` on the handle, and `./d` is a second spelling of the same directory rather than the same string.",
+      "snippet": "mkdir -p d; [[ d -ef ./d ]]; echo $?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "0\n"
+        }
+      }
+    }
+  ]
+}

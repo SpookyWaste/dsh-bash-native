@@ -1,0 +1,86 @@
+{
+  "name": "dsh-bash-native",
+  "version": "0.1.3",
+  "description": "dsh-bash-native: a Windows-native POSIX bash executor for the DSH shell seam, with engine resolution and DSH's three-tier file sandbox honored.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "bash",
+    "windows",
+    "brush",
+    "sandbox"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "author": "SpookyWaste",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SpookyWaste/dsh-bash-native.git"
+  },
+  "homepage": "https://github.com/SpookyWaste/dsh-bash-native#readme",
+  "bugs": {
+    "url": "https://github.com/SpookyWaste/dsh-bash-native/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@deepseek-ai/dsh-bash-local": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-sandbox": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/schemastery": "~3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-jobs-local": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-sandbox-local": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-sandbox-policy": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-shell": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-shell-env": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-subprocess": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-subprocess-local": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-tool-bash": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-tool-jobs": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.7-rc.2 <0.3.0-0",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2",
+    "yaml": "^2.9.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node scripts/run-tests.mjs",
+    "toolchain": "node scripts/build-toolchain.mjs",
+    "pack-toolchain": "node scripts/pack-toolchain.mjs",
+    "corpus": "node test/test-compat-corpus.mjs",
+    "doc-parity": "node test/test-doc-parity.mjs --release",
+    "prepack": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build && npm run doc-parity && npm test"
+  },
+  "files": [
+    "lib",
+    "overlays",
+    "engine",
+    "engine.lock.json",
+    "toolchain",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "cordis.patch.yml"
+  ]
+}

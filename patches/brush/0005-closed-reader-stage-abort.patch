@@ -1,0 +1,92 @@
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index c8803f0..563f25b 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -227,7 +227,7 @@ impl Execute for ast::Program {
+             shell.set_last_exit_status(result.exit_code.into());
+ 
+             // Check if we should stop executing subsequent commands
+-            if !result.is_normal_flow() {
++            if !result.is_normal_flow() || result.is_broken_pipe() {
+                 break;
+             }
+         }
+@@ -270,7 +270,7 @@ impl Execute for ast::CompoundList {
+                 shell.set_last_exit_status(result.exit_code.into());
+             }
+ 
+-            if !result.is_normal_flow() {
++            if !result.is_normal_flow() || result.is_broken_pipe() {
+                 break;
+             }
+         }
+@@ -411,7 +411,7 @@ impl Execute for ast::AndOrList {
+ 
+         for (index, next_ao) in self.additional.iter().enumerate() {
+             // Check for non-normal control flow.
+-            if !result.is_normal_flow() {
++            if !result.is_normal_flow() || result.is_broken_pipe() {
+                 break;
+             }
+ 
+@@ -926,6 +926,9 @@ impl Execute for ast::ForClauseCommand {
+             )?;
+ 
+             result = self.body.list.execute(shell, params).await?;
++            if result.is_broken_pipe() {
++                break;
++            }
+             if result.is_return_or_exit() {
+                 break;
+             }
+@@ -992,7 +995,7 @@ impl Execute for ast::CaseClauseCommand {
+             };
+ 
+             // Check for early return (return/exit) or loop control flow (break/continue)
+-            if !result.is_normal_flow() {
++            if !result.is_normal_flow() || result.is_broken_pipe() {
+                 break;
+             }
+ 
+@@ -1104,6 +1107,9 @@ impl Execute for (WhileOrUntil, &ast::WhileOrUntilClauseCommand) {
+             }
+ 
+             result = body.list.execute(shell, params).await?;
++            if result.is_broken_pipe() {
++                break;
++            }
+             if result.is_return_or_exit() {
+                 break;
+             }
+@@ -1163,6 +1169,9 @@ impl Execute for ast::ArithmeticForClauseCommand {
+             }
+ 
+             result = self.body.list.execute(shell, params).await?;
++            if result.is_broken_pipe() {
++                break;
++            }
+             if result.is_return_or_exit() {
+                 break;
+             }
+diff --git a/brush-core/src/results.rs b/brush-core/src/results.rs
+index 23f8a39..245f1da 100644
+--- a/brush-core/src/results.rs
++++ b/brush-core/src/results.rs
+@@ -63,6 +63,17 @@ impl ExecutionResult {
+         matches!(self.next_control_flow, ExecutionControlFlow::Normal)
+     }
+ 
++    /// Returns whether the command ended because the reader of its output went away.
++    ///
++    /// Windows delivers no `SIGPIPE`, so the shell reports that condition with the status bash
++    /// produces for a `SIGPIPE` death (141). A compound command has to treat it as fatal for the
++    /// stage: bash runs a pipeline stage in a child process that dies, while this shell can run the
++    /// stage in-process, and a loop that keeps writing into a closed pipe would otherwise never end.
++    #[must_use]
++    pub const fn is_broken_pipe(&self) -> bool {
++        matches!(self.exit_code, ExecutionExitCode::BrokenPipe)
++    }
++
+     /// Returns whether the execution result indicates a loop break.
+     pub const fn is_break(&self) -> bool {
+         matches!(

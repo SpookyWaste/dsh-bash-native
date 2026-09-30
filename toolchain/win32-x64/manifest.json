@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "target": "x86_64-pc-windows-msvc",
+  "files": [
+    {
+      "file": "awk.exe",
+      "sha256": "ce42e2575e611dbc1a47716f77400860e0ee5fb50586de52eaa392340227b253",
+      "bytes": 4909056,
+      "component": "goawk",
+      "version": "v1.32.0",
+      "license": "MIT",
+      "source": "https://github.com/benhoyt/goawk",
+      "names": [
+        "awk"
+      ]
+    },
+    {
+      "file": "cmp.exe",
+      "sha256": "987da488fe976415525316788228a82e15acdeb63595a74160cb83a906b961e5",
+      "bytes": 175616,
+      "component": "posix-extra",
+      "version": "0.1.0",
+      "license": "MIT",
+      "source": "in-repo (posix-extra)",
+      "names": [
+        "cmp"
+      ]
+    },
+    {
+      "file": "coreutils.exe",
+      "sha256": "d559e0e0d7367518862e7f52f6b663a4270f27acddc7d0df9b3cb75abf7f2aca",
+      "bytes": 11599360,
+      "component": "coreutils",
+      "version": "0.12.0",
+      "license": "MIT",
+      "source": "https://github.com/uutils/coreutils",
+      "names": [
+        "arch",
+        "echo",
+        "false",
+        "hostid",
+        "kill",
+        "nice",
+        "nohup",
+        "pathchk",
+        "printf",
+        "pwd",
+        "test",
+        "timeout",
+        "true",
+        "tty",
+        "uptime"
+      ]
+    },
+    {
+      "file": "diff.exe",
+      "sha256": "b6f2bf42d41e2aba96e0fffb8f7d4c7752cec7284c7eccf9e29c06255c611626",
+      "bytes": 550912,
+      "component": "posix-extra",
+      "version": "0.1.0",
+      "license": "MIT",
+      "source": "in-repo (posix-extra)",
+      "names": [
+        "diff"
+      ]
+    },
+    {
+      "file": "find.exe",
+      "sha256": "86afe44579595659ea3b03f3424f80ac321a085904b68c2aa41b0b316f52e527",
+      "bytes": 2727936,
+      "component": "findutils",
+      "version": "0.10.0",
+      "license": "MIT",
+      "source": "https://github.com/uutils/findutils",
+      "names": [
+        "find"
+      ]
+    },
+    {
+      "file": "grep.exe",
+      "sha256": "8cb1215fbcc5ed846b8e4e62ba16ce51f4e0c46bd0b6fbe021e4db490821f34d",
+      "bytes": 2062848,
+      "component": "grep",
+      "version": "0.2.0",
+      "license": "MIT",
+      "source": "https://github.com/uutils/grep",
+      "names": [
+        "grep"
+      ]
+    },
+    {
+      "file": "jq.exe",
+      "sha256": "5482eb0d3e735a8b6133d7f88b13d84c3a2e464dbde079ce1d78ae5b43004e35",
+      "bytes": 5672448,
+      "component": "jaq",
+      "version": "v3.1.1",
+      "license": "MIT",
+      "source": "https://github.com/01mf02/jaq",
+      "names": [
+        "jq"
+      ]
+    },
+    {
+      "file": "locate.exe",
+      "sha256": "0a1afade4430c706b7aaeaa2a6769bace37b1823f07081cb70335c176c989045",
+      "bytes": 1342464,
+      "component": "findutils",
+      "version": "0.10.0",
+      "license": "MIT",
+      "source": "https://github.com/uutils/findutils",
+      "names": [
+        "locate"
+      ]
+    },
+    {
+      "file": "ps.exe",
+      "sha256": "b0047f6e2b1e053d2b262398ac4bf8a95abb0f20a6a15fd69383fe13c3899ff7",
+      "bytes": 273408,
+      "component": "posix-extra",
+      "version": "0.1.0",
+      "license": "MIT",
+      "source": "in-repo (posix-extra)",
+      "names": [
+        "ps"
+      ]
+    },
+    {
+      "file": "sed.exe",
+      "sha256": "085a90925fe288c98db6b16b11e9ea870aa7d5c7bebfeb5db80242adbe925f35",
+      "bytes": 3131392,
+      "component": "sed",
+      "version": "0.1.1",
+      "license": "MIT",
+      "source": "https://github.com/uutils/sed",
+      "names": [
+        "sed"
+      ]
+    },
+    {
+      "file": "stat.exe",
+      "sha256": "5eb1e01031547a812299971ecb6ef78b03877349edceded4c48ce2158bb2f19d",
+      "bytes": 163328,
+      "component": "posix-extra",
+      "version": "0.1.0",
+      "license": "MIT",
+      "source": "in-repo (posix-extra)",
+      "names": [
+        "stat"
+      ]
+    },
+    {
+      "file": "updatedb.exe",
+      "sha256": "1478da738bab52c346a00af056fde76e0017d808ded73ce297662b06b3ca9cf6",
+      "bytes": 3291648,
+      "component": "findutils",
+      "version": "0.10.0",
+      "license": "MIT",
+      "source": "https://github.com/uutils/findutils",
+      "names": [
+        "updatedb"
+      ]
+    },
+    {
+      "file": "which.exe",
+      "sha256": "62a366625c7f4ee460935da0a153b2b3164961d6a4ffdaaf9e710938b16b2e1a",
+      "bytes": 176640,
+      "component": "posix-extra",
+      "version": "0.1.0",
+      "license": "MIT",
+      "source": "in-repo (posix-extra)",
+      "names": [
+        "which"
+      ]
+    },
+    {
+      "file": "xargs.exe",
+      "sha256": "57ca6041fd610b5c3cc6c30dc657947be5a4cc873a5b9176835108bbd656fce0",
+      "bytes": 1358336,
+      "component": "findutils",
+      "version": "0.10.0",
+      "license": "MIT",
+      "source": "https://github.com/uutils/findutils",
+      "names": [
+        "xargs"
+      ]
+    }
+  ]
+}

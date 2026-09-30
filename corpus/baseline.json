@@ -1,0 +1,120 @@
+{
+  "generated": "2026-09-30T05:18:28.641Z",
+  "engine": "brush 0.4.0 (git:08db87a6-modified)",
+  "toolchain": "engine-only",
+  "counts": {
+    "total": 194,
+    "pass": 116,
+    "fail": 0,
+    "skip": 57,
+    "collision": 11,
+    "knownGap": 4,
+    "platform": 6,
+    "silentWrong": 0
+  },
+  "skips": {
+    "argv-grep-direct-pattern": "missing grep",
+    "grep-basic": "missing grep",
+    "grep-count": "missing grep",
+    "grep-line-number": "missing grep",
+    "grep-invert": "missing grep",
+    "grep-files-with-matches": "missing grep",
+    "grep-extended-regex": "missing grep",
+    "grep-fixed-string": "missing grep",
+    "grep-case-insensitive": "missing grep",
+    "grep-recursive": "missing grep",
+    "grep-include-filter": "missing grep",
+    "grep-quiet-status": "missing grep",
+    "grep-no-match-status": "missing grep",
+    "grep-in-pipeline": "missing grep",
+    "grep-env-pipeline": "missing grep",
+    "sed-print-line": "missing sed",
+    "sed-print-range": "missing sed",
+    "sed-substitute-global": "missing sed",
+    "sed-delete-last": "missing sed",
+    "sed-backreference": "missing sed",
+    "sed-in-place": "missing sed",
+    "awk-quoted-wildcard-stays-literal": "missing awk",
+    "awk-field-one": "missing awk",
+    "awk-field-two": "missing awk",
+    "awk-field-separator": "missing awk",
+    "awk-sum": "missing awk",
+    "awk-record-number": "missing awk",
+    "xargs-echo": "missing xargs",
+    "alias-chain-xargs-rm-removes": "missing xargs",
+    "alias-chain-xargs-grep-finds": "missing xargs, grep",
+    "alias-chain-xargs-sed-edits": "missing xargs, sed",
+    "alias-chain-xargs-awk": "missing xargs, awk",
+    "alias-chain-xargs-awk-program-file": "missing xargs, awk",
+    "alias-chain-xargs-jq-reads": "missing xargs, jq",
+    "alias-chain-bare-mount-root-is-a-switch": "missing xargs",
+    "alias-chain-attached-option-value": "missing xargs",
+    "xargs-rm-removes": "missing xargs",
+    "xargs-n1": "missing xargs",
+    "xargs-replace": "missing xargs",
+    "xargs-null": "missing xargs",
+    "diff-unified-hunk": "missing diff",
+    "diff-quiet-differ": "missing diff",
+    "diff-quiet-same": "missing diff",
+    "cmp-identical": "missing cmp",
+    "jq-field": "missing jq",
+    "jq-length": "missing jq",
+    "coreutils-stat-size": "missing stat",
+    "process-ps-lists": "missing ps",
+    "process-ps-has-pid": "missing ps",
+    "collision-which-finds-program": "missing which",
+    "argv-tmp-program-path-executes": "missing grep",
+    "argv-tmp-external-tool-reads-temp": "missing grep",
+    "argv-tmp-pattern-translated-unless-escaped": "missing grep",
+    "platform-drive-mount-hits-a-script-operand": "missing sed",
+    "platform-drive-mount-script-operand-escape-hatch": "missing sed",
+    "platform-drive-mount-hits-awk-program-text": "missing awk",
+    "xargs-rm-refuses-trailing-slash-on-a-file": "missing xargs"
+  },
+  "collisions": {
+    "argv-find-direct-pattern": "find -> C:\\Windows\\system32\\find.exe",
+    "find-name": "find -> C:\\Windows\\system32\\find.exe",
+    "find-type-name": "find -> C:\\Windows\\system32\\find.exe",
+    "find-maxdepth-count": "find -> C:\\Windows\\system32\\find.exe",
+    "find-no-match-count": "find -> C:\\Windows\\system32\\find.exe",
+    "find-exec": "find -> C:\\Windows\\system32\\find.exe",
+    "alias-chain-find-exec-cp-copies": "find -> C:\\Windows\\system32\\find.exe",
+    "find-exec-rm-removes": "find -> C:\\Windows\\system32\\find.exe",
+    "xargs-from-find": "find -> C:\\Windows\\system32\\find.exe",
+    "collision-timeout-runs-command": "timeout -> C:\\Windows\\system32\\timeout.exe",
+    "process-relative-path-command": "find -> C:\\Windows\\system32\\find.exe"
+  },
+  "knownGaps": {
+    "process-dollar-bang-builtin-background": "docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」: status 0 (want 0), stdout \"bad\"",
+    "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"1\\n st=0\"",
+    "process-jobs-p-in-a-command-substitution": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」: status 0 (want 0), stdout \"direct=[21772] substitution=[]\"",
+    "process-kill-refuses-several-targets": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」: status 0 (want 0), stdout \"rc=2\", stderr \"kill: too many jobs or processes specified\""
+  },
+  "failures": {},
+  "platform": {
+    "platform-uname": {
+      "status": 0,
+      "stdout": "Windows_NT\n"
+    },
+    "platform-ls-long": {
+      "status": 0,
+      "stdout": "-rwxrwxrwx\n"
+    },
+    "platform-dev-stdin": {
+      "status": 0,
+      "stdout": "brush.exe: /dev/stdin: 系统找不到指定的路径。\n"
+    },
+    "platform-tmp-location": {
+      "status": 0,
+      "stdout": "<WORKSPACE>\\tmp-ws\\gate-tmp\n"
+    },
+    "platform-root-is-drive": {
+      "status": 0,
+      "stdout": "D:\\\n"
+    },
+    "platform-od-bytes": {
+      "status": 0,
+      "stdout": "0000000   x  \\n\n"
+    }
+  }
+}

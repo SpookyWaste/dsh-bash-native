@@ -1,0 +1,39 @@
+diff --git a/src/find/main.rs b/src/find/main.rs
+index 1d8787e..00de317 100644
+--- a/src/find/main.rs
++++ b/src/find/main.rs
+@@ -4,13 +4,16 @@
+ // license that can be found in the LICENSE file or at
+ // https://opensource.org/licenses/MIT.
+ 
++#[path = "../../dsh_path_alias.rs"]
++mod dsh_path_alias;
++
+ fn main() {
+     // Ignores the SIGPIPE signal.
+     // This is to solve the problem that when find is used with a pipe character,
+     // the downstream software of the standard output stream closes the pipe and triggers a panic.
+     uucore::panic::mute_sigpipe_panic();
+ 
+-    let args = std::env::args().collect::<Vec<String>>();
++    let args = std::env::args().map(dsh_path_alias::translate_string).collect::<Vec<String>>();
+     let strs: Vec<&str> = args.iter().map(std::convert::AsRef::as_ref).collect();
+     let deps = findutils::find::StandardDependencies::new();
+     std::process::exit(findutils::find::find_main(&strs, &deps));
+diff --git a/src/xargs/main.rs b/src/xargs/main.rs
+index 061ac21..89de8f6 100644
+--- a/src/xargs/main.rs
++++ b/src/xargs/main.rs
+@@ -4,8 +4,11 @@
+ // license that can be found in the LICENSE file or at
+ // https://opensource.org/licenses/MIT.
+ 
++#[path = "../../dsh_path_alias.rs"]
++mod dsh_path_alias;
++
+ fn main() {
+-    let args = std::env::args().collect::<Vec<String>>();
++    let args = std::env::args().map(dsh_path_alias::translate_string).collect::<Vec<String>>();
+     std::process::exit(findutils::xargs::xargs_main(
+         &args
+             .iter()

@@ -1,0 +1,19 @@
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+*.log
+.DS_Store
+engine-scratch-*/
+corpus/report.md
+target/
+# A workspace-local npm cache, used when the default cache is unwritable (a confined session)
+.npm-cache/
+# What `test-package.mjs` unpacks the tarball into; it is removed in a `finally`, and ignored in case a run is killed
+.package-check/
+# `npm pack` output, kept beside the repository so a profile can install from a path that survives a temp cleanup
+*.tgz
+# Kept as local working notes only; the published repository carries README and LICENSE
+docs/
+# Scratch for gate runs on a machine whose checkout carries the sandbox's Low label: the engine can only
+# write inside that tree, so TMP/$TEMP are pointed here.
+.tmp-run/

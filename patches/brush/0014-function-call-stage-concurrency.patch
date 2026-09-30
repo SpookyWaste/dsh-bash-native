@@ -1,0 +1,93 @@
+diff --git a/brush-core/src/commands.rs b/brush-core/src/commands.rs
+index e73d4d80..427c7ae0 100644
+--- a/brush-core/src/commands.rs
++++ b/brush-core/src/commands.rs
+@@ -20,7 +20,7 @@ use crate::{
+     interp::{self, Execute, ProcessGroupPolicy},
+     openfiles::{self, OpenFile, OpenFiles},
+     pathsearch, processes,
+-    results::ExecutionSpawnResult,
++    results::{ExecutionSpawnResult, ExecutionWaitResult},
+     sys, trace_categories, traps, variables,
+ };
+ 
+@@ -418,10 +418,24 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
+         // Assuming we weren't requested not to do so, check if it's the name of
+         // a shell function.
+         if self.use_functions {
+-            if let Some(func_registration) =
+-                self.shell.funcs().get(self.command_name.as_str()).cloned()
+-            {
+-                return self.execute_via_function(func_registration).await;
++            // The lookup is bound here rather than in the `if let` scrutinee, whose temporary borrow
++            // would outlive the move of `self.shell` below.
++            let registration = self.shell.funcs().get(self.command_name.as_str()).cloned();
++            if let Some(func_registration) = registration {
++                return match self.shell {
++                    ShellForCommand::OwnedShell { target, .. } => {
++                        Ok(Self::execute_via_function_in_owned_shell(
++                            *target,
++                            self.params,
++                            func_registration,
++                            self.command_name,
++                            self.args,
++                        ))
++                    }
++                    ShellForCommand::ParentShell(_) => {
++                        self.execute_via_function(func_registration).await
++                    }
++                };
+             }
+         }
+ 
+@@ -517,6 +531,50 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
+         ExecutionSpawnResult::StartedTask(join_handle)
+     }
+ 
++    /// Run a shell function for a pipeline stage that owns its shell, on a blocking thread.
++    ///
++    /// The same reason as [`Self::execute_via_builtin_in_owned_shell`]: a function body runs in this
++    /// process, so awaiting it in the pipeline's spawn loop would finish the stage before the stages after
++    /// it had been started, and a stage that writes more than the pipe buffer would block forever with
++    /// nobody reading it (`f() { cat big; }; f | head -1`). The body's own spawn result is awaited here,
++    /// because a function may end in an external command and the pipeline waits on one handle per stage.
++    fn execute_via_function_in_owned_shell(
++        mut shell: Shell<SE>,
++        params: ExecutionParameters,
++        func_registration: functions::Registration,
++        command_name: String,
++        args: Vec<CommandArg>,
++    ) -> ExecutionSpawnResult {
++        let last_arg = Self::take_last_arg(&args);
++        let join_handle = tokio::task::spawn_blocking(move || {
++            let cmd_context = ExecutionContext {
++                shell: &mut shell,
++                command_name,
++                params,
++            };
++
++            let rt = tokio::runtime::Handle::current();
++            let result = rt.block_on(async {
++                match invoke_shell_function(func_registration, cmd_context, &args[1..]).await? {
++                    ExecutionSpawnResult::Completed(result) => Ok(result),
++                    // A stopped child cannot be reported through this handle, and job control is off in
++                    // a pipeline stage's own shell, so the stage reports its own status instead.
++                    other => match other.wait().await? {
++                        ExecutionWaitResult::Completed(result) => Ok(result),
++                        ExecutionWaitResult::Stopped(_) => Ok(ExecutionResult::stopped()),
++                    },
++                }
++            });
++
++            // $_ is reset after the function body runs; see `execute_via_function`.
++            shell.update_last_arg_variable(last_arg);
++
++            result
++        });
++
++        ExecutionSpawnResult::StartedTask(join_handle)
++    }
++
+     async fn execute_via_builtin_in_parent_shell(
+         self,
+         builtin: builtins::Registration<SE>,

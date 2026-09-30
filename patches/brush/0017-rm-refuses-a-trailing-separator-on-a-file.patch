@@ -1,0 +1,83 @@
+diff --git a/brush-coreutils-builtins/src/lib.rs b/brush-coreutils-builtins/src/lib.rs
+index dfec486..fed75e9 100644
+--- a/brush-coreutils-builtins/src/lib.rs
++++ b/brush-coreutils-builtins/src/lib.rs
+@@ -106,6 +106,67 @@ macro_rules! register {
+     };
+ }
+ 
++/// Refuses operands whose trailing separator says "directory" but which name something else.
++///
++/// POSIX gives this rule to the kernel: `unlink("file/")` fails with `ENOTDIR`, and `rm` reports it. Windows
++/// has no such failure — whether a volume rejects a trailing separator on a regular file turns out to be a
++/// property of the volume, and on one of them `rm -r file/` deletes the file. The engine therefore applies
++/// the rule itself, so one command behaves the same way on every volume, with GNU's wording.
++///
++/// A refused operand is dropped from `args` so the rest of the command still runs, which is what GNU does;
++/// the caller turns a refusal into exit status 1 even when the remaining operands succeeded.
++/// @returns whether anything was refused, and how many operands survive.
++fn refuse_trailing_separator_on_a_regular_file(args: &mut Vec<OsString>) -> (bool, usize) {
++    let mut options = true;
++    let mut refused = false;
++    let mut surviving = 0;
++    let mut kept: Vec<OsString> = Vec::with_capacity(args.len());
++    for (index, argument) in std::mem::take(args).into_iter().enumerate() {
++        if index == 0 {
++            kept.push(argument);
++            continue;
++        }
++        let text = argument.to_string_lossy().into_owned();
++        if options && text == "--" {
++            options = false;
++            kept.push(argument);
++            continue;
++        }
++        if options && text.len() > 1 && text.starts_with('-') {
++            kept.push(argument);
++            continue;
++        }
++        let separator = text.ends_with('/') || (cfg!(windows) && text.ends_with('\\'));
++        if separator && !std::path::Path::new(&argument).is_dir() {
++            eprintln!("rm: cannot remove '{text}': Not a directory");
++            refused = true;
++            continue;
++        }
++        surviving += 1;
++        kept.push(argument);
++    }
++    *args = kept;
++    (refused, surviving)
++}
++
++/// `rm`, with the rule the platform does not apply: a trailing separator means a directory.
++#[cfg(feature = "coreutils.rm")]
++fn rm_with_platform_rule(args: Vec<OsString>) -> i32 {
++    let mut remaining = args;
++    let (refused, surviving) = refuse_trailing_separator_on_a_regular_file(&mut remaining);
++    // With no operand left there is nothing to remove, and calling the utility would add a second complaint
++    // ("missing operand") that GNU does not print for a refused operand.
++    let code = if refused && surviving == 0 {
++        1
++    } else {
++        prepare_uutil_runtime("uu_rm");
++        let code = uu_rm::uumain(remaining.into_iter());
++        finalize_uutil_runtime();
++        code
++    };
++    if refused { code.max(1) } else { code }
++}
++
+ /// Returns the set of bundled coreutils commands enabled by feature flags.
+ ///
+ /// Keyed by utility name (e.g., `"cat"`); values are `uumain`-shaped entry
+@@ -176,6 +237,10 @@ pub fn bundled_commands() -> HashMap<String, fn(Vec<OsString>) -> i32> {
+     register!(m, "coreutils.readlink", "readlink", uu_readlink);
+     register!(m, "coreutils.realpath", "realpath", uu_realpath);
+     register!(m, "coreutils.rm", "rm", uu_rm);
++    // `rm` is the one utility that needs the platform's missing rule applied before it runs; see
++    // `refuse_trailing_separator_on_a_regular_file`. Replacing the entry keeps the registry keyed by name.
++    #[cfg(feature = "coreutils.rm")]
++    m.insert("rm".to_string(), rm_with_platform_rule as fn(Vec<OsString>) -> i32);
+     register!(m, "coreutils.rmdir", "rmdir", uu_rmdir);
+     register!(m, "coreutils.seq", "seq", uu_seq);
+     register!(m, "coreutils.shred", "shred", uu_shred);
