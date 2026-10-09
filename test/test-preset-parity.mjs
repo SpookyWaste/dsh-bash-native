@@ -11,8 +11,9 @@
 // `DSH_WEB_APP_PRESET`; an installed `@deepseek-ai/dsh-web-app` this package can resolve; and — the case
 // that makes the check run on a machine that installed the harness globally — that harness's own copy of
 // the preset. A CI runner has none of the three, so the workflow fetches the one tarball the preset lives
-// in with `scripts/fetch-upstream-preset.mjs` and exports the path (the checked-in `next` channel keeps
-// that reference moving, which is what makes the alarm notice upstream drift at all). Without any of
+// in with `scripts/fetch-upstream-preset.mjs` and exports the path (that script mirrors the newest published
+// version, which keeps the reference moving without letting a dist-tag that lags decide what "newest" means;
+// it also writes the lean preset beside the standard one, so the minimal half is no longer skipped). Without any of
 // them the check skips and says what to run.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";

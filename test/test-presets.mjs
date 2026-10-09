@@ -94,14 +94,18 @@ const subagentsOf = (definition) =>
       `${subagent.id} denies the reminder tools, as the shipped preset does`,
     );
   }
-  const disabled = groupOf(definition, "delegation").config.filter(
-    (row) => row.name === "@deepseek-ai/dsh-tool-subagent" && row.disabled === true,
+  // 0.2.1-alpha.2 dropped the disabled provider rows this mirror used to carry (`tool-subagent-codex`,
+  // `tool-subagent-claude-code`) along with `tool-ralph`, so the group now declares only live rows.
+  const delegation = groupOf(definition, "delegation").config;
+  assert.deepEqual(
+    delegation.filter((row) => row.disabled === true),
+    [],
+    "no disabled provider rows remain: the shipped preset dropped them",
   );
-  assert.equal(disabled.length, 2, "the two disabled providers are still declared");
-  assert.equal(
-    disabled.some((row) => row.config.toolFilter !== undefined),
-    false,
-    "a disabled provider carries no filter: the shipped preset adds none",
+  assert.deepEqual(
+    delegation.map((row) => row.id),
+    ["tool-subagent-control", "tool-subagent-list-agents", "tool-subagent", "tool-subagent-fork", "workflow-ptc", "tool-workflow"],
+    "the delegation group carries exactly the rows the shipped preset declares",
   );
   pass("a host shipping both packages gets both rows in order, and the two enabled subagents lose the reminder tools");
 }
