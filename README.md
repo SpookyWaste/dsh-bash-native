@@ -237,7 +237,9 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## 🎛 两个预设
 
-[`cordis.patch.yml`](cordis.patch.yml) 插入两个 agent preset，它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，好让宿主层与其他 preset（包括用 `pwsh` 的那些）完全不受影响。
+[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册（`ctx.agentPresets.register()`），行数据在 [`src/preset-data.ts`](src/preset-data.ts)；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，好让宿主层与其他 preset（包括用 `pwsh` 的那些）完全不受影响。
+
+宿主探测<sub>0.1.5新增</sub>：harness 不支持的包就不挂在preset里，受支持的新版照常加载。（如0.2.1-alpha 增加的 `tool-schedule` 只会出现在该版本的preset，不会在0.2.0-rc2中出现）
 
 <table>
   <thead>
@@ -250,7 +252,7 @@ https://github.com/SpookyWaste/dsh-bash-native
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>，order 5</sub></td>
-      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：一次一条命令的 <code>bash</code>、可换成持久 <code>bash</code>、文件、作业、委派等全套工具</td>
+      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：每次调用都是全新的 <code>bash</code>、<del>可换成持久 bash</del><sub>0.1.5删除，对齐原版standard preset</sub>、文件、作业、委派等全套工具</td>
       <td>日常使用</td>
     </tr>
     <tr>
@@ -347,7 +349,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 | 类别 | 内容 |
 |---|---|
-| **公布**（20） | `grep`、`sed`、`awk`、`jq`、`find`、`xargs`、`diff`、`cmp`、`which`、`timeout`、`stat`、`ps`，以及 `tty`、`nohup`、`nice`、`uptime`、`hostid`、`pathchk`、`locate`、`updatedb` |
+| **公布**（20） | `grep`、`sed`<sub>0.1.5同步上游版本</sub>、`awk`、`jq`、`find`、`xargs`、`diff`、`cmp`、`which`、`timeout`、`stat`、`ps`，以及 `tty`、`nohup`、`nice`、`uptime`、`hostid`、`pathchk`、`locate`、`updatedb` |
 | **只装不公布**（8） | `arch` 与 shell 内建 `echo`、`printf`、`pwd`、`test`、`true`、`false`、`kill`——留作子进程要用的程序形态 |
 
 </details>

@@ -126,10 +126,10 @@
     },
     {
       "file": "sed.exe",
-      "sha256": "085a90925fe288c98db6b16b11e9ea870aa7d5c7bebfeb5db80242adbe925f35",
-      "bytes": 3131392,
+      "sha256": "22ca56a983a7849e15ae3a0a3835c1e76a2edb6ef0dfaa42083178e9fb51cae6",
+      "bytes": 2422272,
       "component": "sed",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "license": "MIT",
       "source": "https://github.com/uutils/sed",
       "names": [

@@ -237,7 +237,9 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 ## 🎛 The two presets
 
-[`cordis.patch.yml`](cordis.patch.yml) inserts two agent presets, each carrying its own `isolate: { shell: true, terminals: true }` realm so that the host layer and every other preset (including the ones using `pwsh`) are left completely untouched.
+[`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time (`ctx.agentPresets.register()`) from the row data in [`src/preset-data.ts`](src/preset-data.ts), and each preset still owns an `isolate: { shell: true, terminals: true }` realm so that the host layer and every other preset (including the ones using `pwsh`) are left completely untouched.
+
+Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual. (The `tool-schedule` row 0.2.1-alpha added, for instance, appears only in that line's preset — never in 0.2.0-rc.2's.)
 
 <table>
   <thead>
@@ -250,7 +252,7 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>, order 5</sub></td>
-      <td>Mirrors the harness's <code>standard</code> plus the shell group: a one-command-at-a-time <code>bash</code>, a switch to a persistent <code>bash</code>, and the full set of file, job and delegation tools</td>
+      <td>Mirrors the harness's <code>standard</code> plus the shell group: a <code>bash</code> that runs every call in a fresh shell, <del>switchable to a persistent bash</del><sub>no longer offered in 0.1.5, matching the shipped standard preset</sub>, and the full set of file, job and delegation tools</td>
       <td>Everyday use</td>
     </tr>
     <tr>
@@ -347,7 +349,7 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 | Category | Contents |
 |---|---|
-| **Published** (20) | `grep`, `sed`, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, and `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
+| **Published** (20) | `grep`, `sed`<sub>synced with upstream in 0.1.5</sub>, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, and `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
 | **Installed but unpublished** (8) | `arch` plus the shell builtins `echo`, `printf`, `pwd`, `test`, `true`, `false`, `kill` — kept as the program form a child process needs |
 
 </details>

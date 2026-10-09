@@ -1,10 +1,15 @@
 // Composition checks for the bundle patch: the invariant that matters is that this bundle only
 // ever ADDS rows. The Web surface keeps the shell tools inside agent presets, so a patch that
 // reconfigures a host row would silently retarget the shipped presets' `pwsh` tool.
+//
+// The patch is one row now: the entry that registers this bundle's presets at runtime. The preset
+// bodies themselves are `lib/preset-data.js`, and `test-presets.mjs` owns their behaviour.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { PRESET_IDS, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -52,19 +57,8 @@ function applyEntryPatches(data, patches) {
   return rows;
 }
 
-/** The union of every command name a row can register as a tool, for the single-`bash` check. */
-const BASH_TOOL_ROWS = ["@deepseek-ai/dsh-tool-bash", "@deepseek-ai/dsh-tool-bash-persistent"];
-
 const bundle = load(`${root}cordis.patch.yml`);
-
-/** The preset rows this bundle contributes, keyed by the preset id they register. */
-const presets = new Map(bundle[0].insert.map((row) => [row.config?.id, row]));
-
-/** One preset row's plugin list. */
-const pluginsOf = (preset) => preset.config.plugins;
-
-/** The shell group inside a preset, which is the row that isolates the realm's executor and terminal. */
-const shellGroupOf = (preset) => pluginsOf(preset).find((row) => row.group === true && row.isolate?.shell === true);
+const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
 
 // 1. The bundle patch is insert-only.
 {
@@ -74,7 +68,7 @@ const shellGroupOf = (preset) => pluginsOf(preset).find((row) => row.group === t
   pass("the bundle patch is insert-only, so no host row can be reconfigured");
 }
 
-// 2. Composing it over a host plane leaves every host row untouched.
+// 2. Composing it over a host plane leaves every host row untouched and adds one row.
 {
   const host = [
     { id: "tool-bash", name: "@deepseek-ai/dsh-tool-bash", disabled: true },
@@ -83,7 +77,7 @@ const shellGroupOf = (preset) => pluginsOf(preset).find((row) => row.group === t
     { id: "bash-sandbox", name: "@deepseek-ai/dsh-bash-sandbox", disabled: true },
   ];
   const composed = applyEntryPatches(host, bundle);
-  assert.equal(composed.length, host.length + 2, "exactly the two preset rows are added");
+  assert.equal(composed.length, host.length + 1, "exactly the registration row is added");
   for (const original of host) {
     const after = composed.find((row) => row.id === original.id);
     assert.deepEqual(after, original, `host row ${original.id} is untouched`);
@@ -91,165 +85,33 @@ const shellGroupOf = (preset) => pluginsOf(preset).find((row) => row.group === t
   pass("composing the bundle patch leaves every host row byte-identical");
 }
 
-// 3. The added rows are two agent presets: the full surface and the lean one.
+// 3. The added row is the registration entry, and it says which presets it registers.
 {
-  assert.equal(bundle[0].insert.length, 2, "the full preset and the minimal one");
-  for (const [id, order] of [["bash-native", 5], ["bash-native-minimal", 6]]) {
-    const preset = presets.get(id);
-    assert.ok(preset !== undefined, `the ${id} preset exists`);
-    assert.equal(preset.name, "@deepseek-ai/dsh-agent-preset");
-    assert.equal(preset.config.order, order);
-    assert.match(preset.config.name, /Bash/);
-    assert.match(preset.config.description, /brush/, "the preset names the engine this bundle ships");
-    assert.doesNotMatch(
-      preset.config.description,
-      /Git Bash|MSYS2|Cygwin|WSL/,
-      "the preset must not present an engine family it cannot drive as the one it runs",
-    );
-    assert.ok(Array.isArray(pluginsOf(preset)));
-  }
-  pass("the added rows declare two agent presets, the full surface and the lean one");
-}
-
-// 4. The shell group isolates the services this preset is supposed to own.
-{
-  const group = shellGroupOf(presets.get("bash-native"));
-  assert.ok(group !== undefined, "the shell group exists");
-  assert.equal(group.name, "cordis:group");
-  assert.equal(group.group, true);
-  assert.equal(group.isolate.shell, true);
-  assert.equal(group.isolate.terminals, true);
-  assert.ok(Array.isArray(group.config));
-  pass("the shell group isolates `shell` and `terminals`");
-}
-
-// 5. The group mounts this plugin, the terminal family, and the bash tool.
-{
-  const group = shellGroupOf(presets.get("bash-native"));
-  const names = group.config.map((row) => row.name);
-  for (const required of [
-    "dsh-bash-native",
-    "@deepseek-ai/dsh-terminal",
-    "@deepseek-ai/dsh-terminal-bash",
-    "@deepseek-ai/dsh-tool-bash",
-    "@deepseek-ai/dsh-tool-bash-persistent",
-  ]) {
-    assert.ok(names.includes(required), `${required} is mounted in the shell group`);
-  }
-  const executor = group.config.find((row) => row.name === "dsh-bash-native");
-  assert.equal(executor.config.engine, undefined, "the preset no longer selects an engine family: brush is the only one");
-  assert.equal(executor.config.confine, true, "the shipped preset confines by default");
+  assert.equal(bundle[0].insert.length, 1, "one row: the entry that registers both presets");
+  const row = bundle[0].insert[0];
+  assert.equal(row.id, "bash-native-presets");
+  assert.equal(row.name, "dsh-bash-native/presets");
+  assert.deepEqual(row.config.presets, [...PRESET_IDS], "the patch and the composition data name the same ids");
   assert.equal(
-    executor.config.requireEngineOnLoad,
-    true,
-    "the preset ships the engine, so a broken install must fail at load rather than at every call",
+    bundle[0].insert.some((inserted) => inserted.name === "@deepseek-ai/dsh-agent-preset"),
+    false,
+    "no preset body is declared here any more: a row declared by this file resolves from the profile, " +
+      "which cannot see the harness packages a registered preset's rows resolve against",
   );
-  assert.equal(executor.config.promptDetail, undefined, "the preset leaves the collapsed shape key unset: it no longer changes the contract");
-  pass("the shell group mounts the executor, the terminal family, and the bash tool");
+  pass("the patch adds one row: the entry that registers the two presets");
 }
 
-// 6. Exactly one row can register the tool name `bash`.
+// 4. The subpath that row names is one this package actually exports, and its build is present.
 {
-  const group = shellGroupOf(presets.get("bash-native"));
-  const candidates = group.config.filter((row) => BASH_TOOL_ROWS.includes(row.name));
-  const enabled = candidates.filter((row) => row.disabled !== true);
-  assert.equal(candidates.length, 2, "both bash tools are declared so the swap is one flag");
-  assert.equal(enabled.length, 1, "exactly one of them is enabled");
-  assert.equal(enabled[0].name, "@deepseek-ai/dsh-tool-bash", "the one-shot tool ships enabled");
-  const persistent = candidates.find((row) => row.name === "@deepseek-ai/dsh-tool-bash-persistent");
-  assert.equal(persistent.disabled, true);
-  assert.match(persistent.config.description, /persistent bash shell/);
-  assert.match(persistent.config.description, /stty` does not exist/);
-  assert.match(persistent.config.description, /not PowerShell/);
-  pass("exactly one bash tool is enabled, and the swap is a single flag");
+  const row = bundle[0].insert[0];
+  const subpath = `./${row.name.slice(row.name.indexOf("/") + 1)}`;
+  assert.equal(subpath, "./presets");
+  assert.equal(manifest.exports[subpath]?.default, "./lib/presets.js", `${subpath} resolves to the built entry`);
+  assert.ok(existsSync(join(root, "lib", "presets.js")), "the built entry the subpath points at exists");
+  pass("the row names a subpath this package exports, and the build behind it is in the tree");
 }
 
-// 7. The PTY row defers to the realm's executor for its engine path.
-{
-  const group = shellGroupOf(presets.get("bash-native"));
-  const pty = group.config.find((row) => row.name === "@deepseek-ai/dsh-terminal-bash");
-  assert.deepEqual(pty.inject, ["shell"], "the row waits for the realm executor before its expression resolves");
-  assert.equal(pty.config.shellDialect, "bash");
-  assert.equal(pty.config.backendType, "shell");
-  assert.equal(typeof pty.config.shellPath, "object");
-  assert.match(pty.config.shellPath.__js, /ctx\.get\('shell'\)\?\.enginePath/);
-  assert.equal(typeof pty.config.shellArgs, "object", "the dialect's default argv would omit the toolchain");
-  assert.match(pty.config.shellArgs.__js, /ctx\.get\('shell'\)\?\.engineArgs/);
-  assert.ok(pty.config.timeoutMs > 0);
-  pass("the PTY row resolves the realm engine path and its interactive argv");
-}
-
-// 8. Neither preset carries a PowerShell tool, so PowerShell text can never reach a bash engine.
-{
-  for (const preset of presets.values()) {
-    const all = [...pluginsOf(preset), ...shellGroupOf(preset).config];
-    assert.equal(
-      all.some((row) => String(row.name).includes("tool-pwsh")),
-      false,
-      `${preset.config.id} declares no PowerShell tool`,
-    );
-  }
-  pass("neither preset declares a PowerShell tool");
-}
-
-// 9. The lean preset mirrors the shipped `minimal` surface: a persona and one persistent shell.
-{
-  const minimal = presets.get("bash-native-minimal");
-  const persona = pluginsOf(minimal).find((row) => row.id === "persona");
-  assert.equal(persona.name, "@deepseek-ai/dsh-persona");
-  assert.equal(persona.config.complete, true, "the lean persona replaces the default one");
-  assert.equal(persona.config.includeRuntimeContext, false);
-  const group = shellGroupOf(minimal);
-  assert.equal(group.id, "bash-native-shell-minimal", "each preset owns its own realm group");
-  const executor = group.config.find((row) => row.name === "dsh-bash-native");
-  assert.equal(executor.config.promptDetail, undefined, "the lean preset states the same contract, so it sets no shape key");
-  assert.equal(executor.config.confine, true);
-  assert.equal(executor.config.requireEngineOnLoad, true);
-  const bashTools = group.config.filter((row) => BASH_TOOL_ROWS.includes(row.name));
-  assert.deepEqual(
-    bashTools.map((row) => [row.name, row.disabled ?? false]),
-    [["@deepseek-ai/dsh-tool-bash-persistent", false]],
-    "the lean preset offers the persistent shell only",
-  );
-  assert.match(bashTools[0].config.description, /persistent bash shell/);
-  // A lean surface is one shell rather than a fleet of tools, so nothing from the full preset leaks in.
-  assert.deepEqual(
-    pluginsOf(minimal).map((row) => row.id),
-    ["persona", "bash-native-shell-minimal"],
-    "the lean preset adds no other top-level row",
-  );
-  pass("the lean preset is a persona and one persistent bash shell stating the same two-sentence contract");
-}
-
-// 10. The preset keeps the full coding surface the shipped standard preset provides.
-{
-  const plugins = pluginsOf(presets.get("bash-native"));
-  const ids = plugins.map((row) => row.id);
-  for (const required of [
-    "persona",
-    "agent-instructions",
-    "tool-fs",
-    "tool-fs-search",
-    "tool-jobs",
-    "skill-filesystem",
-    "tool-skill",
-    "command-goal",
-    "tool-goal",
-    "planning",
-    "compaction",
-    "delegation",
-    "tool-ask-user",
-    "tool-todo",
-    "tool-web",
-    "present",
-    "tool-plugin-manager",
-  ]) {
-    assert.ok(ids.includes(required), `${required} is part of the preset`);
-  }
-  pass("the preset keeps the full standard coding surface");
-}
-
-// 11. The TUI overlay is explicit, complete, and switches the tool rows over.
+// 5. The TUI overlay is explicit, complete, and switches the tool rows over.
 {
   const overlay = load(`${root}overlays/single-agent-bash-native.yml`);
   const byId = new Map(overlay.filter((entry) => entry.id !== undefined).map((entry) => [entry.id, entry]));
@@ -264,7 +126,10 @@ const shellGroupOf = (preset) => pluginsOf(preset).find((row) => row.group === t
   // The two places that configure this plugin must agree on the key set. Schemastery keeps an unknown
   // key instead of rejecting it, so a stale field (the deleted `engine` selection was one) would
   // otherwise sit in the composed configuration looking like it does something.
-  const presetRow = shellGroupOf(presets.get("bash-native")).config.find((row) => row.name === "dsh-bash-native");
+  const shellGroup = composePreset("bash-native", new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE])).plugins.find(
+    (row) => row.id === "bash-native-shell",
+  );
+  const presetRow = shellGroup.config.find((row) => String(row.name).startsWith("file:"));
   assert.deepEqual(
     Object.keys(inserted[0].config).sort(),
     Object.keys(presetRow.config).sort(),
@@ -290,7 +155,7 @@ const shellGroupOf = (preset) => pluginsOf(preset).find((row) => row.group === t
   pass("the TUI overlay swaps in exactly one executor and one bash tool");
 }
 
-// 12. A wrong-shaped patch is not silently accepted by the mirror either.
+// 6. A wrong-shaped patch is not silently accepted by the mirror either.
 {
   const composed = applyEntryPatches([{ id: "tool-bash", name: "@deepseek-ai/dsh-tool-bash", disabled: true }], [
     { id: "absent-row", disabled: false },

@@ -1,0 +1,23 @@
+diff --git a/src/sed/delimited_parser.rs b/src/sed/delimited_parser.rs
+index b6a9b2d..d00a4dd 100644
+--- a/src/sed/delimited_parser.rs
++++ b/src/sed/delimited_parser.rs
+@@ -403,6 +403,18 @@ pub fn parse_regex_for_mode(
+                     line.advance();
+                     continue;
+                 }
++                if line.current() == 'b' {
++                    // `\b` in a regular expression is the word boundary GNU sed documents, and the RE
++                    // engine implements it; `parse_char_escape` decodes it to the backspace character,
++                    // which is the escape's meaning in a substitution's replacement and in
++                    // transliteration, where it is left alone. Every `\b` pattern otherwise becomes a
++                    // pattern for a byte no line holds, so it matches nothing and says nothing. `\B`,
++                    // `\w` and `\W` already reach the engine through the pass-through below.
++                    result.push(b'\\');
++                    result.push(b'b');
++                    line.advance();
++                    continue;
++                }
+                 if let Some(decoded) = parse_char_escape(line) {
+                     push_script_char(&mut result, decoded, character_mode);
+                 } else {

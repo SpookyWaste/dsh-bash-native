@@ -12,7 +12,7 @@ and the command names it publishes; `src/toolchain-artifact.ts` verifies those h
 | `grep` | 0.2.0 | MIT | https://github.com/uutils/grep | `grep.exe` | 1 |
 | `jaq` | v3.1.1 | MIT | https://github.com/01mf02/jaq | `jq.exe` | 1 |
 | `posix-extra` | 0.1.0 | MIT | in-repo (posix-extra) | `cmp.exe`, `diff.exe`, `ps.exe`, `stat.exe`, `which.exe` | 5 |
-| `sed` | 0.1.1 | MIT | https://github.com/uutils/sed | `sed.exe` | 1 |
+| `sed` | 0.2.0 | MIT | https://github.com/uutils/sed | `sed.exe` | 1 |
 
 GNU bash is **not** part of this package: it is GPLv3 and is only ever invoked as an external program.
 The engine this bundle ships has its own record in `engine/THIRD-PARTY.md` and `engine/LICENSE.brush`.

@@ -1,10 +1,10 @@
 diff --git a/src/sed/mod.rs b/src/sed/mod.rs
-index 3a51974..0967c5f 100644
+index c32d276..dc71442 100644
 --- a/src/sed/mod.rs
 +++ b/src/sed/mod.rs
-@@ -33,9 +33,14 @@ use uucore::format_usage;
- const ABOUT: &str = "Stream editor for filtering and transforming text";
+@@ -35,9 +35,14 @@ const ABOUT: &str = "Stream editor for filtering and transforming text (part of
  const USAGE: &str = "sed [OPTION]... [script] [file]...";
+ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (uutils)");
  
 +// The aliases have to hold for this binary too: `find -exec`, `xargs` and `timeout` start it
 +// themselves, with no shell in between to rewrite the arguments.
@@ -16,5 +16,5 @@ index 3a51974..0967c5f 100644
 -    let args = normalize_in_place_option(args);
 +    let args = normalize_in_place_option(args.map(dsh_path_alias::translate));
      let matches = uu_app().try_get_matches_from(args)?;
-     let (scripts, files) = get_scripts_files(&matches)?;
-     let mut context = build_context(&matches);
+ 
+     // Don't use arg_required_else_help when declaring command

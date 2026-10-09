@@ -39,7 +39,7 @@
     {
       "name": "sed",
       "repo": "https://github.com/uutils/sed",
-      "tag": "0.1.1",
+      "tag": "0.2.0",
       "features": [],
       "why": "`sed`. GNU sed is GPL, so this MIT implementation is the only distributable option.",
       "pathAlias": true,
@@ -88,10 +88,10 @@
   ],
   "packaged": {
     "path": "toolchain/win32-x64/manifest.json",
-    "sha256": "c19d3de3a5c521db878126c691b0ca34e6f531143792d5cffba595cd16be6869",
+    "sha256": "4f0ccb9938969781207e1868735da8698db5642c9c0b8a24c1b503f86e478693",
     "bytes": 4756,
     "files": 14,
     "names": 28,
-    "bytesTotal": 37435392
+    "bytesTotal": 36726272
   }
 }

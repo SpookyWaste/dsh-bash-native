@@ -1,10 +1,10 @@
 {
-  "generated": "2026-09-30T05:18:36.746Z",
+  "generated": "2026-10-08T16:10:58.975Z",
   "engine": "brush 0.4.0 (git:08db87a6-modified)",
   "toolchain": "<HOME>\\AppData\\Local\\dsh-bash-native\\tools\\bin",
   "counts": {
-    "total": 194,
-    "pass": 181,
+    "total": 201,
+    "pass": 188,
     "fail": 0,
     "skip": 0,
     "collision": 0,
@@ -18,7 +18,7 @@
     "awk-quoted-wildcard-stays-literal": "docs/research.md「已知引擎差异」的「awk 的带引号通配符：已修，退出码仍与 gawk 不同」: status 0 (want 0), stdout \"rc=1\", stderr \"open *.txt: The filename, directory name, or volume label syntax is incorrect.\"",
     "process-dollar-bang-builtin-background": "docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」: status 0 (want 0), stdout \"bad\"",
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"1\\n st=0\"",
-    "process-jobs-p-in-a-command-substitution": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」: status 0 (want 0), stdout \"direct=[11016] substitution=[]\"",
+    "process-jobs-p-in-a-command-substitution": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」: status 0 (want 0), stdout \"direct=[8828] substitution=[]\"",
     "process-kill-refuses-several-targets": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」: status 0 (want 0), stdout \"rc=2\", stderr \"kill: too many jobs or processes specified\""
   },
   "failures": {},
@@ -37,11 +37,11 @@
     },
     "platform-tmp-location": {
       "status": 0,
-      "stdout": "<WORKSPACE>\\tmp-ws\\gate-tmp\n"
+      "stdout": "<HOME>\\AppData\\Local\\Temp\\dsh-tjWyOt\n"
     },
     "platform-root-is-drive": {
       "status": 0,
-      "stdout": "D:\\\n"
+      "stdout": "C:\\\n"
     },
     "platform-drive-mount-hits-a-script-operand": {
       "status": 0,

@@ -148,10 +148,25 @@ try {
       "lib/index.js",
       "lib/argv.js",
       "lib/shim.js",
+      "lib/presets.js",
+      "lib/preset-data.js",
       "lib/types/index.d.ts",
+      "lib/types/presets.d.ts",
     ];
     const missing = required.filter((name) => !files.includes(name));
     check("the tarball carries every file the runtime needs", missing.length === 0, `missing ${missing.join(", ")}`);
+    // The bundle patch mounts `dsh-bash-native/presets`, so the export map and the allowlist have to
+    // agree: a subpath pointing at a file the allowlist dropped fails at mount time, on the user's machine.
+    const packedManifest = JSON.parse(readFileSync(join(CHECK, "package", "package.json"), "utf8"));
+    const entryPaths = Object.entries(packedManifest.exports)
+      .map(([key, value]) => [key, String(value.default ?? "").replace(/^\.\//, "")])
+      .filter(([, path]) => path.length > 0);
+    const dangling = entryPaths.filter(([, path]) => !files.includes(path));
+    check(
+      "every published export points at a file the tarball carries",
+      dangling.length === 0 && entryPaths.length === 2,
+      dangling.length > 0 ? dangling.map(([key, path]) => `${key} -> ${path}`).join(", ") : `${entryPaths.length} entries`,
+    );
     const leaked = files.filter(
       (name) =>
         name.startsWith("src/") ||

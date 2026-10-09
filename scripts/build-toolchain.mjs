@@ -141,7 +141,11 @@ function runNetwork(command, args, options = {}, attempts = 3) {
   }
 }
 
-/** Check out the pinned tag, refreshing it when asked. */
+/** Check out the pinned tag, refreshing it when asked.
+ *
+ * A checkout that already exists is reused as it is — the lock's tag is not consulted — so a lock re-pinned
+ * to another version needs `--refresh`, which is also what clears the stale patch record.
+ */
 function syncSource(source) {
   const dir = join(cacheRoot, source.name);
   // A component with no version tags is pinned by commit instead: `uutils/awk` publishes only a rolling
@@ -222,8 +226,8 @@ function injectWildStub(dir) {
  * "Already applied" cannot be answered by `git apply --reverse --check` alone, and that is measured rather
  * than assumed: `sed`'s `0002` rewrites the very call `0001` introduces, so once both are applied neither
  * the forward nor the reverse form of `0001` applies any more. Two mechanisms answer it instead. A record
- * of the applied patch set (names and digests, plus the tag) is written into the checkout, so the normal
- * re-run skips everything without touching git. Without a record — a checkout from before the record
+ * of the applied patch set (the component, and each patch's name and digest) is written into the checkout, so
+ * the normal re-run skips everything without touching git. Without a record — a checkout from before the record
  * existed, or one patched by hand — each patch is tried in order: a clean reverse apply means applied, a
  * clean forward apply means it was not, and when neither works the patch's own added lines are looked for
  * in the working tree. A patch whose lines are absent neither applies nor is present, which is a checkout

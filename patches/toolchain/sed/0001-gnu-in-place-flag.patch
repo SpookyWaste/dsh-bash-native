@@ -1,16 +1,16 @@
 diff --git a/src/sed/mod.rs b/src/sed/mod.rs
-index 88356e8..3a51974 100644
+index 07c4001..c32d276 100644
 --- a/src/sed/mod.rs
 +++ b/src/sed/mod.rs
-@@ -35,6 +35,7 @@ const USAGE: &str = "sed [OPTION]... [script] [file]...";
+@@ -37,6 +37,7 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (uutils)");
  
  #[uucore::main]
  pub fn uumain(args: impl uucore::Args) -> UResult<()> {
 +    let args = normalize_in_place_option(args);
      let matches = uu_app().try_get_matches_from(args)?;
-     let (scripts, files) = get_scripts_files(&matches)?;
-     let mut context = build_context(&matches);
-@@ -44,6 +45,33 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+ 
+     // Don't use arg_required_else_help when declaring command
+@@ -55,6 +56,33 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
      Ok(())
  }
  
@@ -44,7 +44,7 @@ index 88356e8..3a51974 100644
  #[allow(clippy::cognitive_complexity)]
  pub fn uu_app() -> Command {
      #[cfg(windows)]
-@@ -93,6 +121,7 @@ pub fn uu_app() -> Command {
+@@ -105,6 +133,7 @@ pub fn uu_app() -> Command {
                  .long("in-place")
                  .help("Edit files in place, making a backup if SUFFIX is supplied.")
                  .num_args(0..=1)

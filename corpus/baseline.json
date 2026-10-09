@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-30T05:18:28.641Z",
+  "generated": "2026-10-08T16:10:49.726Z",
   "engine": "brush 0.4.0 (git:08db87a6-modified)",
   "toolchain": "engine-only",
   "counts": {
-    "total": 194,
+    "total": 201,
     "pass": 116,
     "fail": 0,
-    "skip": 57,
+    "skip": 64,
     "collision": 11,
     "knownGap": 4,
     "platform": 6,
@@ -34,6 +34,13 @@
     "sed-delete-last": "missing sed",
     "sed-backreference": "missing sed",
     "sed-in-place": "missing sed",
+    "sed-bre-escaped-plus": "missing sed",
+    "sed-bre-escaped-question": "missing sed",
+    "sed-bre-alternation": "missing sed",
+    "sed-bre-interval": "missing sed",
+    "sed-address-zero-range": "missing sed",
+    "sed-address-step": "missing sed",
+    "sed-word-boundary": "missing sed",
     "awk-quoted-wildcard-stays-literal": "missing awk",
     "awk-field-one": "missing awk",
     "awk-field-two": "missing awk",
@@ -87,7 +94,7 @@
   "knownGaps": {
     "process-dollar-bang-builtin-background": "docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」: status 0 (want 0), stdout \"bad\"",
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"1\\n st=0\"",
-    "process-jobs-p-in-a-command-substitution": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」: status 0 (want 0), stdout \"direct=[21772] substitution=[]\"",
+    "process-jobs-p-in-a-command-substitution": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」: status 0 (want 0), stdout \"direct=[1080] substitution=[]\"",
     "process-kill-refuses-several-targets": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」: status 0 (want 0), stdout \"rc=2\", stderr \"kill: too many jobs or processes specified\""
   },
   "failures": {},
@@ -106,11 +113,11 @@
     },
     "platform-tmp-location": {
       "status": 0,
-      "stdout": "<WORKSPACE>\\tmp-ws\\gate-tmp\n"
+      "stdout": "<HOME>\\AppData\\Local\\Temp\\dsh-tjWyOt\n"
     },
     "platform-root-is-drive": {
       "status": 0,
-      "stdout": "D:\\\n"
+      "stdout": "C:\\\n"
     },
     "platform-od-bytes": {
       "status": 0,

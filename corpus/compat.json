@@ -956,6 +956,111 @@
       }
     },
     {
+      "id": "sed-bre-escaped-plus",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'aaa\\n' | sed 's/a\\+/X/'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "X\n"
+        }
+      }
+    },
+    {
+      "id": "sed-bre-escaped-question",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'ab\\n' | sed 's/ab\\?/X/'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "X\n"
+        }
+      }
+    },
+    {
+      "id": "sed-bre-alternation",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'b\\n' | sed 's/a\\|b/X/'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "X\n"
+        }
+      }
+    },
+    {
+      "id": "sed-bre-interval",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'aaaa\\n' | sed 's/a\\{2,3\\}/X/'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "Xa\n"
+        }
+      }
+    },
+    {
+      "id": "sed-address-zero-range",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'a\\nb\\nc\\n' | sed '0,/b/d'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "c\n"
+        }
+      }
+    },
+    {
+      "id": "sed-address-step",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf '1\\n2\\n3\\n4\\n' | sed -n '0~2p'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "2\n4\n"
+        }
+      }
+    },
+    {
+      "id": "sed-word-boundary",
+      "category": "sed",
+      "severity": "must-match",
+      "needs": [
+        "sed"
+      ],
+      "snippet": "printf 'foo x\\n' | sed 's/\\bfoo\\b/bar/'",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "bar x\n"
+        }
+      }
+    },
+    {
       "id": "awk-quoted-wildcard-stays-literal",
       "category": "awk",
       "severity": "must-match",
