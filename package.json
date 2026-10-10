@@ -1,6 +1,6 @@
 {
   "name": "dsh-bash-native",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "dsh-bash-native: a Windows-native POSIX bash executor for the DSH shell seam, with engine resolution and DSH's three-tier file sandbox honored.",
   "keywords": [
     "dsh",
@@ -23,6 +23,12 @@
       "types": "./lib/types/presets.d.ts",
       "default": "./lib/presets.js"
     },
+    "./terminal": {
+      "types": "./lib/types/terminal.d.ts",
+      "default": "./lib/terminal.js"
+    },
+    "./presets/*": "./presets/*",
+    "./terminal/*": "./terminal/*",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -41,13 +47,18 @@
     "url": "https://github.com/SpookyWaste/dsh-bash-native/issues"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=22.12.0"
   },
   "sideEffects": false,
   "dependencies": {
     "@deepseek-ai/dsh-bash-local": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-sandbox": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/schemastery": "~3.18.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-terminal": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-terminal-bash": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-tool-terminal": ">=0.1.7-rc.2 <0.3.0-0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -59,8 +70,11 @@
     "@deepseek-ai/dsh-subprocess": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-subprocess-local": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-system-prompt": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-terminal": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-terminal-bash": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-tool-bash": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-tool-jobs": ">=0.1.7-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-tool-terminal": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-tools": ">=0.1.7-rc.2 <0.3.0-0",
     "@types/node": "^26.2.0",
     "typescript": "^7.0.2",
@@ -78,6 +92,8 @@
   },
   "files": [
     "lib",
+    "presets",
+    "terminal",
     "overlays",
     "engine",
     "engine.lock.json",

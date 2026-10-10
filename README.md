@@ -6,18 +6,19 @@
 
 ### Rust 实现的 Windows 原生 POSIX bash 执行器
 
-**给 DSH 的 shell 提供一个真正的 `bash`** —— brush 引擎，不依赖 WSL，也不需要 MSYS 兼容层
+**给 DSH 的 shell 提供一个真正原生的 `bash`** —— brush 引擎，不依赖 WSL，也不需要 MSYS 兼容层
 
 <br>
 
-`三档权限策略` · `后台作业` · `一句模型可见的环境契约`
+`适配三档权限策略` · `后台作业` · `支持持久化终端`<sub>DSH ≥ 0.2.1-alpha.1</sub>
 
 <br>
 
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/dsh-bash-native?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![Powered by brush](https://img.shields.io/badge/powered%20by-brush-blue?style=flat-square)](https://github.com/reubeno/brush)
+[![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.2-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Powered by brush](https://img.shields.io/badge/powered%20by-brush-dea584)](https://github.com/reubeno/brush)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
 
@@ -72,13 +73,15 @@ dsh plugin --profile web add dsh-bash-native
 
 ### dsh 网页版 / 桌面版安装
 
-> **dsh 插件页面** → 右上角 **添加插件** → 填入：
+> **dsh 插件页面** → 右上角 **添加插件** → 填入插件名 `dsh-bash-native` 或仓库地址：
 
 ```
 https://github.com/SpookyWaste/dsh-bash-native
 ```
 
 重启后，在 **Settings → General** 里把 **Native Bash (Windows)** 设为默认 preset（或在会话里切过去）。
+
+> 持久化终端组件**默认关闭**，在插件管理中可以打开。见[持久终端组件](#持久终端组件)。
 
 <table>
   <tbody>
@@ -92,7 +95,11 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.1.7-rc.2 &lt;0.3.0-0</code>（0.1.7-rc.2 与 0.2.0-rc.2 实测通过）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 与 0.2.1-alpha.2 实测通过）</td>
+    </tr>
+    <tr>
+      <td><b>持久终端组件<sub>0.1.6新增</sub></b></td>
+      <td>需要 <code>&gt;=0.2.1-alpha.2</code></td>
     </tr>
   </tbody>
 </table>
@@ -101,10 +108,10 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **brush**（Rust 写的 bash 兼容 shell，MIT），本仓库对它打补丁、从源码构建，产物 `engine/win32-x64/brush.exe`（约 15 MB）随包提交；补丁逐支记录在 [`patches/brush/README.md`](patches/brush/README.md)。
+引擎是 **brush**（Rust 写的 bash 兼容 shell，MIT），本仓库对它打补丁、从源码构建，产物 `engine/win32-x64/brush.exe`（约 15 MB）随包提交。
 
-<details open>
-<summary><b>🧩 补丁清单（20 支）</b></summary>
+<details>
+<summary><b>🧩 补丁清单（点击展开）</b></summary>
 
 <br>
 
@@ -252,7 +259,7 @@ https://github.com/SpookyWaste/dsh-bash-native
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>，order 5</sub></td>
-      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：每次调用都是全新的 <code>bash</code>、<del>可换成持久 bash</del><sub>0.1.5删除，对齐原版standard preset</sub>、文件、作业、委派等全套工具</td>
+      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：每次调用都是全新的 <code>bash</code>、<del>可换成持久 bash</del><sub>0.1.5删除，对齐原版standard preset。0.1.6后由组件提供的工具接管</sub>、文件、作业、委派等全套工具</td>
       <td>日常使用</td>
     </tr>
     <tr>
@@ -262,6 +269,16 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
   </tbody>
 </table>
+
+## 📟 持久终端组件
+
+插件页面里 `dsh-bash-native` 提供**两个可分别开关的组件**：`dsh-bash-native/presets`（两个预设，默认开）与 `dsh-bash-native/terminal`（提供6个交互式持久终端工具，默认关）。
+
+<p align="center">
+  <img src="img/example1.jpg" width="50%">
+</p>
+
+该组件和内置的 **持久终端**（@deepseek-ai/dsh-experimental-terminal-bundle）注册同名工具，不能同时开启。 （`tool "terminal_open" is already registered`）
 
 ---
 
@@ -370,7 +387,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 - **brush 在 Windows 平台仍处于 preview 阶段**，有存在缺陷的可能。
 - shell 不为某个后台作业登记进程时，判活要用 `wait` 而不是 `kill -0`。
-- **命令替换里的 `jobs` / `jobs -p` 看到空表**；`kill` 一次只接受一个目标（`kill %1 %2` 报 2）；Windows 不送信号，任何信号都以 **128+n** 结束（TERM 143、KILL 137）。
+- **命令替换里的 `jobs` / `jobs -p` 看到空表**；`kill` 一次只接受一个目标（`kill %1 %2` 报 2）；Windows 不送信号，任何信号都以 **128+n** 结束（TERM 143、KILL 137）。用 ctx.jobs 注册的 job_* 工具比在终端里 & 更可靠。
 - **读端提前关闭（断管）时**，bundled 工具与外部程序用的是它们自己的措辞和退出码：
 
   | 命令 | 写端退出码 | 备注 |

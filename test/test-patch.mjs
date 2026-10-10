@@ -68,7 +68,7 @@ const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
   pass("the bundle patch is insert-only, so no host row can be reconfigured");
 }
 
-// 2. Composing it over a host plane leaves every host row untouched and adds one row.
+// 2. Composing it over a host plane leaves every host row untouched and adds this bundle's rows.
 {
   const host = [
     { id: "tool-bash", name: "@deepseek-ai/dsh-tool-bash", disabled: true },
@@ -77,7 +77,7 @@ const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
     { id: "bash-sandbox", name: "@deepseek-ai/dsh-bash-sandbox", disabled: true },
   ];
   const composed = applyEntryPatches(host, bundle);
-  assert.equal(composed.length, host.length + 1, "exactly the registration row is added");
+  assert.equal(composed.length, host.length + 2, "the presets entry and the terminal component are added");
   for (const original of host) {
     const after = composed.find((row) => row.id === original.id);
     assert.deepEqual(after, original, `host row ${original.id} is untouched`);
@@ -85,20 +85,28 @@ const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
   pass("composing the bundle patch leaves every host row byte-identical");
 }
 
-// 3. The added row is the registration entry, and it says which presets it registers.
+// 3. The added rows are the two components, each switchable on its own, and the presets entry says which
+// presets it registers.
 {
-  assert.equal(bundle[0].insert.length, 1, "one row: the entry that registers both presets");
+  assert.equal(bundle[0].insert.length, 2, "two rows: the preset registrar and the terminal component");
   const row = bundle[0].insert[0];
   assert.equal(row.id, "bash-native-presets");
   assert.equal(row.name, "dsh-bash-native/presets");
   assert.deepEqual(row.config.presets, [...PRESET_IDS], "the patch and the composition data name the same ids");
+  // The second component ships switched off, and it has to be an addressable entry: the plugin controls
+  // toggle one Loader entry each and skip rows marked `group: true`, so a group could not be switched.
+  const terminal = bundle[0].insert[1];
+  assert.equal(terminal.id, "bash-native-terminal", "the plugin controls address this row by id");
+  assert.equal(terminal.name, "dsh-bash-native/terminal", "and match it by module name");
+  assert.equal(terminal.disabled, true, "the interactive terminal ships off, because its tool names are global");
+  assert.equal(terminal.group, undefined, "a group row would be skipped by the controls and could not be switched");
   assert.equal(
     bundle[0].insert.some((inserted) => inserted.name === "@deepseek-ai/dsh-agent-preset"),
     false,
     "no preset body is declared here any more: a row declared by this file resolves from the profile, " +
       "which cannot see the harness packages a registered preset's rows resolve against",
   );
-  pass("the patch adds one row: the entry that registers the two presets");
+  pass("the patch adds two rows: the preset registrar and the terminal component");
 }
 
 // 4. The subpath that row names is one this package actually exports, and its build is present.

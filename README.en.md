@@ -6,18 +6,19 @@
 
 ### A Windows-native POSIX bash executor, written in Rust
 
-**A real `bash` for DSH's shell** — the brush engine, with no WSL and no MSYS compatibility layer
+**A genuinely native `bash` for DSH's shell** — the brush engine, with no WSL and no MSYS compatibility layer
 
 <br>
 
-`Three-tier file policy` · `Background jobs` · `One model-visible environment contract`
+`Three-tier file policy` · `Background jobs` · `Persistent terminal`<sub>DSH ≥ 0.2.1-alpha.1</sub>
 
 <br>
 
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/dsh-bash-native?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![Powered by brush](https://img.shields.io/badge/powered%20by-brush-blue?style=flat-square)](https://github.com/reubeno/brush)
+[![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.2-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
 
@@ -72,13 +73,15 @@ dsh plugin --profile web add dsh-bash-native
 
 ### From the dsh web or desktop app
 
-> **dsh plugin page** → **Add plugin** in the top right → paste:
+> **dsh plugin page** → **Add plugin** in the top right → paste the plugin name `dsh-bash-native` or the repository URL:
 
 ```
 https://github.com/SpookyWaste/dsh-bash-native
 ```
 
 After restarting, set **Native Bash (Windows)** as the default preset under **Settings → General** (or switch to it inside a session).
+
+> The persistent terminal component is **off by default**; switch it on in the plugin manager. See [the persistent terminal component](#the-persistent-terminal-component).
 
 <table>
   <tbody>
@@ -92,7 +95,11 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.1.7-rc.2 &lt;0.3.0-0</code> (0.1.7-rc.2 and 0.2.0-rc.2 both verified here)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.2 both verified here)</td>
+    </tr>
+    <tr>
+      <td><b>Persistent terminal component<sub>new in 0.1.6</sub></b></td>
+      <td>Requires <code>&gt;=0.2.1-alpha.2</code></td>
     </tr>
   </tbody>
 </table>
@@ -101,10 +108,10 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
 
 ## ⚙️ Engine
 
-The engine is **brush** (a bash-compatible shell written in Rust, MIT). This repository patches it and builds it from source, and the result — `engine/win32-x64/brush.exe`, about 15 MB — is committed with the package; every patch is documented in [`patches/brush/README.md`](patches/brush/README.md).
+The engine is **brush** (a bash-compatible shell written in Rust, MIT). This repository patches it and builds it from source, and the result — `engine/win32-x64/brush.exe`, about 15 MB — is committed with the package.
 
-<details open>
-<summary><b>🧩 The 20 patches</b></summary>
+<details>
+<summary><b>🧩 Patch list (click to expand)</b></summary>
 
 <br>
 
@@ -252,16 +259,26 @@ Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide k
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>, order 5</sub></td>
-      <td>Mirrors the harness's <code>standard</code> plus the shell group: a <code>bash</code> that runs every call in a fresh shell, <del>switchable to a persistent bash</del><sub>no longer offered in 0.1.5, matching the shipped standard preset</sub>, and the full set of file, job and delegation tools</td>
+      <td>Mirrors the harness's <code>standard</code> plus the shell group: a <code>bash</code> that runs every call in a fresh shell, <del>switchable to a persistent bash</del><sub>no longer offered in 0.1.5, matching the shipped standard preset</sub>, and the full set of file, job and delegation tools, plus<sub>new in 0.1.6</sub> the six interactive terminal tools</td>
       <td>Everyday use</td>
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash, with no file, job or delegation tools</td>
+      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash, with no file, job or delegation tools, and deliberately no interactive terminal</td>
       <td>A lightweight session that only wants a shell</td>
     </tr>
   </tbody>
 </table>
+
+## 📟 The persistent terminal component
+
+On the Plugins page, `dsh-bash-native` offers **two separately switchable components**: `dsh-bash-native/presets` (the two presets, on by default) and `dsh-bash-native/terminal` (six interactive persistent terminal tools, off by default).
+
+<p align="center">
+  <img src="img/example1.jpg" width="50%">
+</p>
+
+That component registers the same tool names as the built-in **Persistent terminals** (`@deepseek-ai/dsh-experimental-terminal-bundle`), so the two cannot be on at once. (`tool "terminal_open" is already registered`)
 
 ---
 

@@ -20,6 +20,20 @@
 #
 # The shelved alternative lives in `overlays/single-agent-bash-native.yml`, which a single-agent
 # surface (`dsh tui`, `dsh headless`, `dsh acp`) applies explicitly with `--patch`.
+#
+# The second row is the interactive terminal component, and it ships switched off. Both rows are
+# switchable separately in the Plugins page, because the controls address one Loader entry each and skip
+# rows marked `group: true` — so a composition that has to be switchable is one entry, never a group.
+#
+# It is deliberately not part of the presets: a registered preset cannot be amended, so a component that
+# could be switched on and off independently has to be a composition of its own. `lib/terminal.js` mounts
+# the harness's terminal registry, its bash PTY backend and its six `terminal_*` tools over this bundle's
+# own engine, on an isolated `shell` scope so that no composition already providing one is disturbed.
+#
+# It is off by default because those six tool names are global: the harness's own
+# `@deepseek-ai/dsh-experimental-terminal-bundle` registers the same six, and two registrations of one
+# name fail a mount. A fresh install must not walk into that, so switching this component on is an
+# explicit act — and it is mutually exclusive with that bundle.
 - insert:
     - id: bash-native-presets
       name: 'dsh-bash-native/presets'
@@ -27,3 +41,7 @@
         presets:
           - bash-native
           - bash-native-minimal
+
+    - id: bash-native-terminal
+      name: 'dsh-bash-native/terminal'
+      disabled: true

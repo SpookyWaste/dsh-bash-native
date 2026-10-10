@@ -152,6 +152,14 @@ try {
       "lib/preset-data.js",
       "lib/types/index.d.ts",
       "lib/types/presets.d.ts",
+      "lib/types/terminal.d.ts",
+      // The Plugins page reads a component's display text from `<entry name>/locale/<lang>.json`, so a
+      // dropped file shows up as the component losing its title and description in the GUI rather than
+      // as anything the host reports.
+      "terminal/locale/en.json",
+      "terminal/locale/zh.json",
+      "presets/locale/en.json",
+      "presets/locale/zh.json",
     ];
     const missing = required.filter((name) => !files.includes(name));
     check("the tarball carries every file the runtime needs", missing.length === 0, `missing ${missing.join(", ")}`);
@@ -164,9 +172,18 @@ try {
     const dangling = entryPaths.filter(([, path]) => !files.includes(path));
     check(
       "every published export points at a file the tarball carries",
-      dangling.length === 0 && entryPaths.length === 2,
+      dangling.length === 0 && entryPaths.length === 3,
       dangling.length > 0 ? dangling.map(([key, path]) => `${key} -> ${path}`).join(", ") : `${entryPaths.length} entries`,
     );
+    // The display-text resources are reached through export patterns rather than by name, and a pattern
+    // that stopped covering them would leave the GUI silently falling back to no metadata at all.
+    for (const pattern of ["./presets/*", "./terminal/*"]) {
+      check(
+        `the export map publishes ${pattern}`,
+        typeof packedManifest.exports[pattern] === "string",
+        `got ${JSON.stringify(packedManifest.exports[pattern])}`,
+      );
+    }
     const leaked = files.filter(
       (name) =>
         name.startsWith("src/") ||

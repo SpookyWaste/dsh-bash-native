@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Native Bash presets",
+    "description": "Two agent presets: Windows-native POSIX bash on the bundled Rust brush engine, with the shell, file, job and delegation tools."
+  }
+}

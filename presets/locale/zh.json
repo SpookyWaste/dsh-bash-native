@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "原生 Bash 预设",
+    "description": "两个 agent preset：Windows 原生 POSIX bash，基于随包的 Rust brush 引擎，含 shell、文件、作业与委派工具。"
+  }
+}

@@ -22,6 +22,15 @@
  * them a host can mount is a property of that host rather than of this bundle.
  * @module dsh-bash-native/preset-data
  */
+import { SELF_ENTRY, jsExpr } from './entries.js';
+/**
+ * A `!!js` expression node and this bundle's own entry URL, shared with the interactive terminal
+ * component through `./entries.js`.
+ *
+ * Re-exported rather than defined here so the two compositions cannot drift: a second copy would show up
+ * as one of them silently reading nothing from `ctx.shell`, and no alarm compares the two copies.
+ */
+export { SELF_ENTRY, jsExpr };
 /** The preset ids this bundle registers. Sessions pin an id, so these values are a compatibility surface. */
 export declare const PRESET_IDS: readonly ['bash-native', 'bash-native-minimal'];
 /** One of the ids in `PRESET_IDS`. */

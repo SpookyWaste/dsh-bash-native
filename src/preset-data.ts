@@ -23,6 +23,17 @@
  * @module dsh-bash-native/preset-data
  */
 
+import { SELF_ENTRY, jsExpr } from './entries.js'
+
+/**
+ * A `!!js` expression node and this bundle's own entry URL, shared with the interactive terminal
+ * component through `./entries.js`.
+ *
+ * Re-exported rather than defined here so the two compositions cannot drift: a second copy would show up
+ * as one of them silently reading nothing from `ctx.shell`, and no alarm compares the two copies.
+ */
+export { SELF_ENTRY, jsExpr }
+
 /** The preset ids this bundle registers. Sessions pin an id, so these values are a compatibility surface. */
 export const PRESET_IDS = ['bash-native', 'bash-native-minimal'] as const
 
@@ -70,29 +81,6 @@ interface PresetMeta {
   readonly description: string
   readonly order: number
 }
-
-/**
- * A `!!js` expression node, the value the YAML tag produces.
- *
- * The Loader recognizes one by the `__jsExpr` key alone (`isJsExpr`), evaluates it against the
- * entry's context in the same `with (ctx)` scope the YAML form gets, and leaves the raw node in the
- * options so write-back keeps the form. Declaring the shell rows here therefore keeps exactly the
- * semantics the patch file had, including the deferral that lets `inject: [shell]` resolve first.
- * @param expression - the expression source the Loader evaluates.
- * @returns the node the Loader interpolates.
- */
-const jsExpr = (expression: string): Readonly<{ __jsExpr: string }> => ({ __jsExpr: expression })
-
-/**
- * This bundle's own executor entry, as a URL resolved at registration time.
- *
- * A registered preset's rows resolve against the registry's base, and no harness installation carries
- * this package; a URL is resolved by URL rules instead of by `node_modules` lookup, and it is computed
- * from this module's own location, so it is correct for a profile install, a linked checkout, and a
- * global install alike. `./index.js` is the package's own entry point, the same module the patch
- * file named as `dsh-bash-native`.
- */
-const SELF_ENTRY = new URL('./index.js', import.meta.url).href
 
 /** A run of rows a host must be able to import before the composition carries them. */
 interface GatedInsert {
