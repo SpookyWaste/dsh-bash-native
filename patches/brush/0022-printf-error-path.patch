@@ -1,0 +1,224 @@
+diff --git a/brush-builtins/src/printf.rs b/brush-builtins/src/printf.rs
+index ca721f0..03926bb 100644
+--- a/brush-builtins/src/printf.rs
++++ b/brush-builtins/src/printf.rs
+@@ -29,6 +29,40 @@ impl builtins::Command for PrintfCommand {
+         &self,
+         context: brush_core::ExecutionContext<'_, SE>,
+     ) -> Result<ExecutionResult, Self::Error> {
++        // uucore reports a value it cannot convert by setting a process-wide exit code and writing the
++        // message itself rather than returning an error, so that code is the only signal the conversion
++        // failed and nothing else in the shell reads it. A code left behind by an earlier command would
++        // be read as this command's, so it is captured here and put back on the way out.
++        let previous_exit_code = uucore::error::get_exit_code();
++        uucore::error::set_exit_code(0);
++
++        let outcome = self.run(context).await;
++        let conversion_exit_code = uucore::error::get_exit_code();
++        uucore::error::set_exit_code(previous_exit_code);
++
++        outcome?;
++
++        if conversion_exit_code == 0 {
++            Ok(ExecutionResult::success())
++        } else {
++            // A refused conversion fails the command even though the format ran on with the value uucore
++            // defaulted, which is the status GNU printf reports for the same input.
++            Ok(ExecutionResult::new(
++                u8::try_from(conversion_exit_code).unwrap_or(1),
++            ))
++        }
++    }
++}
++
++impl PrintfCommand {
++    /// Formats the arguments, writing the result or assigning it when `-v` was given.
++    ///
++    /// Split out of `execute` so the exit code uucore sets while formatting can be read back once the
++    /// whole command has run, whichever way it ended.
++    async fn run<SE: brush_core::ShellExtensions>(
++        &self,
++        context: brush_core::ExecutionContext<'_, SE>,
++    ) -> Result<(), brush_core::Error> {
+         if let Some(variable_name) = &self.output_variable {
+             // Format to a u8 vector.
+             let mut result: Vec<u8> = vec![];
+@@ -48,11 +82,16 @@ impl builtins::Command for PrintfCommand {
+             )
+             .await?;
+         } else {
+-            format(self.format_and_args.as_slice(), context.stdout())?;
+-            context.stdout().flush()?;
++            // What a format that fails part way already produced is still this command's output, so it is
++            // flushed before the failure is reported; the failure is what the command returns.
++            let mut stdout = context.stdout();
++            let formatted = format(self.format_and_args.as_slice(), &mut stdout);
++            let flushed = stdout.flush();
++            formatted?;
++            flushed?;
+         }
+ 
+-        Ok(ExecutionResult::success())
++        Ok(())
+     }
+ }
+ 
+@@ -76,8 +115,11 @@ fn format_via_uucore(
+         .map(|s| format::FormatArgument::Unparsed(s.into()))
+         .collect();
+ 
+-    // Parse format string once.
+-    let format_items = parse_format_string(format_string)?;
++    // Parse the format string, keeping the items it produced before it stopped: a directive it cannot
++    // parse is reported after what came before it has been written, the way GNU printf reports it, so
++    // `printf 'abc%'` writes `abc` and `printf '%s%' x` writes `x`.
++    let parsed = parse_format_string(format_string);
++    let format_items = parsed.items;
+ 
+     // Wrap the format arguments.
+     let mut format_args_wrapper = format::FormatArguments::new(&format_args);
+@@ -85,10 +127,13 @@ fn format_via_uucore(
+     // Determine whether the format string contains any specifiers that consume arguments. If it
+     // doesn't, then we must only run through it once -- even when extra arguments are provided --
+     // since otherwise we'd loop forever waiting for arguments that will never be consumed. This
+-    // matches the behavior of other shells, which print such a format string exactly once.
+-    let format_consumes_args = format_items
+-        .iter()
+-        .any(|(item, _)| matches!(item, format::FormatItem::Spec(_)));
++    // matches the behavior of other shells, which print such a format string exactly once. A format
++    // string that stopped parsing runs through once for the same reason: there is nothing past the
++    // directive that stopped it to walk through again.
++    let format_consumes_args = parsed.error.is_none()
++        && format_items
++            .iter()
++            .any(|(item, _)| matches!(item, format::FormatItem::Spec(_)));
+ 
+     // Keep going until we've exhausted all format arguments. Also make sure to run at least once
+     // even if there's no format arguments.
+@@ -110,8 +155,8 @@ fn format_via_uucore(
+                     // Propagate I/O errors directly so they can be handled appropriately
+                     format::FormatError::IoError(io_err) => Error::from(io_err),
+                     // Wrap other format errors
+-                    other => Error::from(ErrorKind::PrintfInvalidUsage(std::format!(
+-                        "printf formatting error: {other}"
++                    other => Error::from(ErrorKind::PrintfInvalidUsage(describe_format_error(
++                        &other,
+                     ))),
+                 })?;
+ 
+@@ -136,6 +181,10 @@ fn format_via_uucore(
+         }
+     }
+ 
++    if let Some(error) = parsed.error {
++        return Err(ErrorKind::PrintfInvalidUsage(describe_format_error(&error)).into());
++    }
++
+     Ok(())
+ }
+ 
+@@ -154,13 +203,24 @@ fn quote_printf_q(s: &str) -> String {
+ 
+ type ParsedFormatItem = (format::FormatItem<format::EscapedChar>, bool);
+ 
+-fn parse_format_string(format_string: &str) -> Result<Vec<ParsedFormatItem>, brush_core::Error> {
+-    let format_items: Result<Vec<_>, _> = format::parse_spec_and_escape(format_string.as_bytes())
+-        .map(|result| match result {
++/// The items a format string parsed into, and the directive that stopped the parse, if any.
++struct ParsedFormat {
++    /// The items parsed before the parse stopped, in format order.
++    items: Vec<ParsedFormatItem>,
++    /// The directive `parse_spec_and_escape` rejected, when it stopped early.
++    error: Option<format::FormatError>,
++}
++
++fn parse_format_string(format_string: &str) -> ParsedFormat {
++    let mut items = Vec::new();
++    let mut error = None;
++
++    for result in format::parse_spec_and_escape(format_string.as_bytes()) {
++        match result {
+             Ok(item @ format::FormatItem::Spec(format::Spec::QuotedString { .. })) => {
+-                Ok((item, true))
++                items.push((item, true));
+             }
+-            Ok(item) => Ok((item, false)),
++            Ok(item) => items.push((item, false)),
+             // Fixed q/Q modifiers are deliberately ignored; dynamic modifiers remain unsupported
+             // until uucore exposes quoted-string metadata.
+             Err(format::FormatError::SpecError(spec, span))
+@@ -169,20 +229,63 @@ fn parse_format_string(format_string: &str) -> Result<Vec<ParsedFormatItem>, bru
+                     && !spec.contains(&b'$') =>
+             {
+                 let mut bare_q: &[u8] = b"q";
+-                let item = format::Spec::parse(&mut bare_q)
+-                    .map(format::FormatItem::Spec)
+-                    .map_err(|spec| format::FormatError::SpecError(spec.to_vec(), span))?;
+-                Ok((item, !spec.contains(&b'#')))
++                match format::Spec::parse(&mut bare_q) {
++                    Ok(item) => items.push((format::FormatItem::Spec(item), !spec.contains(&b'#'))),
++                    Err(spec) => {
++                        error = Some(format::FormatError::SpecError(spec.to_vec(), span));
++                        break;
++                    }
++                }
+             }
+-            Err(error) => Err(error),
+-        })
+-        .collect();
++            Err(other) => {
++                error = Some(other);
++                break;
++            }
++        }
++    }
+ 
+-    // Observe any errors we encountered along the way.
+-    let format_items = format_items
+-        .map_err(|e| ErrorKind::PrintfInvalidUsage(format!("printf parsing error: {e}")))?;
++    ParsedFormat { items, error }
++}
+ 
+-    Ok(format_items)
++/// A sentence describing a format error, in the wording uucore's own error catalogue carries.
++///
++/// `FormatError`'s own message is resolved through the Fluent bundle uucore embeds for the utility being
++/// run, and this command is a builtin of the engine rather than a bundled utility, so that lookup misses
++/// and the raw message id is what would reach the user. The text below is that catalogue's `en-US`
++/// wording, which is also what the toolchain's `printf` prints for the same input.
++fn describe_format_error(error: &format::FormatError) -> String {
++    match error {
++        format::FormatError::SpecError(spec, _) => format!(
++            "%{}: invalid conversion specification",
++            String::from_utf8_lossy(spec)
++        ),
++        format::FormatError::TooManySpecs(text) => format!(
++            "format '{}' has too many % directives",
++            String::from_utf8_lossy(text)
++        ),
++        format::FormatError::NeedAtLeastOneSpec(text) => format!(
++            "format '{}' has no % directive",
++            String::from_utf8_lossy(text)
++        ),
++        format::FormatError::EndsWithPercent(text) => {
++            format!("format {} ends in %", String::from_utf8_lossy(text))
++        }
++        format::FormatError::InvalidPrecision(precision) => {
++            format!("invalid precision: '{precision}'")
++        }
++        format::FormatError::WrongSpecType => "wrong % directive type was given".to_string(),
++        format::FormatError::NoMoreArguments => "no more arguments".to_string(),
++        format::FormatError::InvalidArgument(_) => "invalid argument".to_string(),
++        format::FormatError::MissingHex(_) => "missing hexadecimal number in escape".to_string(),
++        format::FormatError::InvalidCharacter(escape, digits, _) => format!(
++            "invalid universal character name \\{escape}{}",
++            String::from_utf8_lossy(digits)
++        ),
++        // These two describe themselves: the I/O variant is turned into an `Error` of its own before this
++        // is reached, and the encoding variant's message is not a catalogue entry.
++        format::FormatError::IoError(error) => error.to_string(),
++        format::FormatError::InvalidEncoding(error) => error.to_string(),
++    }
+ }
+ 
+ #[cfg(test)]

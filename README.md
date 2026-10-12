@@ -224,10 +224,22 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td><code>0020-windows-file-identity</code> <sub>0.1.3 新增</sub></td>
       <td><code>test -ef</code> 改用真正的文件身份（卷序列号 + 文件索引）比较，不再报 <code>not supported on this platform</code>；硬链接与目录都成立。</td>
     </tr>
+    <tr>
+      <td align="center">21</td>
+      <td><code>0021-pipeline-builtin-stage-result</code> <sub>0.1.7 新增</sub></td>
+      <td>管道里某个<b>内建</b>阶段的失败是那个阶段自己的结果，不是整条命令的终止：它后面的命令照跑，诊断写进它自己的 stderr（阶段上的 <code>2></code> 拦得住）。</td>
+    </tr>
+    <tr>
+      <td align="center">22</td>
+      <td><code>0022-printf-error-path</code> <sub>0.1.7 新增</sub></td>
+      <td><code>printf</code> 报错前先刷新已经写出的字节（<code>printf 'abc%'</code> 留下 <code>abc</code>），把消息说成人话而不是 <code>format-error-invalid-spec</code>，并让 uucore 为“值转换不了”设的退出码真正生效。</td>
+    </tr>
   </tbody>
 </table>
 
 </details>
+
+> 🧷 引擎还把两个 crates.io 依赖换成打过补丁的副本（`[patch.crates-io]` 指向构建缓存里的拷贝；补丁与各自的守卫表在 `patches/vendored/`）：`uucore` 让“拒绝访问”的措辞保留 OS 错误码，`uu_tail` 修掉“文件大小正好是 64 KiB 整数倍时最靠前那一块被算成 0 字节、`tail -n` 少一整块”的缺陷。
 
 > 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 15.6 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 

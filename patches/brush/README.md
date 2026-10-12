@@ -933,6 +933,84 @@ strings that differ and two files — so a content digest answers it wrongly.
 and both baselines were re-recorded: engine-only **116/194**, with the toolchain **181/194**, `fail 0`,
 `silent-wrong 0` in both.
 
+### `0021-pipeline-builtin-stage-result.patch` — a builtin stage that refuses is a result, not an exit
+
+A pipeline with a **builtin** stage ended the whole complete command when that builtin refused, and its
+diagnostic escaped the stage's own redirection. Measured on the engine before this patch:
+
+| Snippet | Before | After |
+|---|---|---|
+| `cd /definitely/absent 2>/dev/null \| cat; echo after` | nothing after the pipeline, status **1** | `after`, status **0** |
+| `cd /definitely/absent 2>err.txt \| cat; test -s err.txt && echo nonempty \|\| echo empty` | `err.txt` empty, message on the shell's stderr, the `test` never ran | `nonempty` |
+| `cd /definitely/absent \| true; echo "rc=$?"` | `rc=1` — the `echo` never ran | `rc=0` |
+| `cd /definitely/absent; echo after` | `after`, status 0 | unchanged |
+
+**Why.** A multi-command pipeline runs every stage in an owned shell, so a builtin stage is dispatched by
+`execute_via_builtin_in_owned_shell` (`brush-core/src/commands.rs`), which hands the builtin's
+`Result<ExecutionResult, Error>` to a `spawn_blocking` task and returns
+`ExecutionSpawnResult::StartedTask`. Both arms of `ExecutionSpawnResult::{wait, poll}` then read that as
+`ExecutionWaitResult::Completed(result?)` — the `?` is what turned a *command-level* error into a *wait*
+failure. The error left `Pipeline::execute`, reached `Program`'s loop, and that loop renders a command
+error and stops (`if !result.is_normal_flow() { break }`). Two consequences follow: the commands after the
+pipeline never ran, and the message was written with the **pipeline's** parameters, so a `2>` on the stage
+did not keep it.
+
+**Fix.** The error is converted inside the task, where the stage's own parameters are still in hand, and
+returned as that stage's result: the diagnostic goes to the stage's stderr, the status is the builtin's,
+and `into_result` still turns a *fatal* error into the exit it was. A panic or a cancellation inside the
+task stays an error, which is what the join handle is for. Both `wait` and `poll` read the task's result,
+so both are served by the one conversion.
+
+Only a bare builtin stage takes this path. A compound or function stage already converted its errors
+(`0013`, `0014`), a `( … )` subshell converts them, and an external or bundled child reports a status to
+begin with — which is why the defect never showed up for `seq | cat`-shaped pipelines.
+
+**Coverage.** `process-pipeline-builtin-failure-does-not-end-the-script`,
+`process-pipeline-builtin-failure-honors-its-stderr-redirect` and `process-pipeline-status-is-its-last-stage`
+are new; both baselines were re-recorded: engine-only **131/216**, with the toolchain **203/216**,
+`fail 0`, `silent-wrong 0` in both.
+
+### `0022-printf-error-path.patch` — what `printf` wrote, what it says, and what it returns
+
+`printf` is a builtin that formats through `uucore`'s `format` module, and three signals from that module
+were being dropped: the bytes produced before a format string stopped parsing, the wording for the
+directive it rejected, and the exit code uucore sets for a value it cannot convert. Measured:
+
+| Snippet | Before | After | Toolchain `printf` |
+|---|---|---|---|
+| `printf 'abc%' > o.txt; wc -c < o.txt` | **0** bytes, status 1 | 3 bytes, status 1 | 3 bytes, status 1 |
+| `printf 'abc%'` on stderr | `format-error-invalid-spec` | `%: invalid conversion specification` | `printf: %: invalid conversion specification` |
+| `printf '%d' notanumber >/dev/null; echo $?` | **0** | 1 | 1 |
+| `printf '%d' 08 >/dev/null; echo $?` | **0** | 1 | 1 |
+
+**Fix.** Three changes in `brush-builtins/src/printf.rs`:
+
+1. The format string is parsed into its items *and* the error that stopped the parse, instead of one
+   `Result` for the whole string, and the items already parsed are written before the error is reported.
+   GNU walks the string and reports a bad directive after everything before it has been written, so
+   `printf 'abc%'` writes `abc` and `printf '%s%' x` writes `x`; a format string that stopped parsing is
+   walked once. The stdout path also flushes before returning a formatting error, so bytes already handed
+   to the writer are not lost with the buffer.
+2. The two places that turned a `FormatError` into a message describe it with the wording of uucore's own
+   error catalogue (`locales/errors/en-US.ftl`), which is also what the toolchain's `printf` prints. The
+   variant's own `Display` resolves through the Fluent bundle embedded for the *utility* being run, and
+   this command is a builtin of the engine rather than a bundled utility, so that lookup missed and the
+   raw message id was what a user saw.
+3. `execute` captures `uucore::error::get_exit_code()` before the work, zeroes it, and reads it back
+   afterwards: uucore reports a refused conversion by *setting* that process-wide code and writing the
+   message itself instead of returning an error, and nothing else in the shell reads it. The old value is
+   restored on the way out — a code left behind would fail every later `printf` in the same shell, which is
+   its own corpus case. The status and the error are independent: a format string that fails still returns
+   its failure.
+
+**Scope.** The `printf: ` prefix GNU puts in front of the message is not added; the engine renders a
+builtin's error without a program name, which is the deferred "bundled stderr prefix" item rather than
+something this patch settles.
+
+**Coverage.** Five new cases: `shell-printf-partial-output-before-an-error`,
+`shell-printf-error-message-is-a-sentence`, `shell-printf-refused-conversion-status`,
+`shell-printf-unconverted-value-status` and `shell-printf-failure-does-not-linger`.
+
 ## The last gap: a background job the shell registers no process for
 
 `sleep 30 & p=$!` gives an empty `$!`. An external command now works, because

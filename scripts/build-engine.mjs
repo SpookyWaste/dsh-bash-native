@@ -16,13 +16,15 @@
 // fails and names the `--refresh` command that replays from the pin, because a half-applied tree cannot
 // be completed and guessing is how a build ends up with an artifact nobody can reproduce.
 //
-// One dependency is patched as well: the engine compiles about ninety uutils crates into itself for its
-// bundled tools, and every one of them words a refused file effect through `uucore`, which strips the OS
-// error code. `scripts/uucore-override.mjs` vendors the resolved version, applies
-// `patches/uucore/0001-keep-the-os-error-code.patch` to that copy and points `[patch.crates-io]` at it,
-// so the refusal keeps the one part of its message that does not depend on the host's language. The
-// check runs before the build and names the file it verified, because a silently unpatched engine is
-// exactly the failure this exists to prevent.
+// Two dependencies are patched as well, and `scripts/vendored-crates.mjs` is the table saying which. The
+// engine compiles about ninety uutils crates into itself for its bundled tools, and every one of them
+// words a refused file effect through `uucore`, which strips the OS error code that is the only part of
+// the message not written in the host's language; and `uu_tail` reads the block closest to the beginning
+// of a file as `size % 64 KiB`, which is zero when the size is a whole multiple of a block, so those
+// lines go missing. Each entry names the tracked patch, the vendored copy it is applied to, the
+// `[patch.crates-io]` entry that points the build at that copy, and the line that proves the patch
+// landed. The checks run before the build and name the file they verified, because a silently unpatched
+// engine is exactly the failure this exists to prevent.
 //
 // The artifact inside this package is the product: this script installs there and rewrites the artifact
 // record in `engine.lock.json` (path, sha256, bytes). The executor refuses any artifact that does not
@@ -34,7 +36,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, 
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyUucoreOverride, assertUucoreGuard } from "./uucore-override.mjs";
+import { applyVendorOverrides, assertVendorGuards } from "./vendored-crates.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(REPO_ROOT, "engine.lock.json"), "utf8"));
@@ -343,10 +345,11 @@ function build() {
 syncSource();
 applyPatches();
 
-// The vendored `uucore` has to be in place before cargo resolves, and the guard is verified against the
-// copy the build compiles, so an unpatched engine fails here rather than shipping a quietly wrong message.
-const uucore = applyUucoreOverride({ checkout, repoRoot: REPO_ROOT, cacheRoot, io });
-assertUucoreGuard({ checkout, vendorDir: uucore.vendorDir, io });
+// The vendored copies have to be in place before cargo resolves, and the guards are verified against the
+// copies the build compiles, so an unpatched engine fails here rather than shipping a quietly wrong
+// behaviour.
+const vendored = applyVendorOverrides({ checkout, repoRoot: REPO_ROOT, cacheRoot, io });
+assertVendorGuards({ checkout, applied: vendored, io });
 
 build();
 

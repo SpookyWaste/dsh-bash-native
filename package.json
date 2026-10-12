@@ -1,6 +1,6 @@
 {
   "name": "dsh-bash-native",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "dsh-bash-native: a Windows-native POSIX bash executor for the DSH shell seam, with engine resolution and DSH's three-tier file sandbox honored.",
   "keywords": [
     "dsh",

@@ -1,10 +1,9 @@
-// Points a checkout's `uucore` dependency at a vendored, patched copy of the same version.
+// Points a checkout's registry dependencies at vendored, patched copies of the same version.
 //
-// The rule the patch carries is documented in `patches/uucore/README.md`: a refused file effect has to
-// keep the OS error code in its message, because the code is the only part of that message which does
-// not depend on the host's language, and the plugin that runs these programs classifies a refusal by
-// matching stderr. `uucore` is the single place every uutils program formats those messages, so it is
-// also the single place the code has to survive.
+// The rule each patch carries is documented beside it — `patches/uucore/README.md` for the OS error code a
+// refused file effect has to keep, `patches/vendored/uu_tail/README.md` for the last block `tail` reads.
+// The table of crates that get this treatment lives in `scripts/vendored-crates.mjs`; this module owns the
+// machinery and the `uucore` entry, whose copy needs the coreutils monorepo layout described below.
 //
 // A crate from the registry cannot be patched in place — the source cache is shared with every other
 // build on the machine and cargo owns it — so the crate is copied into this project's build cache, the
@@ -19,23 +18,49 @@
 // none, and the engine then prints raw message ids: measured `brush.exe: mkdir-error-cannot-create-directory`
 // instead of the sentence. So the vendored tree carries the utility bundles the registry has unpacked,
 // which is exactly the set the crates.io fallback would have embedded, and the layout gives the primary
-// path something to walk.
+// path something to walk. A crate whose manifest says `build = false` — `uu_tail` — has no such script and
+// is copied as it is.
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative as relativeTo } from "node:path";
 
-/** The tracked patch every vendored copy receives, relative to the repository root. */
-export const UUCORE_PATCH = join("patches", "uucore", "0001-keep-the-os-error-code.patch");
+/**
+ * A registry crate this build replaces with a patched copy of the resolved version.
+ *
+ * `guard` is the discipline the whole mechanism rests on: a line only the patched file carries, checked in
+ * the copy the build will compile. Without it a `git apply` that silently did nothing looks exactly like a
+ * successful apply, and the engine ships unpatched.
+ * @typedef {object} VendoredCrate
+ * @property {string} name - the crate's name, which is also its `[patch.crates-io]` key and lock entry.
+ * @property {string} patch - the tracked patch, relative to the repository root.
+ * @property {string} module - the patched file inside the crate copy, relative to the crate root.
+ * @property {string} guard - a line only the patched `module` carries.
+ * @property {string} guardFailure - what the guard check says when that line is missing.
+ * @property {string} [layout] - `"monorepo"` when the copy has to sit at `<root>/src/<name>`.
+ * @property {string} [patchDirectory] - the `git apply --directory` a monorepo-layout patch needs.
+ * @property {string} [inRepoPatch] - the patch set that edits an in-repo copy of this crate instead.
+ */
 
-/** A line only the patched `strip_errno` carries, used to verify an application that reported success. */
-const GUARD = "if err.kind() == std::io::ErrorKind::PermissionDenied {";
+/** The `uucore` entry: its copy needs the monorepo layout for the locale bundles its build script walks. */
+export const UUCORE_CRATE = {
+  name: "uucore",
+  patch: join("patches", "uucore", "0001-keep-the-os-error-code.patch"),
+  module: join("src", "lib", "mods", "error.rs"),
+  guard: "if err.kind() == std::io::ErrorKind::PermissionDenied {",
+  guardFailure: "does not keep the OS error code on a refusal",
+  layout: "monorepo",
+  patchDirectory: "src/uucore",
+  inRepoPatch: "patches/toolchain",
+};
 
-/** The record inside a vendored copy naming the version and patch digest it was built from. */
-const MARKER_FILE = ".dsh-uucore-patch.json";
+/** The tracked `uucore` patch every vendored copy receives, relative to the repository root. */
+export const UUCORE_PATCH = UUCORE_CRATE.patch;
 
-/** The path of the patched file inside a `uucore` crate. */
-const ERROR_MODULE = join("src", "lib", "mods", "error.rs");
+/** The record inside a vendored root naming the version and patch digest it was built from. */
+function markerFile(name) {
+  return `.dsh-${name}-patch.json`;
+}
 
 /** Split a `Cargo.lock` into its `[[package]]` blocks. */
 function lockBlocks(lockText) {
@@ -43,25 +68,37 @@ function lockBlocks(lockText) {
 }
 
 /**
- * The `uucore` packages a checkout's lock resolves.
+ * The packages a checkout's lock resolves under one name.
  *
  * A lock that resolves two versions cannot be served by one `[patch.crates-io]` entry, and half-applying
  * this rule silently is the failure mode worth refusing: the caller gets the list so it can say so.
  * @param checkout - the checkout whose `Cargo.lock` to read.
- * @returns one entry per resolved `uucore`: its version and whether it already resolves from a path.
+ * @param name - the crate name to look for.
+ * @returns one entry per resolved package: its version and whether it already resolves from a path.
  */
-export function resolvedUucore(checkout) {
-  const blocks = lockBlocks(readFileSync(join(checkout, "Cargo.lock"), "utf8")).filter((block) => /^\s*name = "uucore"\s*$/m.test(block));
+export function resolvedCrate(checkout, name) {
+  const blocks = lockBlocks(readFileSync(join(checkout, "Cargo.lock"), "utf8")).filter((block) =>
+    new RegExp(`^\\s*name = "${name}"\\s*$`, "m").test(block),
+  );
   return blocks.map((block) => ({
     version: /^\s*version = "([^"]+)"/m.exec(block)?.[1] ?? "",
     fromPath: !/^\s*source = /m.test(block),
   }));
 }
 
-/** The directory a checkout declares for its in-repo `uucore`, or an empty string. */
-function declaredUucorePath(checkout) {
+/**
+ * The `uucore` packages a checkout's lock resolves.
+ * @param checkout - the checkout whose `Cargo.lock` to read.
+ * @returns one entry per resolved `uucore`: its version and whether it already resolves from a path.
+ */
+export function resolvedUucore(checkout) {
+  return resolvedCrate(checkout, UUCORE_CRATE.name);
+}
+
+/** The directory a checkout declares for one of its in-repo dependencies, or an empty string. */
+function declaredCratePath(checkout, name) {
   const manifest = readFileSync(join(checkout, "Cargo.toml"), "utf8");
-  return /^uucore\s*=\s*\{[^}]*path\s*=\s*"([^"]+)"/m.exec(manifest)?.[1] ?? "";
+  return new RegExp(`^${name}\\s*=\\s*\\{[^}]*path\\s*=\\s*"([^"]+)"`, "m").exec(manifest)?.[1] ?? "";
 }
 
 /** The section body of `[patch.crates-io]`, including an empty body, or null when the section is absent. */
@@ -74,11 +111,11 @@ function cratesIoPatchSection(manifestText) {
   return { start, end: next === null ? manifestText.length : start + next.index, body: manifestText.slice(start, next === null ? manifestText.length : start + next.index) };
 }
 
-/** The `uucore` path a checkout's own `[patch.crates-io]` entry names, or an empty string. */
-function declaredUucoreOverride(checkout) {
+/** The path a checkout's own `[patch.crates-io]` entry names for one crate, or an empty string. */
+function declaredCrateOverride(checkout, name) {
   const section = cratesIoPatchSection(readFileSync(join(checkout, "Cargo.toml"), "utf8"));
   if (section === null) return "";
-  return /^uucore\s*=\s*\{[^}]*path\s*=\s*"([^"]+)"/m.exec(section.body)?.[1] ?? "";
+  return new RegExp(`^${name}\\s*=\\s*\\{[^}]*path\\s*=\\s*"([^"]+)"`, "m").exec(section.body)?.[1] ?? "";
 }
 
 /** Whether a path is inside a directory, compared case-insensitively as Windows paths have to be. */
@@ -93,19 +130,19 @@ function isInside(path, directory) {
  * Replacing an override that names a different directory is refused unless the caller says the entry is
  * this helper's own: someone else's override is a decision, while a stale path into this project's own
  * cache is a layout change that has to be followed.
- * @param options - the checkout, the vendored directory, and whether this helper owns the current entry.
+ * @param options - the checkout, the crate name, the vendored directory, and whether this helper owns the current entry.
  * @returns whether the manifest was rewritten.
  */
-function pointAtUucore({ checkout, vendorDir, replace, io }) {
+function pointAtCrate({ checkout, name, vendorDir, replace, io }) {
   const manifest = join(checkout, "Cargo.toml");
   const text = readFileSync(manifest, "utf8");
-  const wanted = `uucore = { path = "${vendorDir.replace(/\\/g, "/")}" }`;
+  const wanted = `${name} = { path = "${vendorDir.replace(/\\/g, "/")}" }`;
   const section = cratesIoPatchSection(text);
-  const declared = section === null ? undefined : /^uucore\s*=[ \t]*\{[^}]*\}[ \t]*$/m.exec(section.body)?.[0];
+  const declared = section === null ? undefined : new RegExp(`^${name}\\s*=[ \\t]*\\{[^}]*\\}[ \\t]*$`, "m").exec(section.body)?.[0];
   if (declared !== undefined) {
     if (declared.trim() === wanted) return false;
     if (replace !== true) {
-      throw new Error(`${manifest} already points uucore at ${declared.trim()}; replacing that override is a decision, so it is refused rather than overwritten`);
+      throw new Error(`${manifest} already points ${name} at ${declared.trim()}; replacing that override is a decision, so it is refused rather than overwritten`);
     }
     writeFileSync(manifest, `${text.slice(0, section.start)}${text.slice(section.start, section.end).replace(declared, wanted)}${text.slice(section.end)}`);
   } else if (section === null) {
@@ -113,157 +150,190 @@ function pointAtUucore({ checkout, vendorDir, replace, io }) {
   } else {
     writeFileSync(manifest, `${text.slice(0, section.end).trimEnd()}\n${wanted}\n${text.slice(section.end)}`);
   }
-  io.log(`patch  ${checkout}: uucore -> ${vendorDir}`);
+  io.log(`patch  ${checkout}: ${name} -> ${vendorDir}`);
   return true;
 }
 
-/** Where a `uucore` source of this version sits in the cargo source cache, or an empty string. */
-function cachedUucoreSource(version, cargoHome) {
+/** Where a crate source of this name and version sits in the cargo source cache, or an empty string. */
+function cachedCrateSource(name, version, cargoHome) {
   const root = join(cargoHome, "registry", "src");
   if (!existsSync(root)) return "";
   for (const index of readdirSync(root)) {
-    const candidate = join(root, index, `uucore-${version}`);
+    const candidate = join(root, index, `${name}-${version}`);
     if (existsSync(join(candidate, "Cargo.toml"))) return candidate;
   }
   return "";
 }
 
 /**
- * Copy one registry `uucore` into the build cache and apply the tracked patch to the copy.
+ * The directory one crate occupies inside its vendored root.
+ *
+ * A monorepo-layout copy lives where the coreutils monorepo keeps it, `<root>/src/<name>`, because that is
+ * the path its build script walks for locale bundles; every other crate is its own root.
+ */
+function crateDir(vendorRoot, crate) {
+  return crate.layout === "monorepo" ? join(vendorRoot, "src", crate.name) : vendorRoot;
+}
+
+/**
+ * Copy one registry crate into the build cache and apply the tracked patch to the copy.
  *
  * The copy is rebuilt whenever the recorded version or patch digest differs, so editing the patch takes
  * effect on the next build and a stale copy cannot be mistaken for the patched one.
- * @param options - the version to vendor, the build cache, the repository root and the run/log seam.
- * @returns the vendored directory (the `uucore` crate itself, inside the monorepo-shaped root).
+ * @param options - the crate, the version to vendor, the checkout, the build cache, the repository root and the run/log seam.
+ * @returns the directory (the crate itself, inside its vendored root).
  */
-function vendorUucore({ version, checkout, cacheRoot, repoRoot, io }) {
-  const patchFile = join(repoRoot, UUCORE_PATCH);
+export function vendorRegistryCrate({ crate, version, checkout, cacheRoot, repoRoot, io }) {
+  const patchFile = join(repoRoot, crate.patch);
   const digest = createHash("sha256").update(readFileSync(patchFile)).digest("hex");
-  const vendorRoot = join(cacheRoot, "vendor", `uucore-${version}`);
-  const vendorDir = join(vendorRoot, "src", "uucore");
-  const marker = join(vendorRoot, MARKER_FILE);
-  const patched = join(vendorDir, ERROR_MODULE);
+  const vendorRoot = join(cacheRoot, "vendor", `${crate.name}-${version}`);
+  const vendorDir = crateDir(vendorRoot, crate);
+  const marker = join(vendorRoot, markerFile(crate.name));
+  const patched = join(vendorDir, crate.module);
   if (existsSync(marker)) {
     const recorded = JSON.parse(readFileSync(marker, "utf8"));
     if (recorded.version === version && recorded.patch === digest) {
-      if (existsSync(patched) && readFileSync(patched, "utf8").includes(GUARD)) {
-        io.log(`reuse  uucore ${version} (patched, ${vendorDir})`);
+      if (existsSync(patched) && readFileSync(patched, "utf8").includes(crate.guard)) {
+        io.log(`reuse  ${crate.name} ${version} (patched, ${vendorDir})`);
         return vendorDir;
       }
-      io.log(`rebuild uucore ${version}: the recorded copy is incomplete or unpatched`);
+      io.log(`rebuild ${crate.name} ${version}: the recorded copy is incomplete or unpatched`);
     } else {
-      io.log(`rebuild uucore ${version}: the record does not match the patch`);
+      io.log(`rebuild ${crate.name} ${version}: the record does not match the patch`);
     }
   }
   const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
-  let source = cachedUucoreSource(version, cargoHome);
+  let source = cachedCrateSource(crate.name, version, cargoHome);
   if (source.length === 0) {
     // A clean machine has the index but not the crate source; `cargo fetch` is what puts it there.
-    io.log(`fetch  uucore ${version} is absent from ${join(cargoHome, "registry", "src")}; running cargo fetch`);
+    io.log(`fetch  ${crate.name} ${version} is absent from ${join(cargoHome, "registry", "src")}; running cargo fetch`);
     io.run("cargo", ["fetch"], { cwd: checkout });
-    source = cachedUucoreSource(version, cargoHome);
+    source = cachedCrateSource(crate.name, version, cargoHome);
   }
   if (source.length === 0) {
-    throw new Error(`uucore ${version} is not in the cargo source cache under ${cargoHome} and \`cargo fetch\` did not put it there`);
+    throw new Error(`${crate.name} ${version} is not in the cargo source cache under ${cargoHome} and \`cargo fetch\` did not put it there`);
   }
   rmSync(vendorRoot, { recursive: true, force: true });
   mkdirSync(dirname(vendorDir), { recursive: true });
   cpSync(source, vendorDir, { recursive: true });
   // The utility bundles `uucore`'s build script expects to find beside itself, copied from the same
   // registry directory the crate came from. Not filtered by version: the crates.io fallback embeds every
-  // `uu_*` crate it finds there, so this reproduces that set exactly instead of a narrower one.
+  // `uu_*` crate it finds there, so this reproduces that set exactly instead of a narrower one. Only the
+  // monorepo layout needs them; a crate with `build = false` has no script to walk them.
   let utilities = 0;
-  for (const sibling of readdirSync(dirname(source))) {
-    const name = /^uu_(.+)-(\d[^-]*)$/.exec(sibling)?.[1];
-    if (name === undefined) continue;
-    const locales = join(dirname(source), sibling, "locales");
-    if (!existsSync(locales)) continue;
-    cpSync(locales, join(vendorRoot, "src", "uu", name, "locales"), { recursive: true });
-    utilities += 1;
+  if (crate.layout === "monorepo") {
+    for (const sibling of readdirSync(dirname(source))) {
+      const name = /^uu_(.+)-(\d[^-]*)$/.exec(sibling)?.[1];
+      if (name === undefined) continue;
+      const locales = join(dirname(source), sibling, "locales");
+      if (!existsSync(locales)) continue;
+      cpSync(locales, join(vendorRoot, "src", "uu", name, "locales"), { recursive: true });
+      utilities += 1;
+    }
   }
   // The vendored copy is outside any repository, and the patch's own line endings are LF while a checkout
   // may hold CRLF, so the apply must not go through the machine's autocrlf conversion. `--directory`
-  // re-roots the patch's paths at the crate's place inside the monorepo-shaped tree.
-  io.run("git", ["-c", "core.autocrlf=false", "apply", "--directory=src/uucore", patchFile], { cwd: vendorRoot });
-  if (!readFileSync(patched, "utf8").includes(GUARD)) {
-    throw new Error(`${vendorDir}: \`git apply\` reported success but ${ERROR_MODULE} does not carry the guard`);
+  // re-roots a monorepo-layout patch's paths at the crate's place inside that tree.
+  const directory = crate.patchDirectory === undefined ? [] : [`--directory=${crate.patchDirectory}`];
+  io.run("git", ["-c", "core.autocrlf=false", "apply", ...directory, patchFile], { cwd: vendorRoot });
+  if (!readFileSync(patched, "utf8").includes(crate.guard)) {
+    throw new Error(`${vendorDir}: \`git apply\` reported success but ${crate.module} does not carry the guard`);
   }
-  writeFileSync(marker, `${JSON.stringify({ version, patch: digest, patchFile: UUCORE_PATCH, source, utilities }, null, 2)}\n`);
-  io.log(`vendor uucore ${version} -> ${vendorDir} (${UUCORE_PATCH}, ${utilities} utility locale set(s))`);
+  writeFileSync(marker, `${JSON.stringify({ version, patch: digest, patchFile: crate.patch, source, utilities }, null, 2)}\n`);
+  io.log(`vendor ${crate.name} ${version} -> ${vendorDir} (${crate.patch}, ${utilities} utility locale set(s))`);
   return vendorDir;
 }
 
 /**
- * Point a checkout at a vendored `uucore`, rebuild the lock entry, and prove it took.
+ * Point a checkout at a vendored crate, rebuild the lock entry, and prove it took.
  *
- * An in-repo `uucore` (coreutils carries one) needs nothing: its own patch in `patches/toolchain` edits
- * that copy, and the guard check below still runs against it.
- * @param options - the checkout, the repository root, the build cache, and the run/log seam.
- * @returns the resolved version and the vendored directory (empty for an in-repo `uucore`).
+ * An in-repo copy needs nothing: its own patch set edits that copy, and the guard check still runs against
+ * it.
+ * @param options - the crate, the checkout, the repository root, the build cache, and the run/log seam.
+ * @returns the resolved version and the vendored directory (empty for an in-repo copy).
  */
-export function applyUucoreOverride({ checkout, repoRoot, cacheRoot, io }) {
-  const resolved = resolvedUucore(checkout);
-  if (resolved.length === 0) throw new Error(`${checkout}: Cargo.lock resolves no uucore package, so the override has no target`);
+export function applyCrateOverride({ crate, checkout, repoRoot, cacheRoot, io }) {
+  const resolved = resolvedCrate(checkout, crate.name);
+  if (resolved.length === 0) throw new Error(`${checkout}: Cargo.lock resolves no ${crate.name} package, so the override has no target`);
   if (resolved.length > 1) {
     throw new Error(
-      `${checkout}: Cargo.lock resolves ${resolved.length} uucore versions (${resolved.map((entry) => entry.version).join(", ")}), and one [patch.crates-io] entry cannot serve them all; pin the dependency before building`,
+      `${checkout}: Cargo.lock resolves ${resolved.length} ${crate.name} versions (${resolved.map((entry) => entry.version).join(", ")}), and one [patch.crates-io] entry cannot serve them all; pin the dependency before building`,
     );
   }
   const entry = resolved[0];
   if (entry.fromPath) {
-    const override = declaredUucoreOverride(checkout);
+    const override = declaredCrateOverride(checkout, crate.name);
     if (override.length === 0) {
-      io.log(`in-repo uucore ${entry.version} in ${checkout} (patched by patches/toolchain)`);
+      const by = crate.inRepoPatch === undefined ? "its own patch set" : crate.inRepoPatch;
+      io.log(`in-repo ${crate.name} ${entry.version} in ${checkout} (patched by ${by})`);
       return { version: entry.version, vendorDir: "" };
     }
     const declared = normalize(override);
     if (!isInside(declared, join(cacheRoot, "vendor"))) {
       // An override that is not this project's own is a decision; its guard is checked below like any other.
-      io.log(`reuse  uucore ${entry.version} (patched elsewhere, ${declared})`);
+      io.log(`reuse  ${crate.name} ${entry.version} (patched elsewhere, ${declared})`);
       return { version: entry.version, vendorDir: declared };
     }
     // This project's own copy: re-vendoring is what proves the layout and the patch digest are current, so
     // a cache written by an older layout is rebuilt instead of being trusted because a path exists.
-    const vendorDir = vendorUucore({ version: entry.version, checkout, cacheRoot, repoRoot, io });
+    const vendorDir = vendorRegistryCrate({ crate, version: entry.version, checkout, cacheRoot, repoRoot, io });
     if (declared !== vendorDir) {
       // A path dependency carries no path in `Cargo.lock`, so following a layout change needs no lock update.
-      pointAtUucore({ checkout, vendorDir, replace: true, io });
+      pointAtCrate({ checkout, name: crate.name, vendorDir, replace: true, io });
     }
-    io.log(`verify ${checkout}: uucore ${entry.version} resolves from ${vendorDir}`);
+    io.log(`verify ${checkout}: ${crate.name} ${entry.version} resolves from ${vendorDir}`);
     return { version: entry.version, vendorDir };
   }
-  const vendorDir = vendorUucore({ version: entry.version, checkout, cacheRoot, repoRoot, io });
-  pointAtUucore({ checkout, vendorDir, replace: false, io });
+  const vendorDir = vendorRegistryCrate({ crate, version: entry.version, checkout, cacheRoot, repoRoot, io });
+  pointAtCrate({ checkout, name: crate.name, vendorDir, replace: false, io });
   // A lock that still names the registry copy means cargo ignored the patch (it only warns), and the
-  // build would then produce an engine whose messages are unpatched while everything looks fine.
-  const current = resolvedUucore(checkout)[0];
+  // build would then produce an engine whose behaviour is unpatched while everything looks fine.
+  const current = resolvedCrate(checkout, crate.name)[0];
   if (current.fromPath !== true) {
-    io.run("cargo", ["update", "-p", "uucore"], { cwd: checkout });
+    io.run("cargo", ["update", "-p", crate.name], { cwd: checkout });
   }
-  const settled = resolvedUucore(checkout);
+  const settled = resolvedCrate(checkout, crate.name);
   if (settled.length !== 1 || settled[0].fromPath !== true || settled[0].version !== entry.version) {
-    throw new Error(`${checkout}: uucore still resolves as ${settled.map((item) => `${item.version}${item.fromPath ? " (path)" : " (registry)"}`).join(", ")}; the [patch.crates-io] entry was not adopted`);
+    throw new Error(`${checkout}: ${crate.name} still resolves as ${settled.map((item) => `${item.version}${item.fromPath ? " (path)" : " (registry)"}`).join(", ")}; the [patch.crates-io] entry was not adopted`);
   }
-  io.log(`verify ${checkout}: uucore ${entry.version} resolves from ${vendorDir}`);
+  io.log(`verify ${checkout}: ${crate.name} ${entry.version} resolves from ${vendorDir}`);
   return { version: entry.version, vendorDir };
 }
 
 /**
- * Prove the guard is really in the `uucore` this checkout builds against.
+ * Prove a vendored crate carries its patch, in the copy this checkout builds against.
  *
- * `applyUucoreOverride` checks the vendored copy it just wrote; this check reads the file the build will
- * compile either way, so the in-repo `coreutils` shape — whose patch comes from `patches/toolchain` — is
- * covered by the same statement.
+ * {@link applyCrateOverride} checks the copy it just wrote; this check reads the file the build will
+ * compile either way, so the in-repo shape — whose patch comes from another patch set — is covered by the
+ * same statement.
+ * @param options - the crate, the checkout, the vendored directory, and the log seam.
+ * @returns the patched file's path.
+ */
+export function assertCrateGuard({ crate, checkout, vendorDir, io }) {
+  const inRepo = declaredCratePath(checkout, crate.name);
+  const file = vendorDir.length > 0 ? join(normalize(vendorDir), crate.module) : join(checkout, inRepo, crate.module);
+  if (!existsSync(file)) throw new Error(`${file} does not exist, so the guard cannot be verified`);
+  if (!readFileSync(file, "utf8").includes(crate.guard)) {
+    throw new Error(`${file} ${crate.guardFailure}; apply ${crate.patch} before building`);
+  }
+  io.log(`guard  ${file}`);
+  return file;
+}
+
+/**
+ * Point a checkout at a vendored `uucore`, rebuild the lock entry, and prove it took.
+ * @param options - the checkout, the repository root, the build cache, and the run/log seam.
+ * @returns the resolved version and the vendored directory (empty for an in-repo `uucore`).
+ */
+export function applyUucoreOverride({ checkout, repoRoot, cacheRoot, io }) {
+  return applyCrateOverride({ crate: UUCORE_CRATE, checkout, repoRoot, cacheRoot, io });
+}
+
+/**
+ * Prove the guard is really in the `uucore` this checkout builds against.
  * @param options - the checkout, the vendored directory from {@link applyUucoreOverride}, and the log seam.
  * @returns the patched file's path.
  */
 export function assertUucoreGuard({ checkout, vendorDir, io }) {
-  const inRepo = declaredUucorePath(checkout);
-  const file = vendorDir.length > 0 ? join(normalize(vendorDir), ERROR_MODULE) : join(checkout, inRepo, ERROR_MODULE);
-  if (!existsSync(file)) throw new Error(`${file} does not exist, so the guard cannot be verified`);
-  if (!readFileSync(file, "utf8").includes(GUARD)) {
-    throw new Error(`${file} does not keep the OS error code on a refusal; apply ${UUCORE_PATCH} before building`);
-  }
-  io.log(`guard  ${file}`);
-  return file;
+  return assertCrateGuard({ crate: UUCORE_CRATE, checkout, vendorDir, io });
 }

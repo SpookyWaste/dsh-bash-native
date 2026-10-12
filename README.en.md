@@ -224,10 +224,22 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
       <td><code>0020-windows-file-identity</code> <sub>new in 0.1.3</sub></td>
       <td><code>test -ef</code> compares real file identity (volume serial number + file index) instead of reporting <code>not supported on this platform</code>; hard links and directories both work.</td>
     </tr>
+    <tr>
+      <td align="center">21</td>
+      <td><code>0021-pipeline-builtin-stage-result</code> <sub>new in 0.1.7</sub></td>
+      <td>A <b>builtin</b> stage that fails in a pipeline is that stage's own result, not the end of the command: what follows still runs, and the diagnostic goes to the stage's stderr, where its <code>2></code> keeps it.</td>
+    </tr>
+    <tr>
+      <td align="center">22</td>
+      <td><code>0022-printf-error-path</code> <sub>new in 0.1.7</sub></td>
+      <td><code>printf</code> flushes the bytes it already wrote before reporting a failure (<code>printf 'abc%'</code> leaves <code>abc</code>), words the message instead of printing <code>format-error-invalid-spec</code>, and lets the exit code uucore sets for a value it cannot convert take effect.</td>
+    </tr>
   </tbody>
 </table>
 
 </details>
+
+> 🧷 Two crates.io dependencies are also replaced with patched copies (`[patch.crates-io]` points at a copy in the build cache; the patches and their guards are tabled in `patches/vendored/`): `uucore` keeps the OS error code in a refusal's wording, and `uu_tail` no longer sizes the block closest to the beginning of a file as zero when the file's size is a whole multiple of 64 KiB.
 
 > 💡 Every resolution verifies the artifact against the **sha256** in the lock, and skips the repeat check by **stamping**: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and an unchanged stamp means those 15.6 MB are never read again (`verifyArtifacts: 'always'` restores hashing every time).
 

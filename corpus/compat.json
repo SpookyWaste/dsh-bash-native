@@ -3049,6 +3049,205 @@
           "equals": "0\n"
         }
       }
+    },
+    {
+      "id": "process-pipeline-builtin-failure-does-not-end-the-script",
+      "category": "process",
+      "severity": "must-match",
+      "note": "A builtin stage that refuses is a command that failed, not a shell that cannot continue. Measured before the fix: nothing after the pipeline ran at all, because the stage's error left `wait()` and the program loop treated it as the end of the complete command.",
+      "snippet": "cd /definitely/absent 2>/dev/null | cat; echo after",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "after\n"
+        }
+      }
+    },
+    {
+      "id": "process-pipeline-builtin-failure-honors-its-stderr-redirect",
+      "category": "process",
+      "severity": "must-match",
+      "note": "The diagnostic belongs to the stage, so the stage's `2>` keeps it. Measured before the fix: the message was written on the shell's own stderr, `err.txt` stayed empty, and the `test` after the pipeline never ran.",
+      "snippet": "cd /definitely/absent 2>err.txt | cat; test -s err.txt && echo nonempty || echo empty",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "nonempty\n"
+        }
+      }
+    },
+    {
+      "id": "process-pipeline-status-is-its-last-stage",
+      "category": "process",
+      "severity": "must-match",
+      "note": "The failing stage contributes its own status, not the pipeline's: the last stage still answers for the pipeline.",
+      "snippet": "cd /definitely/absent 2>/dev/null | true; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "shell-printf-partial-output-before-an-error",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "note": "GNU printf writes what it has already walked past before reporting a directive it cannot parse: `abc` reaches the file and the command fails. Measured before the fix: 0 bytes, because the whole format string was parsed before anything was written.",
+      "snippet": "printf 'abc%' > o.txt 2>/dev/null; echo \"rc=$? bytes=$(wc -c < o.txt)\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1 bytes=3\n"
+        }
+      }
+    },
+    {
+      "id": "shell-printf-error-message-is-a-sentence",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "note": "The wording is uucore's own error catalogue (en-US), which is also what the toolchain's printf prints. The raw message id appeared because this command is a builtin with no Fluent bundle behind it.",
+      "snippet": "printf 'abc%' 2>&1 >/dev/null; true",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "matches": [
+            "%: invalid conversion specification"
+          ],
+          "notContains": [
+            "format-error-"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shell-printf-refused-conversion-status",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "note": "uucore reports a value it cannot convert by setting a process-wide exit code and writing the message itself, so the code has to be read back. Measured before the fix: the builtin returned success and `$?` was 0.",
+      "snippet": "printf '%d' notanumber >/dev/null 2>/dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "shell-printf-unconverted-value-status",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "note": "The same rule for a value that converts only partly (`08`): the message is the command's, and so is the failing status.",
+      "snippet": "printf '%d' 08 >/dev/null 2>/dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\n"
+        }
+      }
+    },
+    {
+      "id": "shell-printf-failure-does-not-linger",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "note": "That exit code is process-wide, so it is captured and put back; without that, every printf after a refused conversion would fail on a code that was never its own.",
+      "snippet": "printf '%d' x >/dev/null 2>/dev/null; printf 'ok\\n'; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "ok\nrc=0\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-tail-block-multiple-last-line",
+      "category": "coreutils",
+      "severity": "must-match",
+      "note": "The file is 65536 bytes, a whole multiple of the 64 KiB block `tail` walks backwards with. Measured before the fix: `-n 1` printed nothing, because the block closest to the beginning of the file was sized as `size % 65536`, which is zero there.",
+      "snippet": "yes 1234567 | head -n 8192 > f.txt; wc -c < f.txt; tail -n 1 f.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "65536\n1234567\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-tail-block-multiple-sixteen-thousand",
+      "category": "coreutils",
+      "severity": "must-match",
+      "note": "The same defect one block further in: a 131072-byte file answered `-n 16384` with 8192 lines before the fix, one whole block short.",
+      "snippet": "yes 1234567 | head -n 16384 > g.txt; tail -n 16384 g.txt | wc -l",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "16384\n"
+        }
+      }
+    },
+    {
+      "id": "coreutils-tail-non-multiple-size-unchanged",
+      "category": "coreutils",
+      "severity": "must-match",
+      "note": "The boundary the fix had to leave alone: a size that is not a whole multiple already answered with its remainder.",
+      "snippet": "yes 1234567 | head -n 8189 > h.txt; wc -c < h.txt; tail -n 2 h.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "65512\n1234567\n1234567\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-stderr-to-dev-null",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "ls /definitely/absent 2>/dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=2\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-append-and-merge-to-dev-null",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "echo x >> /dev/null; echo y &> /dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-input-from-dev-null",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "wc -c < /dev/null",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "0\n"
+        }
+      }
+    },
+    {
+      "id": "fd-redirect-bundled-tool-writes-to-dev-null",
+      "category": "descriptor",
+      "severity": "must-match",
+      "files": [
+        "a.txt"
+      ],
+      "snippet": "tail -n 1 a.txt > /dev/null; echo \"rc=$?\"",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
     }
   ]
 }
