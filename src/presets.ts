@@ -20,8 +20,8 @@
 import { createRequire } from 'node:module'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { PRESET_IDS, composePreset, gatePackages } from './preset-data.js'
-import type { PresetDefinition, PresetId } from './preset-data.js'
+import { PRESET_IDS, SUBAGENT_PACKAGE, capabilityPackages, composePreset, gatePackages } from './preset-data.js'
+import type { HostFacts, PresetDefinition, PresetId, ToolFilterSupport } from './preset-data.js'
 
 /** Plugin name, as the Loader tree and its diagnostics show it. */
 export const name = 'bash-native-presets'
@@ -70,54 +70,96 @@ interface LoaderInternals {
 const ABSENT_CODES = new Set(['ERR_MODULE_NOT_FOUND', 'ERR_PACKAGE_PATH_NOT_EXPORTED', 'MODULE_NOT_FOUND'])
 
 /**
- * Ask the host which of these packages are importable from the base a registered preset resolves against.
+ * Ask the host the facts one composition is built from: which packages a row could mount here, and
+ * whether its subagent tool still understands the reminder-tool denial's field.
  *
- * The loader's own import is used, with the registry's base, because that is exactly what mounting the
- * row would do; a resolver of our own would answer a different question (measured: a `createRequire`
- * from any profile directory reports the reminder-tool package absent even on a host that mounts it,
- * because the installation's `node_modules` is not on the profile's search path). The import loads the
- * module, which the mount would do anyway and Node caches.
+ * Every package is looked up with the call the Loader tree itself makes for a row naming it, and the
+ * subagent question is answered from the `Config` schema the module exports — the declaration a row's
+ * config is validated against when it mounts. A package name or a version cannot answer it: the
+ * reminder-tool package still ships on 0.2.1-alpha.3 while `toolFilter` was removed from the subagent.
  *
- * A Loader without internals falls back to a synchronous package resolve from the same base, and a
- * caller with no base at all falls back to this module's own base: the answer is then the conservative
- * one, which is what the patch file's static rows used to give.
+ * A lookup that fails because the package is absent reads as an absence. Any other failure is a broken
+ * package and propagates, except for the subagent module: there the denial is left out on an unreadable
+ * config, which cannot break a mount, so it is reported as `unknown` with a warning instead.
  * @param ctx - this entry's context, for the Loader service.
  * @param base - the registry entry's base URL, when it exposes one.
  * @param specifiers - the packages to look for.
- * @returns the subset a row naming it could mount here.
- * @throws when a lookup fails for any reason other than a missing package: an unreadable or broken
- *   package has to surface as a failure rather than as a silent absence.
+ * @returns what this host can mount and which subagent config generation it speaks.
+ * @throws when a row-gate lookup fails for any reason other than a missing package.
  */
-export async function probeHostPackages(ctx: Context, base: string | undefined, specifiers: readonly string[]): Promise<Set<string>> {
-  const available = new Set<string>()
+export async function probeHostFacts(ctx: Context, base: string | undefined, specifiers: readonly string[]): Promise<HostFacts> {
+  const packages = new Set<string>()
+  let subagentToolFilter: ToolFilterSupport = 'unknown'
   for (const specifier of specifiers) {
-    if (await canImport(ctx, base, specifier)) available.add(specifier)
+    let imported: HostImport | null
+    try {
+      imported = await importFromHost(ctx, base, specifier)
+    } catch (error) {
+      if (specifier !== SUBAGENT_PACKAGE) throw error
+      ctx.logger.warn(
+        `dsh-bash-native: could not read ${SUBAGENT_PACKAGE}'s config (${messageOf(error)}); the reminder-tool denial is left out`,
+      )
+      continue
+    }
+    if (imported === null) continue
+    packages.add(specifier)
+    if (specifier === SUBAGENT_PACKAGE && imported.namespace !== null) {
+      subagentToolFilter = toolFilterSupportOf(imported.namespace)
+    }
   }
-  return available
+  return { packages, subagentToolFilter }
+}
+
+/** One package's answer from the host: its module namespace, or null when only its resolution was checked. */
+interface HostImport {
+  readonly namespace: unknown | null
 }
 
 /**
  * Look one package up with the call the Loader tree would make for a row naming it.
+ *
+ * A Loader without internals falls back to a synchronous package resolve from the same base, and a
+ * caller with no base at all falls back to this module's own base: that answer can say the package is
+ * there, but it did not load it, so a capability read from the namespace is not available.
  * @param ctx - this entry's context, for the Loader service.
  * @param base - the base URL a registered preset's rows resolve against.
  * @param specifier - the package to look for.
- * @returns whether a row naming that package would mount on this host.
+ * @returns the loaded namespace, a resolve-only answer, or null when the package is absent.
  * @throws when the lookup fails for any reason other than a missing package.
  */
-async function canImport(ctx: Context, base: string | undefined, specifier: string): Promise<boolean> {
+async function importFromHost(ctx: Context, base: string | undefined, specifier: string): Promise<HostImport | null> {
   const internals = (ctx as unknown as { loader?: { internal?: LoaderInternals } }).loader?.internal
   try {
     if (internals !== undefined && base !== undefined) {
-      await internals.import(specifier, base, {})
-      return true
+      return { namespace: await internals.import(specifier, base, {}) }
     }
     createRequire(base ?? import.meta.url).resolve(specifier)
-    return true
+    return { namespace: null }
   } catch (error) {
     const code = (error as { code?: string }).code
-    if (code !== undefined && ABSENT_CODES.has(code)) return false
+    if (code !== undefined && ABSENT_CODES.has(code)) return null
     throw error
   }
+}
+
+/**
+ * Read the subagent module's own config declaration for the field the denial needs.
+ * @param namespace - the module namespace the loader's import returned.
+ * @returns whether the exported `Config` schema declares `toolFilter`, or `unknown` when it exposes no
+ *   readable field map — a shape this probe does not recognize must never write the field.
+ */
+function toolFilterSupportOf(namespace: unknown): ToolFilterSupport {
+  const config = (namespace as { readonly Config?: { readonly dict?: unknown } }).Config
+  const dict = config?.dict
+  if (dict === null || dict === undefined || typeof dict !== 'object') return 'unknown'
+  return 'toolFilter' in dict ? 'supported' : 'rejected'
+}
+
+/**
+ * @param error - a failed lookup. @returns its message, for one warning line.
+ */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -135,10 +177,10 @@ async function canImport(ctx: Context, base: string | undefined, specifier: stri
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const registry = (ctx as unknown as { agentPresets: PresetRegistry }).agentPresets
-  const available = await probeHostPackages(
+  const facts = await probeHostFacts(
     ctx,
     registry.ctx?.baseUrl,
-    [...new Set(config.presets.flatMap((id) => gatePackages(id)))],
+    [...new Set(config.presets.flatMap((id) => [...gatePackages(id), ...capabilityPackages(id)]))],
   )
 
   const registered: Array<() => Promise<void>> = []
@@ -152,7 +194,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   )
 
   for (const id of config.presets) {
-    const definition = composePreset(id, available)
+    const definition = composePreset(id, facts)
     let unregister: () => Promise<void>
     try {
       unregister = await registry.register(definition)
@@ -177,7 +219,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       continue
     }
     registered.push(unregister)
-    ctx.logger.info(`dsh-bash-native: preset '${id}' registered (${describeShape(definition, id, available)})`)
+    ctx.logger.info(`dsh-bash-native: preset '${id}' registered (${describeShape(definition, id, facts)})`)
   }
 }
 
@@ -200,14 +242,15 @@ function takenByEarlierRegistration(error: unknown, id: string): boolean {
  * Describe what one registration carried, so a boot log answers "did this host get the reminder tools".
  * @param definition - the definition that was registered.
  * @param id - which preset it is.
- * @param available - the host packages the probe found.
- * @returns the row count and the host-dependent rows, named by package.
+ * @param facts - the host facts the composition was built from.
+ * @returns the row count, the host-dependent rows, and the subagent config verdict.
  */
-function describeShape(definition: PresetDefinition, id: PresetId, available: ReadonlySet<string>): string {
+function describeShape(definition: PresetDefinition, id: PresetId, facts: HostFacts): string {
   const gates = gatePackages(id)
   if (gates.length === 0) return `${definition.plugins.length} rows; no host-dependent rows`
-  const carried = gates.filter((gate) => available.has(gate))
-  const dropped = gates.filter((gate) => !available.has(gate))
+  const carried = gates.filter((gate) => facts.packages.has(gate))
+  const dropped = gates.filter((gate) => !facts.packages.has(gate))
   const shape = `${definition.plugins.length} rows; host rows ${carried.length === 0 ? 'none' : carried.join(', ')}`
-  return dropped.length === 0 ? shape : `${shape}; not shipped by this harness: ${dropped.join(', ')}`
+  const tail = dropped.length === 0 ? shape : `${shape}; not shipped by this harness: ${dropped.join(', ')}`
+  return capabilityPackages(id).length === 0 ? tail : `${tail}; subagent config toolFilter: ${facts.subagentToolFilter}`
 }

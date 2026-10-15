@@ -18,7 +18,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
-import type { PresetId } from './preset-data.js';
+import type { HostFacts, PresetId } from './preset-data.js';
 /** Plugin name, as the Loader tree and its diagnostics show it. */
 export declare const name = "bash-native-presets";
 /** The registry service this entry registers with. */
@@ -30,25 +30,24 @@ export interface Config {
 }
 export declare const Config: Schema<Config>;
 /**
- * Ask the host which of these packages are importable from the base a registered preset resolves against.
+ * Ask the host the facts one composition is built from: which packages a row could mount here, and
+ * whether its subagent tool still understands the reminder-tool denial's field.
  *
- * The loader's own import is used, with the registry's base, because that is exactly what mounting the
- * row would do; a resolver of our own would answer a different question (measured: a `createRequire`
- * from any profile directory reports the reminder-tool package absent even on a host that mounts it,
- * because the installation's `node_modules` is not on the profile's search path). The import loads the
- * module, which the mount would do anyway and Node caches.
+ * Every package is looked up with the call the Loader tree itself makes for a row naming it, and the
+ * subagent question is answered from the `Config` schema the module exports — the declaration a row's
+ * config is validated against when it mounts. A package name or a version cannot answer it: the
+ * reminder-tool package still ships on 0.2.1-alpha.3 while `toolFilter` was removed from the subagent.
  *
- * A Loader without internals falls back to a synchronous package resolve from the same base, and a
- * caller with no base at all falls back to this module's own base: the answer is then the conservative
- * one, which is what the patch file's static rows used to give.
+ * A lookup that fails because the package is absent reads as an absence. Any other failure is a broken
+ * package and propagates, except for the subagent module: there the denial is left out on an unreadable
+ * config, which cannot break a mount, so it is reported as `unknown` with a warning instead.
  * @param ctx - this entry's context, for the Loader service.
  * @param base - the registry entry's base URL, when it exposes one.
  * @param specifiers - the packages to look for.
- * @returns the subset a row naming it could mount here.
- * @throws when a lookup fails for any reason other than a missing package: an unreadable or broken
- *   package has to surface as a failure rather than as a silent absence.
+ * @returns what this host can mount and which subagent config generation it speaks.
+ * @throws when a row-gate lookup fails for any reason other than a missing package.
  */
-export declare function probeHostPackages(ctx: Context, base: string | undefined, specifiers: readonly string[]): Promise<Set<string>>;
+export declare function probeHostFacts(ctx: Context, base: string | undefined, specifiers: readonly string[]): Promise<HostFacts>;
 /**
  * Register this bundle's presets, reading the host once to decide which optional rows they carry.
  *

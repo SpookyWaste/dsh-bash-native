@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.2-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -95,7 +95,7 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.2 both verified here)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.3 both verified here)</td>
     </tr>
     <tr>
       <td><b>Persistent terminal component<sub>new in 0.1.6</sub></b></td>
@@ -258,7 +258,7 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 [`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time (`ctx.agentPresets.register()`) from the row data in [`src/preset-data.ts`](src/preset-data.ts), and each preset still owns an `isolate: { shell: true, terminals: true }` realm so that the host layer and every other preset (including the ones using `pwsh`) are left completely untouched.
 
-Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual. (The `tool-schedule` row 0.2.1-alpha added, for instance, appears only in that line's preset — never in 0.2.0-rc.2's.)
+Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual (the `tool-schedule` row 0.2.1-alpha added appears only in that line's preset, never in 0.2.0-rc.2's). The subagent reminder-tool denial has a separate capability gate: it is written only where the host's `dsh-tool-subagent` exports a `Config` that declares `toolFilter`, because 0.2.1-alpha.3's module rejects that key at mount (a child selects an Agent Preset through `agentPreset` instead) and its preset omits the denial just as upstream does.
 
 <table>
   <thead>
@@ -276,7 +276,7 @@ Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide k
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash, with no file, job or delegation tools, and deliberately no interactive terminal</td>
+      <td>Mirrors the harness's <code>minimal</code>: one persona, an image-only file tool, a compaction group and one persistent bash, with no job or delegation tools, and deliberately no interactive terminal</td>
       <td>A lightweight session that only wants a shell</td>
     </tr>
   </tbody>

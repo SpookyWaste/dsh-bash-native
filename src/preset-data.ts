@@ -44,15 +44,45 @@ export type PresetId = (typeof PRESET_IDS)[number]
 export const TIME_CONTEXT_PACKAGE = '@deepseek-ai/dsh-time-context'
 
 /**
- * The harness package that carries the four reminder tools, and the gate for its row and for the
- * subagent denials that arrived with it.
+ * The harness package that carries the four reminder tools, and the gate for its row.
  *
- * Both are 0.2.1-alpha additions, they landed in one upstream release, and a package is the only
- * release-level signal a host exposes here: a preset row's configuration cannot be probed without
- * mounting it. A host that shipped one without the other would be reported by the mount audit
- * instead of being silently accommodated.
+ * The tools and the subagent denial arrived in one 0.2.1-alpha release, but they are not the same
+ * host fact: 0.2.1-alpha.3 still ships this package while the subagent tool dropped the field the
+ * denial is written with, so the row gate and the denial's capability are asked separately
+ * ({@link SUBAGENT_PACKAGE}).
  */
 export const TOOL_SCHEDULE_PACKAGE = '@deepseek-ai/dsh-tool-schedule'
+
+/**
+ * The subagent tool whose own exported config decides whether a subagent row can carry the
+ * reminder-tool denial.
+ *
+ * The package is present on every line of this bundle's window, so its presence cannot answer that
+ * question: 0.2.1-alpha.3 removed `persona` and `toolFilter` from its config — a child now selects an
+ * Agent Preset through `agentPreset` — and rejects either key at mount. The fact this bundle reads
+ * instead is the `Config` schema the module itself exports, the declaration a row's config is
+ * validated against when it mounts.
+ */
+export const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-tool-subagent'
+
+/**
+ * Whether a host's subagent tool still understands the `toolFilter` config key.
+ *
+ * `supported` means the module's exported `Config` schema declares the key (every line through
+ * 0.2.1-alpha.2, including the 0.2.0 desktop line), `rejected` means the schema was readable and does
+ * not (0.2.1-alpha.3 onward), and `unknown` means the question could not be asked — the package is
+ * absent, the module exposes no field map, or only its resolution could be checked.
+ */
+export type ToolFilterSupport = 'supported' | 'rejected' | 'unknown'
+
+/** The host facts one composition is built from. */
+export interface HostFacts {
+  /** Package names a row naming one could import from the base a registered preset resolves against. */
+  readonly packages: ReadonlySet<string>
+  /** What this host's subagent config says about the field the reminder-tool denial needs. */
+  readonly subagentToolFilter: ToolFilterSupport
+}
+
 
 /** One row of a composition, in the shape the Loader's own entry list accepts. */
 export interface PresetRow {
@@ -95,14 +125,18 @@ interface GatedInsert {
 interface GatedAmendment {
   /** The harness package whose absence from this host leaves the rows as they are. */
   readonly gate: string
-  /** @param rows - the composed rows, unamended. @returns the rows for a host that ships the gate. */
+  /** The package whose exported configuration answers {@link requires}, probed where the id needs it. */
+  readonly capabilityPackage: string
+  /** The further host fact that has to hold before the change is written. */
+  readonly requires: (facts: HostFacts) => boolean
+  /** @param rows - the composed rows, unamended. @returns the rows for a host the change applies to. */
   readonly apply: (rows: readonly PresetRow[]) => readonly PresetRow[]
 }
 
 // >>> generated: preset metadata and row data ported from cordis.patch.yml
 /** The plan section the shipped `standard` preset hands `plan-mode`. */
 const PLAN_MODE_SECTION =
-  `You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+  `You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
 
 Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
 
@@ -139,7 +173,7 @@ const PRESET_META: Readonly<Record<PresetId, PresetMeta>> = {
   },
   'bash-native-minimal': {
     name: 'Native Bash (Windows, minimal)',
-    description: 'The lean Native Bash preset — a persona and one persistent bash shell on the brush engine this bundle ships and verifies, with the short environment contract.',
+    description: 'The lean Native Bash preset — a persona, an image-only file tool, a compaction group and one persistent bash shell on the brush engine this bundle ships and verifies, with the short environment contract.',
     order: 6,
   },
 }
@@ -257,6 +291,21 @@ const MINIMAL_ROWS: readonly PresetRow[] = [
     config: { prefix: 'You are a helpful software engineer assistant.', complete: true, includeRuntimeContext: false },
   },
   {
+    id: 'tool-fs',
+    name: '@deepseek-ai/dsh-tool-fs',
+    config: { read: false, readImage: true, write: false, edit: false },
+  },
+  {
+    id: 'compaction',
+    name: 'cordis:group',
+    group: true,
+    isolate: { compaction: true },
+    config: [
+      { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic' },
+      { id: 'command-compact', name: '@deepseek-ai/dsh-command-compact' },
+    ],
+  },
+  {
     id: 'bash-native-shell-minimal',
     name: 'cordis:group',
     group: true,
@@ -324,48 +373,72 @@ function denyScheduleTools(rows: readonly PresetRow[]): readonly PresetRow[] {
   )
 }
 
-/** Changes this preset makes where the host ships the generation that introduced them. */
+/**
+ * Changes this preset makes where the host ships the generation that introduced them.
+ *
+ * The reminder-tool denial needs two facts, not one: the tools have to exist (the gate), and the
+ * subagent tool has to accept the field that denies them. 0.2.1-alpha.3 ships both the tools and a
+ * subagent that rejects `toolFilter`, and the shipped preset dropped the denial there instead.
+ */
 const FULL_AMENDMENTS: readonly GatedAmendment[] = [
-  { gate: TOOL_SCHEDULE_PACKAGE, apply: denyScheduleTools },
+  {
+    gate: TOOL_SCHEDULE_PACKAGE,
+    capabilityPackage: SUBAGENT_PACKAGE,
+    requires: (facts) => facts.subagentToolFilter === 'supported',
+    apply: denyScheduleTools,
+  },
 ]
 
 /**
  * Build one preset's definition for a host.
  *
- * Pure: the answer depends only on the id and the set of packages the caller found importable, so the
- * same host facts always compose the same rows.
+ * Pure: the answer depends only on the id and the host facts, so the same host facts always compose
+ * the same rows.
  * @param id - which of `PRESET_IDS` to compose.
- * @param available - the harness packages the host's preset base can import.
+ * @param facts - what this host can import, and which subagent config generation it speaks.
  * @returns the definition to hand to `ctx.agentPresets.register`.
  * @throws when a gated run is anchored to a row the mirrored data no longer carries.
  */
-export function composePreset(id: PresetId, available: ReadonlySet<string>): PresetDefinition {
+export function composePreset(id: PresetId, facts: HostFacts): PresetDefinition {
   const meta = PRESET_META[id]
   return {
     id,
     name: meta.name,
     description: meta.description,
     order: meta.order,
-    plugins: id === 'bash-native' ? composeFull(available) : [...MINIMAL_ROWS],
+    plugins: id === 'bash-native' ? composeFull(facts) : [...MINIMAL_ROWS],
   }
 }
 
 /**
- * The packages `composePreset` asks this host about, so a caller probes exactly what it needs.
+ * The row-gate packages `composePreset` asks this host about, so a caller probes exactly what it needs.
  * @param id - which of `PRESET_IDS` to inspect.
  * @returns the distinct gate package names, in first-use order.
  */
 export function gatePackages(id: PresetId): readonly string[] {
   if (id !== 'bash-native') return []
-  return [...new Set([...FULL_INSERTS.map((insert) => insert.gate), ...FULL_AMENDMENTS.map((amendment) => amendment.gate)])]
+  return [...new Set(FULL_INSERTS.map((insert) => insert.gate))]
+}
+
+/**
+ * The packages whose own exported configuration decides how this preset is amended.
+ *
+ * Separate from `gatePackages`: an amendment's gate decides whether the rows it changes exist, while
+ * this package is the one asked whether the change can be expressed at all.
+ * @param id - which of `PRESET_IDS` to inspect.
+ * @returns the distinct capability package names, in first-use order.
+ */
+export function capabilityPackages(id: PresetId): readonly string[] {
+  if (id !== 'bash-native') return []
+  return [...new Set(FULL_AMENDMENTS.map((amendment) => amendment.capabilityPackage))]
 }
 
 /**
  * Compose the full preset's rows for a host.
- * @param available - the harness packages the host's preset base can import.
+ * @param facts - what this host can import, and which subagent config generation it speaks.
  * @returns the rows in the shipped preset's order, with every host-supported addition in place.
  */
-function composeFull(available: ReadonlySet<string>): readonly PresetRow[] {
+function composeFull(facts: HostFacts): readonly PresetRow[] {
   const anchors = new Set(FULL_ROWS.map((row) => row.id))
   for (const insert of FULL_INSERTS) {
     if (!anchors.has(insert.after)) {
@@ -376,11 +449,12 @@ function composeFull(available: ReadonlySet<string>): readonly PresetRow[] {
   for (const row of FULL_ROWS) {
     rows.push(row)
     for (const insert of FULL_INSERTS) {
-      if (insert.after === row.id && available.has(insert.gate)) rows.push(...insert.rows)
+      if (insert.after === row.id && facts.packages.has(insert.gate)) rows.push(...insert.rows)
     }
   }
   return FULL_AMENDMENTS.reduce<readonly PresetRow[]>(
-    (acc, amendment) => (available.has(amendment.gate) ? amendment.apply(acc) : acc),
+    (acc, amendment) =>
+      facts.packages.has(amendment.gate) && amendment.requires(facts) ? amendment.apply(acc) : acc,
     rows,
   )
 }

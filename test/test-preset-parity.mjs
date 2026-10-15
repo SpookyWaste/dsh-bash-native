@@ -123,12 +123,37 @@ if (upstreamPath === null) {
   process.exit(0);
 }
 
-/** The rows this bundle mirrors, keyed by the preset id they register, with every host gate open. */
-const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, ALL_GATES).plugins]));
+/** Whether any row in a tree carries the reminder-tool denial the shipped preset writes. */
+function carriesDenial(rows) {
+  return rows.some(
+    (row) => row.config?.toolFilter !== undefined || (Array.isArray(row.config) && carriesDenial(row.config)),
+  );
+}
+
+/**
+ * The host facts the located upstream line composes under.
+ *
+ * The alarm is pointed at whatever copy the caller located — the newest published version by default,
+ * but `DSH_WEB_APP_PRESET` can pin an older line — so the subagent fact has to come from that copy:
+ * a line whose subagent rows carry `toolFilter` still declares the field, and a line that dropped it
+ * selects Agent Presets instead. Reading it from this machine's installed harness would instead
+ * compare a fetched old preset against a new host's capability.
+ * @param upstreamRows - the located shipped preset's rows.
+ * @returns the facts to compose this bundle's mirror with.
+ */
+function factsFor(upstreamRows) {
+  return {
+    packages: ALL_GATES,
+    subagentToolFilter: carriesDenial(upstreamRows) ? "supported" : "rejected",
+  };
+}
 
 /** The upstream presets, read from the directory the located one lives in. */
 const upstreamDir = dirname(upstreamPath);
 const upstream = load(upstreamPath)[0].insert[0].config.plugins;
+
+/** The rows this bundle mirrors, keyed by the preset id they register, with every host gate open. */
+const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, factsFor(upstream)).plugins]));
 const ourIds = new Set(ours.get("bash-native").map((row) => row.id));
 const upstreamIds = upstream.map((row) => row.id);
 
@@ -164,11 +189,13 @@ pass("every mirrored standard-preset row carries the upstream configuration");
 
 // The configuration alarm is only worth its line if it can fire, and the keys it compares are paths: a
 // nested row that this preset stopped finding would be skipped silently, which is the failure a self-check
-// has to rule out. The mutation is on copies, so the checks below still read the file's own rows.
+// has to rule out. The field it drops is one the located alpha.3 preset still declares, so the alarm
+// fires for a nested row whose configuration lost a key, not only for a whole row that went missing.
+// The mutation is on copies, so the checks below still read the file's own rows.
 const mutated = ours.get("bash-native").map((row) => {
   if (row.id !== "delegation") return row;
   const config = row.config.map((child) =>
-    child.id !== "tool-subagent" ? child : { ...child, config: { ...child.config, toolFilter: undefined } },
+    child.id !== "tool-subagent" ? child : { ...child, config: { ...child.config, modelSelectionSettings: undefined } },
   );
   return { ...row, config };
 });

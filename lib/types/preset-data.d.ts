@@ -38,15 +38,41 @@ export type PresetId = (typeof PRESET_IDS)[number];
 /** The harness package that carries the preset-scoped clock, and the gate for its row. */
 export declare const TIME_CONTEXT_PACKAGE = "@deepseek-ai/dsh-time-context";
 /**
- * The harness package that carries the four reminder tools, and the gate for its row and for the
- * subagent denials that arrived with it.
+ * The harness package that carries the four reminder tools, and the gate for its row.
  *
- * Both are 0.2.1-alpha additions, they landed in one upstream release, and a package is the only
- * release-level signal a host exposes here: a preset row's configuration cannot be probed without
- * mounting it. A host that shipped one without the other would be reported by the mount audit
- * instead of being silently accommodated.
+ * The tools and the subagent denial arrived in one 0.2.1-alpha release, but they are not the same
+ * host fact: 0.2.1-alpha.3 still ships this package while the subagent tool dropped the field the
+ * denial is written with, so the row gate and the denial's capability are asked separately
+ * ({@link SUBAGENT_PACKAGE}).
  */
 export declare const TOOL_SCHEDULE_PACKAGE = "@deepseek-ai/dsh-tool-schedule";
+/**
+ * The subagent tool whose own exported config decides whether a subagent row can carry the
+ * reminder-tool denial.
+ *
+ * The package is present on every line of this bundle's window, so its presence cannot answer that
+ * question: 0.2.1-alpha.3 removed `persona` and `toolFilter` from its config — a child now selects an
+ * Agent Preset through `agentPreset` — and rejects either key at mount. The fact this bundle reads
+ * instead is the `Config` schema the module itself exports, the declaration a row's config is
+ * validated against when it mounts.
+ */
+export declare const SUBAGENT_PACKAGE = "@deepseek-ai/dsh-tool-subagent";
+/**
+ * Whether a host's subagent tool still understands the `toolFilter` config key.
+ *
+ * `supported` means the module's exported `Config` schema declares the key (every line through
+ * 0.2.1-alpha.2, including the 0.2.0 desktop line), `rejected` means the schema was readable and does
+ * not (0.2.1-alpha.3 onward), and `unknown` means the question could not be asked — the package is
+ * absent, the module exposes no field map, or only its resolution could be checked.
+ */
+export type ToolFilterSupport = 'supported' | 'rejected' | 'unknown';
+/** The host facts one composition is built from. */
+export interface HostFacts {
+    /** Package names a row naming one could import from the base a registered preset resolves against. */
+    readonly packages: ReadonlySet<string>;
+    /** What this host's subagent config says about the field the reminder-tool denial needs. */
+    readonly subagentToolFilter: ToolFilterSupport;
+}
 /** One row of a composition, in the shape the Loader's own entry list accepts. */
 export interface PresetRow {
     readonly id: string;
@@ -69,17 +95,26 @@ export interface PresetDefinition {
 /**
  * Build one preset's definition for a host.
  *
- * Pure: the answer depends only on the id and the set of packages the caller found importable, so the
- * same host facts always compose the same rows.
+ * Pure: the answer depends only on the id and the host facts, so the same host facts always compose
+ * the same rows.
  * @param id - which of `PRESET_IDS` to compose.
- * @param available - the harness packages the host's preset base can import.
+ * @param facts - what this host can import, and which subagent config generation it speaks.
  * @returns the definition to hand to `ctx.agentPresets.register`.
  * @throws when a gated run is anchored to a row the mirrored data no longer carries.
  */
-export declare function composePreset(id: PresetId, available: ReadonlySet<string>): PresetDefinition;
+export declare function composePreset(id: PresetId, facts: HostFacts): PresetDefinition;
 /**
- * The packages `composePreset` asks this host about, so a caller probes exactly what it needs.
+ * The row-gate packages `composePreset` asks this host about, so a caller probes exactly what it needs.
  * @param id - which of `PRESET_IDS` to inspect.
  * @returns the distinct gate package names, in first-use order.
  */
 export declare function gatePackages(id: PresetId): readonly string[];
+/**
+ * The packages whose own exported configuration decides how this preset is amended.
+ *
+ * Separate from `gatePackages`: an amendment's gate decides whether the rows it changes exist, while
+ * this package is the one asked whether the change can be expressed at all.
+ * @param id - which of `PRESET_IDS` to inspect.
+ * @returns the distinct capability package names, in first-use order.
+ */
+export declare function capabilityPackages(id: PresetId): readonly string[];
