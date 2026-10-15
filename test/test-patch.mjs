@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { PRESET_IDS, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -138,7 +138,7 @@ const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
   // of this plugin agreeing on their key set.
   const shellGroup = composePreset("bash-native", {
     packages: new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]),
-    subagentToolFilter: "rejected",
+    configs: new Map([[SUBAGENT_PACKAGE, new Set()]]),
   }).plugins.find(
     (row) => row.id === "bash-native-shell",
   );

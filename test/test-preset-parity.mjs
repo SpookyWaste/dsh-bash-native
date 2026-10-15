@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
-import { PRESET_IDS, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_FS_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -123,37 +123,29 @@ if (upstreamPath === null) {
   process.exit(0);
 }
 
-/** Whether any row in a tree carries the reminder-tool denial the shipped preset writes. */
-function carriesDenial(rows) {
-  return rows.some(
-    (row) => row.config?.toolFilter !== undefined || (Array.isArray(row.config) && carriesDenial(row.config)),
-  );
-}
-
 /**
- * The host facts the located upstream line composes under.
+ * The host facts the alarm composes this bundle's mirror under.
  *
- * The alarm is pointed at whatever copy the caller located — the newest published version by default,
- * but `DSH_WEB_APP_PRESET` can pin an older line — so the subagent fact has to come from that copy:
- * a line whose subagent rows carry `toolFilter` still declares the field, and a line that dropped it
- * selects Agent Presets instead. Reading it from this machine's installed harness would instead
- * compare a fetched old preset against a new host's capability.
- * @param upstreamRows - the located shipped preset's rows.
- * @returns the facts to compose this bundle's mirror with.
+ * The reference moves to the newest published line by default, and the mirror follows it: the file
+ * tool declares the full toggle family, while the subagent tool does not declare `toolFilter` any more
+ * (0.2.1-alpha.3 selects Agent Presets instead). `DSH_WEB_APP_PRESET` exists for pointing at a
+ * fetched newest copy, not for claiming an older line — pinning one is expected to fail loudly on
+ * everything the mirror now takes from the newest line (the plan-mode sentence, the lean preset rows).
  */
-function factsFor(upstreamRows) {
-  return {
-    packages: ALL_GATES,
-    subagentToolFilter: carriesDenial(upstreamRows) ? "supported" : "rejected",
-  };
-}
+const MIRROR_FACTS = {
+  packages: ALL_GATES,
+  configs: new Map([
+    [SUBAGENT_PACKAGE, new Set()],
+    [TOOL_FS_PACKAGE, new Set(["read", "readImage", "write", "edit"])],
+  ]),
+};
 
 /** The upstream presets, read from the directory the located one lives in. */
 const upstreamDir = dirname(upstreamPath);
 const upstream = load(upstreamPath)[0].insert[0].config.plugins;
 
 /** The rows this bundle mirrors, keyed by the preset id they register, with every host gate open. */
-const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, factsFor(upstream)).plugins]));
+const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, MIRROR_FACTS).plugins]));
 const ourIds = new Set(ours.get("bash-native").map((row) => row.id));
 const upstreamIds = upstream.map((row) => row.id);
 

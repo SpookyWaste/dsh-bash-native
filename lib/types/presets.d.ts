@@ -31,23 +31,26 @@ export interface Config {
 export declare const Config: Schema<Config>;
 /**
  * Ask the host the facts one composition is built from: which packages a row could mount here, and
- * whether its subagent tool still understands the reminder-tool denial's field.
+ * which fields the probed modules' own exported `Config` schemas declare.
  *
- * Every package is looked up with the call the Loader tree itself makes for a row naming it, and the
- * subagent question is answered from the `Config` schema the module exports — the declaration a row's
- * config is validated against when it mounts. A package name or a version cannot answer it: the
- * reminder-tool package still ships on 0.2.1-alpha.3 while `toolFilter` was removed from the subagent.
+ * Every package is looked up with the call the Loader tree itself makes for a row naming it, and a
+ * capability question is answered from the module's exported `Config` — the declaration its row's
+ * config is validated against when it mounts. Names or versions cannot answer it: the reminder-tool
+ * package still ships on 0.2.1-alpha.3 while `toolFilter` was removed from the subagent, and
+ * `dsh-tool-fs` still ships while its `read`/`readImage`/`write`/`edit` toggles were added there.
  *
- * A lookup that fails because the package is absent reads as an absence. Any other failure is a broken
- * package and propagates, except for the subagent module: there the denial is left out on an unreadable
- * config, which cannot break a mount, so it is reported as `unknown` with a warning instead.
+ * A lookup that fails because the package is absent reads as an absence; any other failure is a broken
+ * package and propagates. The exception is a package listed in `capabilities`, which is probed only for
+ * its config: a failure or an unreadable field map there answers `null` with a warning, because leaving
+ * the dependent rows out cannot break a mount while writing them against an unproven declaration can.
  * @param ctx - this entry's context, for the Loader service.
  * @param base - the registry entry's base URL, when it exposes one.
  * @param specifiers - the packages to look for.
- * @returns what this host can mount and which subagent config generation it speaks.
+ * @param capabilities - which specifiers are read for their exported config and degrade on failure.
+ * @returns what this host can mount, and the config field map each probed module declared.
  * @throws when a row-gate lookup fails for any reason other than a missing package.
  */
-export declare function probeHostFacts(ctx: Context, base: string | undefined, specifiers: readonly string[]): Promise<HostFacts>;
+export declare function probeHostFacts(ctx: Context, base: string | undefined, specifiers: readonly string[], capabilities: ReadonlySet<string>): Promise<HostFacts>;
 /**
  * Register this bundle's presets, reading the host once to decide which optional rows they carry.
  *

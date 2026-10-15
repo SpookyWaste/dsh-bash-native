@@ -1,10 +1,10 @@
 // Behaviour checks for the preset composition and the registration entry: which rows a given host
 // gets, what the entry asks that host before deciding, and what it leaves behind when it goes away.
 //
-// The composition is pure data plus two host facts — which packages a host can mount, and which
-// subagent config generation it speaks — so every claim here is a claim about a host shape: the
-// 0.2.1-alpha.2 line (all gates, `toolFilter` accepted), 0.2.1-alpha.3 (all gates, Agent Presets),
-// the 0.2.0-rc.2 desktop line (clock only), and a host that cannot answer at all.
+// The composition is pure data plus host facts — which packages a host can mount, and which fields
+// its modules' own exported `Config` schemas declare — so every claim here is a claim about a host
+// shape: the 0.2.1-alpha.2 line (denial accepted, no fs toggles), 0.2.1-alpha.3 (Agent Presets and
+// fs toggles), the 0.2.0-rc.2 desktop line (clock only), and hosts that cannot answer at all.
 // `test-preset-parity.mjs` owns the other half — that the mirror still matches the shipped presets —
 // and `test-patch.mjs` owns the bundle-patch shape that mounts this entry.
 import assert from "node:assert/strict";
@@ -14,10 +14,12 @@ import {
   PRESET_IDS,
   SUBAGENT_PACKAGE,
   TIME_CONTEXT_PACKAGE,
+  TOOL_FS_PACKAGE,
   TOOL_SCHEDULE_PACKAGE,
   capabilityPackages,
   composePreset,
   gatePackages,
+  probePackages,
 } from "../lib/preset-data.js";
 
 let passed = 0;
@@ -33,16 +35,25 @@ const ALL_GATES = new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]);
 const NO_GATES = new Set();
 /** Only the clock: the measured 0.2.0-rc.2 desktop line. */
 const CLOCK_ONLY = new Set([TIME_CONTEXT_PACKAGE]);
-/** Facts from the line whose subagent still declares `toolFilter`: every optional row, and the denial. */
-const FILTER_FACTS = { packages: ALL_GATES, subagentToolFilter: "supported" };
-/** Facts from 0.2.1-alpha.3: the reminder tools still ship, but the subagent rejects `toolFilter`. */
-const AGENT_PRESET_FACTS = { packages: ALL_GATES, subagentToolFilter: "rejected" };
+/** The toggle family the alpha.3 `dsh-tool-fs` config declares, which the lean preset's fs row needs. */
+const FS_TOGGLES = ["read", "readImage", "write", "edit"];
+/** Build host facts; a config value of null is a module whose field map could not be read. */
+const factsOf = (packages, configs) => ({
+  packages,
+  configs: new Map(Object.entries(configs).map(([name, fields]) => [name, fields === null ? null : new Set(fields)])),
+});
+/** Facts from the alpha.1/alpha.2 line: every optional row, `toolFilter` accepted, no fs toggles. */
+const FILTER_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: ["toolFilter"], [TOOL_FS_PACKAGE]: [] });
+/** Facts from 0.2.1-alpha.3: the reminder tools still ship, the subagent selects Agent Presets. */
+const AGENT_PRESET_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: [], [TOOL_FS_PACKAGE]: FS_TOGGLES });
+/** Facts from the newest line: both capabilities declared. */
+const CURRENT_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: ["toolFilter"], [TOOL_FS_PACKAGE]: FS_TOGGLES });
 /** Facts from a host whose subagent config could not be read. */
-const UNREADABLE_FACTS = { packages: ALL_GATES, subagentToolFilter: "unknown" };
-/** Facts from the 0.2.0-rc.2 desktop line, whose subagent still declares the field. */
-const CLOCK_FACTS = { packages: CLOCK_ONLY, subagentToolFilter: "supported" };
+const UNREADABLE_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: null, [TOOL_FS_PACKAGE]: FS_TOGGLES });
+/** Facts from the 0.2.0-rc.2 desktop line: clock only, `toolFilter` accepted, no fs toggles. */
+const CLOCK_FACTS = factsOf(CLOCK_ONLY, { [SUBAGENT_PACKAGE]: ["toolFilter"], [TOOL_FS_PACKAGE]: [] });
 /** Facts from a host that cannot mount either optional row. */
-const BARE_FACTS = { packages: NO_GATES, subagentToolFilter: "unknown" };
+const BARE_FACTS = factsOf(NO_GATES, {});
 
 const SCHEDULE_TOOLS = ["schedule_create", "schedule_delete", "schedule_list", "schedule_update"];
 /** Rows that register the tool name `bash`, so exactly one of them may be enabled. */
@@ -88,13 +99,35 @@ const subagentsOf = (definition) =>
   pass("both presets compose under the ids sessions have pinned, with the registry as a declared dependency");
 }
 
-// 2. The gates are declared per preset, and only the full preset has any.
+// 2. Each preset declares its package gates and the packages whose exported configs its host-dependent
+// rows need.
 {
   assert.deepEqual(gatePackages("bash-native"), [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]);
   assert.deepEqual(capabilityPackages("bash-native"), [SUBAGENT_PACKAGE], "the denial is written only where the subagent config declares its field");
-  assert.deepEqual(gatePackages("bash-native-minimal"), [], "the lean preset mirrors a preset with no host additions");
-  assert.deepEqual(capabilityPackages("bash-native-minimal"), [], "and asks no module for a config it does not amend");
-  pass("the full preset declares its row gates and the package whose config the denial needs");
+  assert.deepEqual(gatePackages("bash-native-minimal"), [], "the lean preset adds no package-gated row");
+  assert.deepEqual(capabilityPackages("bash-native-minimal"), [TOOL_FS_PACKAGE], "its alpha.3 rows wait on the file tool toggles");
+  assert.deepEqual(probePackages("bash-native"), [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, SUBAGENT_PACKAGE]);
+  assert.deepEqual(probePackages("bash-native-minimal"), [TOOL_FS_PACKAGE]);
+  pass("each preset declares its row gates and the packages whose configs its host-dependent rows need");
+}
+
+// 2b. Every package the composition tests is in the probe list (amendment gates included), and the
+// composition really applies when only that list is answered. A gate outside the list would leave a
+// host-dependent change silently unapplied forever.
+{
+  for (const id of PRESET_IDS) {
+    const probed = new Set(probePackages(id));
+    for (const pkg of [...gatePackages(id), ...capabilityPackages(id)]) {
+      assert.ok(probed.has(pkg), `${id}: ${pkg} is probed`);
+    }
+  }
+  // The denial does not need the clock: with only the amendment gate answered, it is still written.
+  const amendmentOnly = factsOf(new Set([TOOL_SCHEDULE_PACKAGE]), { [SUBAGENT_PACKAGE]: ["toolFilter"] });
+  const subagents = groupOf(composePreset("bash-native", amendmentOnly), "delegation").config.filter(
+    (row) => row.name === "@deepseek-ai/dsh-tool-subagent",
+  );
+  assert.deepEqual(subagents[0].config.toolFilter.deny, SCHEDULE_TOOLS, "the amendment gate alone is enough to write the denial");
+  pass("the probe list covers every gate the composition tests, so no host-dependent change is silently skipped");
 }
 
 // 3. A host that ships both packages gets both rows, in the shipped preset's order, and the denial.
@@ -151,6 +184,27 @@ const subagentsOf = (definition) =>
   const definition = composePreset("bash-native", UNREADABLE_FACTS);
   assert.equal(subagentsOf(definition).some((row) => row.config.toolFilter !== undefined), false);
   pass("an unreadable subagent config leaves the denial out");
+}
+
+// 3d. The alpha.3 `minimal` rows are gated by the file tool's own config: a host whose `dsh-tool-fs`
+// predates the toggles keeps the persona + shell composition instead of silently registering the full
+// read/write/edit suite under an image-only config.
+{
+  const current = composePreset("bash-native-minimal", CURRENT_FACTS);
+  assert.deepEqual(
+    rowsOf(current).map((row) => row.id),
+    ["persona", "tool-fs", "compaction", "bash-native-shell-minimal"],
+    "the alpha.3 line gets the two rows the shipped minimal gained",
+  );
+  const older = composePreset("bash-native-minimal", FILTER_FACTS);
+  assert.deepEqual(
+    rowsOf(older).map((row) => row.id),
+    ["persona", "bash-native-shell-minimal"],
+    "an older file tool keeps this preset at its pre-alpha.3 rows",
+  );
+  const unreadable = composePreset("bash-native-minimal", factsOf(NO_GATES, { [TOOL_FS_PACKAGE]: null }));
+  assert.deepEqual(rowsOf(unreadable).map((row) => row.id), ["persona", "bash-native-shell-minimal"]);
+  pass("the lean preset carries the alpha.3 rows only where the file tool declares the full toggle family");
 }
 
 // 4. A host that ships neither gets neither row and no denial, and nothing else moves.
@@ -284,10 +338,10 @@ const subagentsOf = (definition) =>
   pass("neither preset declares a PowerShell tool");
 }
 
-// 11. The lean preset mirrors the shipped `minimal` surface: a persona, a read-only image fs, a
-// compaction group, and one persistent shell.
+// 11. On the newest line the lean preset mirrors the shipped `minimal` surface: a persona, a
+// read-only image fs, a compaction group, and one persistent shell. Test 3d owns the older line.
 {
-  const minimal = composePreset("bash-native-minimal", FILTER_FACTS);
+  const minimal = composePreset("bash-native-minimal", CURRENT_FACTS);
   assert.deepEqual(
     rowsOf(minimal).map((row) => row.id),
     ["persona", "tool-fs", "compaction", "bash-native-shell-minimal"],
@@ -298,7 +352,8 @@ const subagentsOf = (definition) =>
   assert.equal(persona.config.complete, true, "the lean persona replaces the default one");
   assert.equal(persona.config.includeRuntimeContext, false);
   // 0.2.1-alpha.3 added these two rows to the shipped minimal preset: a restricted image-only fs,
-  // and compaction as its own realm. Both packages exist on every line of this bundle's window.
+  // and compaction as its own realm. The old lines keep their rows out (test 3d), because the
+  // toggles that make the fs row image-only do not exist there and would be silently dropped.
   const fs = rowsOf(minimal).find((row) => row.id === "tool-fs");
   assert.deepEqual(
     fs.config,
@@ -317,7 +372,7 @@ const subagentsOf = (definition) =>
     false,
     "the shipped minimal preset carries no clock, so neither does this one",
   );
-  pass("the lean preset carries the alpha.3 minimal rows and no host-dependent rows");
+  pass("the newest line gets the alpha.3 minimal rows: restricted fs, compaction, shell");
 }
 
 // 12. The full preset keeps the standard coding surface, with the host-dependent rows named as such.
@@ -401,141 +456,181 @@ function fakeHost({ baseUrl = "file:///harness/dsh-web-app/", imports = {}, regi
 /** A resolution failure of the kind a missing package produces. */
 const absent = (specifier) => Object.assign(new Error(`Cannot find package '${specifier}'`), { code: "ERR_MODULE_NOT_FOUND" });
 
-// 14. The probe asks with the Loader's own call, from the registry's base, and reads the subagent
-// config out of the namespace that call returns.
+// 14. The probe asks with the Loader's own call, from the registry's base, and records the exported
+// `Config` field map of every capability package.
 {
   const { ctx, calls } = fakeHost({
     imports: {
       [SUBAGENT_PACKAGE]: { Config: { dict: { provider: {}, agentPreset: {}, allowedAgentPresets: {}, maxDepth: {} } } },
+      [TOOL_FS_PACKAGE]: { Config: { dict: { read: {}, readImage: {}, write: {}, edit: {}, readLimit: {} } } },
     },
   });
-  const facts = await probeHostFacts(ctx, "file:///harness/dsh-web-app/", [
-    TIME_CONTEXT_PACKAGE,
-    TOOL_SCHEDULE_PACKAGE,
-    SUBAGENT_PACKAGE,
-  ]);
-  assert.deepEqual([...facts.packages], [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, SUBAGENT_PACKAGE]);
-  assert.equal(facts.subagentToolFilter, "rejected", "a readable config without toolFilter rejects the field");
-  assert.deepEqual(calls.imports.map((call) => call.parentURL), [
+  const facts = await probeHostFacts(
+    ctx,
     "file:///harness/dsh-web-app/",
-    "file:///harness/dsh-web-app/",
-    "file:///harness/dsh-web-app/",
-  ]);
+    [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, SUBAGENT_PACKAGE, TOOL_FS_PACKAGE],
+    new Set([SUBAGENT_PACKAGE, TOOL_FS_PACKAGE]),
+  );
+  assert.deepEqual([...facts.packages], [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, SUBAGENT_PACKAGE, TOOL_FS_PACKAGE]);
+  assert.deepEqual([...(facts.configs.get(SUBAGENT_PACKAGE) ?? [])], ["provider", "agentPreset", "allowedAgentPresets", "maxDepth"]);
+  assert.deepEqual([...(facts.configs.get(TOOL_FS_PACKAGE) ?? [])], ["read", "readImage", "write", "edit", "readLimit"]);
+  assert.deepEqual(calls.imports.map((call) => call.parentURL), Array(4).fill("file:///harness/dsh-web-app/"));
   assert.deepEqual(calls.imports[0].attributes, {}, "the call carries no import attributes, exactly as the tree's does");
-  pass("the probe resolves from the registry's base with the loader's own import and reads the module's config");
+  pass("the probe resolves from the registry's base with the loader's own import and records the declared config fields");
 }
 
-// 14b. The config field map is the whole answer: its keys decide the verdict, and a namespace that
-// does not expose one is unknown rather than guessed in either direction.
+// 14b. The field map is the whole answer: only own enumerable keys count, an unrecognized shape is
+// unreadable, and an unreadable map never reads as a declared field.
 {
   const readable = (dict) => ({ Config: { dict } });
-  const matrix = [
-    ["supported", readable({ toolFilter: {}, persona: {} })],
-    ["rejected", readable({ agentPreset: {}, provider: {} })],
-    ["unknown", readable(undefined)],
-    ["unknown", { Config: {} }],
-    ["unknown", {}],
-    ["unknown", null],
+  const cases = [
+    ["declared", readable({ toolFilter: {}, persona: {} })],
+    ["missing", readable({ agentPreset: {}, provider: {} })],
+    ["unreadable", readable(undefined)],
+    ["unreadable", { Config: {} }],
+    ["unreadable", {}],
+    ["unreadable", null],
+    ["missing", readable(Object.create({ toolFilter: {} }))],
+    ["unreadable", readable([])],
+    ["unreadable", readable(new Map([["toolFilter", {}]]))],
   ];
-  for (const [expected, namespace] of matrix) {
+  for (const [expected, namespace] of cases) {
     const { ctx } = fakeHost({ imports: { [SUBAGENT_PACKAGE]: namespace } });
-    const facts = await probeHostFacts(ctx, "file:///harness/", [SUBAGENT_PACKAGE]);
-    assert.equal(facts.subagentToolFilter, expected, `expected ${expected} for ${JSON.stringify(namespace)}`);
+    const facts = await probeHostFacts(ctx, "file:///harness/", [SUBAGENT_PACKAGE], new Set([SUBAGENT_PACKAGE]));
+    const fields = facts.configs.get(SUBAGENT_PACKAGE);
+    const verdict = fields == null ? "unreadable" : fields.has("toolFilter") ? "declared" : "missing";
+    assert.equal(verdict, expected, `${JSON.stringify(namespace)} has to read as ${expected}`);
   }
-  pass("the exported config field map decides toolFilter support, and an unrecognized shape is unknown");
+  const { ctx, warnings } = fakeHost({
+    imports: { [SUBAGENT_PACKAGE]: { get Config() { throw new Error("boom"); } } },
+  });
+  const facts = await probeHostFacts(ctx, "file:///harness/", [SUBAGENT_PACKAGE], new Set([SUBAGENT_PACKAGE]));
+  assert.equal(facts.configs.get(SUBAGENT_PACKAGE), null, "a throwing getter is unreadable, not a crash");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /exposes no readable Config field map/);
+  pass("only own config keys count, unrecognized shapes are unreadable, and a throwing getter degrades with a warning");
 }
 
 // 15. A missing package is an absence; a broken row gate is a failure.
 {
   const { ctx } = fakeHost({ imports: { [TOOL_SCHEDULE_PACKAGE]: absent(TOOL_SCHEDULE_PACKAGE) } });
-  const facts = await probeHostFacts(ctx, "file:///harness/", [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]);
+  const facts = await probeHostFacts(ctx, "file:///harness/", [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE], new Set());
   assert.deepEqual([...facts.packages], [TIME_CONTEXT_PACKAGE]);
-  assert.equal(facts.subagentToolFilter, "unknown", "a package that is not there cannot answer the capability");
+  assert.equal(facts.configs.has(TOOL_SCHEDULE_PACKAGE), false, "a package that is not there has no config entry");
   const { ctx: broken } = fakeHost({
     imports: { [TOOL_SCHEDULE_PACKAGE]: Object.assign(new Error("SyntaxError: unexpected token"), { code: "ERR_INVALID_SYNTAX" }) },
   });
   await assert.rejects(
-    () => probeHostFacts(broken, "file:///harness/", [TOOL_SCHEDULE_PACKAGE]),
+    () => probeHostFacts(broken, "file:///harness/", [TOOL_SCHEDULE_PACKAGE], new Set()),
     /unexpected token/,
     "a row-gate package that exists but cannot load must not read as absent",
   );
   pass("a missing package reads as absent, and a broken row gate fails the lookup instead of hiding");
 }
 
-// 15b. A broken subagent module is the one failure that degrades instead of propagating: the denial
-// is left out, which cannot break a mount, and the warning names what could not be read.
+// 15b. A broken capability module is the one failure that degrades instead of propagating: the rows
+// that need its fields are left out, and the warning names what could not be read.
 {
   const { ctx, warnings } = fakeHost({
     imports: { [SUBAGENT_PACKAGE]: Object.assign(new Error("SyntaxError: unexpected token"), { code: "ERR_INVALID_SYNTAX" }) },
   });
-  const facts = await probeHostFacts(ctx, "file:///harness/", [SUBAGENT_PACKAGE]);
-  assert.equal(facts.subagentToolFilter, "unknown");
+  const facts = await probeHostFacts(ctx, "file:///harness/", [SUBAGENT_PACKAGE], new Set([SUBAGENT_PACKAGE]));
+  assert.equal(facts.configs.get(SUBAGENT_PACKAGE), null);
   assert.deepEqual([...facts.packages], [], "a module that cannot load is not a package this host can mount");
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /could not read @deepseek-ai\/dsh-tool-subagent's config/);
-  assert.match(warnings[0], /reminder-tool denial is left out/);
-  pass("a broken subagent module is reported and leaves the denial out instead of failing the entry");
+  assert.match(warnings[0], /could not import @deepseek-ai\/dsh-tool-subagent to read its config/);
+  assert.match(warnings[0], /left out/);
+  pass("a broken capability module is reported and leaves its dependent rows out instead of failing the entry");
 }
 
-// 16. Without a loader internal, or without a base, the answer falls back to a package resolve, and
-// the capability question — which needs the loaded module — stays unanswered.
+// 16. Without a loader internal, or without a base, the answer falls back to a package resolve, and a
+// capability question — which needs the loaded module — stays unanswered and is reported.
 {
-  const bare = { loader: {} };
+  const warnings = [];
+  const bare = { loader: {}, logger: { warn: (line) => warnings.push(line) } };
   const base = new URL("../lib/", import.meta.url).href;
   // This package's own directory can resolve its devDependencies; a nonsense name cannot resolve anywhere.
-  const jobs = await probeHostFacts(bare, base, ["@deepseek-ai/dsh-tool-jobs"]);
+  const jobs = await probeHostFacts(bare, base, ["@deepseek-ai/dsh-tool-jobs"], new Set());
   assert.deepEqual([...jobs.packages], ["@deepseek-ai/dsh-tool-jobs"]);
-  assert.equal(jobs.subagentToolFilter, "unknown", "a resolve-only answer cannot read the module's config");
-  assert.deepEqual([...(await probeHostFacts(bare, base, ["no-such-package-here"])).packages], []);
+  const capability = await probeHostFacts(bare, base, ["@deepseek-ai/dsh-tool-jobs"], new Set(["@deepseek-ai/dsh-tool-jobs"]));
+  assert.equal(capability.configs.get("@deepseek-ai/dsh-tool-jobs"), null, "a resolve-only answer cannot read the module's config");
+  assert.equal(warnings.length, 1, "and the degraded read is reported, not silent");
+  assert.deepEqual([...(await probeHostFacts(bare, base, ["no-such-package-here"], new Set())).packages], []);
   assert.deepEqual(
-    [...(await probeHostFacts(bare, undefined, ["@deepseek-ai/dsh-tool-jobs"])).packages],
+    [...(await probeHostFacts(bare, undefined, ["@deepseek-ai/dsh-tool-jobs"], new Set())).packages],
     ["@deepseek-ai/dsh-tool-jobs"],
     "no base at all falls back to this module's own location",
   );
   pass("a loader without internals, and a registry without a base, both degrade to a package resolve");
 }
-
 // 17. Registration follows the host facts, and disposal retires what it registered.
 {
-  const { ctx, calls, logs, dispose } = fakeHost({ imports: { [TOOL_SCHEDULE_PACKAGE]: absent(TOOL_SCHEDULE_PACKAGE) } });
+  const { ctx, calls, logs, dispose } = fakeHost({
+    imports: {
+      [TOOL_SCHEDULE_PACKAGE]: absent(TOOL_SCHEDULE_PACKAGE),
+      [SUBAGENT_PACKAGE]: { Config: { dict: { provider: {}, toolFilter: {} } } },
+      [TOOL_FS_PACKAGE]: { Config: { dict: { readLimit: {} } } },
+    },
+  });
   await apply(ctx, { presets: [...PRESET_IDS] });
   assert.deepEqual(calls.registered.map((definition) => definition.id), [...PRESET_IDS]);
   const full = calls.registered[0];
   assert.equal(full.plugins.some((row) => row.id === "tool-schedule"), false, "the host that lacks the package registers no such row");
   assert.ok(full.plugins.some((row) => row.id === "time-context"), "the row it can mount is still carried");
   assert.equal(calls.registered[1].plugins.some((row) => row.id === "time-context"), false);
+  assert.equal(calls.registered[1].plugins.some((row) => row.id === "tool-fs"), false, "the older file tool keeps the alpha.3 rows out");
   assert.equal(logs.length, 2, "each registration reports what it carried");
-  assert.match(logs[0], /preset 'bash-native' registered \(\d+ rows; host rows @deepseek-ai\/dsh-time-context; not shipped by this harness: @deepseek-ai\/dsh-tool-schedule; subagent config toolFilter: unknown\)/);
-  assert.match(logs[1], /no host-dependent rows/);
+  assert.match(
+    logs[0],
+    /preset 'bash-native' registered \(\d+ rows; host rows @deepseek-ai\/dsh-time-context; not shipped by this harness: @deepseek-ai\/dsh-tool-schedule; config fields @deepseek-ai\/dsh-tool-subagent\.\{toolFilter\}=declared\)/,
+  );
+  assert.match(logs[1], /config fields @deepseek-ai\/dsh-tool-fs\.\{read,readImage,write,edit\}=missing/);
   dispose();
   assert.deepEqual(calls.unregistered, [...PRESET_IDS], "disposal unregisters both definitions");
   pass("the entry registers what the host can mount, reports it, and unregisters on disposal");
 }
 
-// 17b. Through the entry, the host's own subagent config decides whether the denial is written: the
-// alpha.2 shape keeps it, the alpha.3 shape does not, and the log names the verdict either way.
+// 17b. Through the entry, each module's own config decides its host-dependent rows and amendments:
+// the alpha.2/alpha.1 shape keeps the denial and the old lean rows, the alpha.3 shape is the mirror.
 {
-  const line = async (dict) => {
-    const host = fakeHost({ imports: { [SUBAGENT_PACKAGE]: { Config: { dict } } } });
-    await apply(host.ctx, { presets: ["bash-native"] });
-    return { definition: host.calls.registered[0], log: host.logs[0] };
+  const line = async (imports) => {
+    const host = fakeHost({ imports });
+    await apply(host.ctx, { presets: [...PRESET_IDS] });
+    return { full: host.calls.registered[0], minimal: host.calls.registered[1], logs: host.logs };
   };
-  const supporting = await line({ provider: {}, toolFilter: {} });
-  const subagent = supporting.definition.plugins
+  const alpha2 = await line({
+    [SUBAGENT_PACKAGE]: { Config: { dict: { provider: {}, toolFilter: {} } } },
+    [TOOL_FS_PACKAGE]: { Config: { dict: { readLimit: {}, readMaxBytes: {} } } },
+  });
+  const denial = alpha2.full.plugins
     .find((row) => row.id === "delegation")
     .config.find((row) => row.id === "tool-subagent");
-  assert.deepEqual(subagent.config.toolFilter.deny, SCHEDULE_TOOLS, "the alpha.2 line keeps the shipped denial");
-  assert.match(supporting.log, /subagent config toolFilter: supported/);
+  assert.deepEqual(denial.config.toolFilter.deny, SCHEDULE_TOOLS, "the alpha.2 line keeps the shipped denial");
+  assert.deepEqual(
+    alpha2.minimal.plugins.map((row) => row.id),
+    ["persona", "bash-native-shell-minimal"],
+    "and its lean preset keeps the pre-alpha.3 rows",
+  );
+  assert.match(alpha2.logs[0], /config fields @deepseek-ai\/dsh-tool-subagent\.\{toolFilter\}=declared/);
+  assert.match(alpha2.logs[1], /config fields @deepseek-ai\/dsh-tool-fs\.\{read,readImage,write,edit\}=missing/);
 
-  const agentPreset = await line({ provider: {}, agentPreset: {} });
-  const rejected = agentPreset.definition.plugins
+  const alpha3 = await line({
+    [SUBAGENT_PACKAGE]: { Config: { dict: { provider: {}, agentPreset: {} } } },
+    [TOOL_FS_PACKAGE]: { Config: { dict: { read: {}, readImage: {}, write: {}, edit: {} } } },
+  });
+  const rejected = alpha3.full.plugins
     .find((row) => row.id === "delegation")
     .config.find((row) => row.id === "tool-subagent");
   assert.equal(rejected.config.toolFilter, undefined, "the alpha.3 line must not carry a key its mount rejects");
-  assert.match(agentPreset.log, /subagent config toolFilter: rejected/);
-  pass("the registration entry writes the denial exactly where the host subagent config declares toolFilter");
+  assert.deepEqual(
+    alpha3.minimal.plugins.map((row) => row.id),
+    ["persona", "tool-fs", "compaction", "bash-native-shell-minimal"],
+    "and its lean preset follows the alpha.3 minimal",
+  );
+  assert.match(alpha3.logs[0], /config fields @deepseek-ai\/dsh-tool-subagent\.\{toolFilter\}=missing/);
+  assert.match(alpha3.logs[1], /config fields @deepseek-ai\/dsh-tool-fs\.\{read,readImage,write,edit\}=declared/);
+  pass("the registration entry writes each host-dependent change exactly where the module's own config declares its fields");
 }
-
 // 18. Nothing is registered when nothing is configured.
 {
   const quiet = fakeHost();
@@ -554,6 +649,10 @@ const absent = (specifier) => Object.assign(new Error(`Cannot find package '${sp
 {
   const taken = "Duplicate agent preset: bash-native";
   const upgraded = fakeHost({
+    imports: {
+      [SUBAGENT_PACKAGE]: { Config: { dict: { provider: {}, toolFilter: {} } } },
+      [TOOL_FS_PACKAGE]: { Config: { dict: { read: {}, readImage: {}, write: {}, edit: {} } } },
+    },
     register: async (definition) => {
       if (definition.id === "bash-native") throw new Error(taken);
       upgraded.calls.registered.push(definition);

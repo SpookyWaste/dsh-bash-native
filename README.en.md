@@ -258,7 +258,7 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 [`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time (`ctx.agentPresets.register()`) from the row data in [`src/preset-data.ts`](src/preset-data.ts), and each preset still owns an `isolate: { shell: true, terminals: true }` realm so that the host layer and every other preset (including the ones using `pwsh`) are left completely untouched.
 
-Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual (the `tool-schedule` row 0.2.1-alpha added appears only in that line's preset, never in 0.2.0-rc.2's). The subagent reminder-tool denial has a separate capability gate: it is written only where the host's `dsh-tool-subagent` exports a `Config` that declares `toolFilter`, because 0.2.1-alpha.3's module rejects that key at mount (a child selects an Agent Preset through `agentPreset` instead) and its preset omits the denial just as upstream does.
+Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual (the `tool-schedule` row 0.2.1-alpha added appears only in that line's preset, never in 0.2.0-rc.2's). A capability gate asks each module's own exported `Config` field map and leaves its rows out when the answer is unreadable: the subagent reminder-tool denial needs `dsh-tool-subagent` to declare `toolFilter` (0.2.1-alpha.3's module rejects that key at mount and selects an Agent Preset through `agentPreset` instead), and the lean preset's image-only file tool and compaction group need `dsh-tool-fs` to declare `read`/`readImage`/`write`/`edit` (older lines expose only the readLimit family, which would silently register the full fs suite, so there this preset stays persona + persistent bash).
 
 <table>
   <thead>
@@ -276,7 +276,7 @@ Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide k
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Mirrors the harness's <code>minimal</code>: one persona, an image-only file tool, a compaction group and one persistent bash, with no job or delegation tools, and deliberately no interactive terminal</td>
+      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash; when the host's <code>dsh-tool-fs</code> declares read/readImage/write/edit (0.2.1-alpha.3+) it adds an image-only file tool and a compaction group, while older lines stay persona + persistent bash</td>
       <td>A lightweight session that only wants a shell</td>
     </tr>
   </tbody>

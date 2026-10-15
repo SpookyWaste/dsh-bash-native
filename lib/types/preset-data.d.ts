@@ -58,20 +58,34 @@ export declare const TOOL_SCHEDULE_PACKAGE = "@deepseek-ai/dsh-tool-schedule";
  */
 export declare const SUBAGENT_PACKAGE = "@deepseek-ai/dsh-tool-subagent";
 /**
- * Whether a host's subagent tool still understands the `toolFilter` config key.
+ * The file tool whose own exported config decides whether the alpha.3 `minimal` rows can be carried.
  *
- * `supported` means the module's exported `Config` schema declares the key (every line through
- * 0.2.1-alpha.2, including the 0.2.0 desktop line), `rejected` means the schema was readable and does
- * not (0.2.1-alpha.3 onward), and `unknown` means the question could not be asked — the package is
- * absent, the module exposes no field map, or only its resolution could be checked.
+ * 0.2.1-alpha.3 added the `read`/`readImage`/`write`/`edit` toggles to this module's config, and added
+ * the image-only file tool and the compaction group to the shipped `minimal` preset. Older lines ship
+ * the same package with only the read caps: a row that sets the toggles there is accepted and ignored,
+ * which would register the full read/write/edit suite — the opposite of what the row states.
  */
-export type ToolFilterSupport = 'supported' | 'rejected' | 'unknown';
-/** The host facts one composition is built from. */
+export declare const TOOL_FS_PACKAGE = "@deepseek-ai/dsh-tool-fs";
+/** One `Config` field group a host module has to declare before a host-dependent change applies. */
+export interface ConfigRequirement {
+    /** The package whose exported `Config` is read; the probe asks it even when no row names it. */
+    readonly package: string;
+    /** Every field named here has to be a key of that exported `Config`'s field map. */
+    readonly fields: readonly string[];
+}
+/**
+ * The host facts one composition is built from.
+ *
+ * `configs` carries what each probed module's own exported `Config` declared: the field names, `null`
+ * for a module that exposes no readable field map, and no entry for a package this host cannot import.
+ * Reading the declaration rather than guessing a version is what lets one published composition follow
+ * the harness line it runs on; `requires` on a gated row or amendment names exactly what it needs.
+ */
 export interface HostFacts {
     /** Package names a row naming one could import from the base a registered preset resolves against. */
     readonly packages: ReadonlySet<string>;
-    /** What this host's subagent config says about the field the reminder-tool denial needs. */
-    readonly subagentToolFilter: ToolFilterSupport;
+    /** Per probed package, the field names its exported `Config` declared, or null when unreadable. */
+    readonly configs: ReadonlyMap<string, ReadonlySet<string> | null>;
 }
 /** One row of a composition, in the shape the Loader's own entry list accepts. */
 export interface PresetRow {
@@ -98,23 +112,37 @@ export interface PresetDefinition {
  * Pure: the answer depends only on the id and the host facts, so the same host facts always compose
  * the same rows.
  * @param id - which of `PRESET_IDS` to compose.
- * @param facts - what this host can import, and which subagent config generation it speaks.
+ * @param facts - what this host can import, and which fields its modules' exported configs declare.
  * @returns the definition to hand to `ctx.agentPresets.register`.
  * @throws when a gated run is anchored to a row the mirrored data no longer carries.
  */
 export declare function composePreset(id: PresetId, facts: HostFacts): PresetDefinition;
 /**
- * The row-gate packages `composePreset` asks this host about, so a caller probes exactly what it needs.
+ * The package gates `composePreset` and its amendments consult for one preset.
+ *
+ * The union includes the amendments' gates, not only the inserts': an amendment whose gate is never
+ * probed can never apply, and that failure would be silent — the composition would just miss the
+ * change. Keeping this list a superset of every gate the composition tests is pinned by the
+ * table-driven case in `test-presets.mjs`.
  * @param id - which of `PRESET_IDS` to inspect.
  * @returns the distinct gate package names, in first-use order.
  */
 export declare function gatePackages(id: PresetId): readonly string[];
 /**
- * The packages whose own exported configuration decides how this preset is amended.
- *
- * Separate from `gatePackages`: an amendment's gate decides whether the rows it changes exist, while
- * this package is the one asked whether the change can be expressed at all.
+ * Every exported-config requirement one preset's composition tests, for its probe and its log.
+ * @param id - which of `PRESET_IDS` to inspect.
+ * @returns the requirements in first-use order, duplicates removed.
+ */
+export declare function configRequirements(id: PresetId): readonly ConfigRequirement[];
+/**
+ * The packages whose own exported configuration decides how this preset is composed.
  * @param id - which of `PRESET_IDS` to inspect.
  * @returns the distinct capability package names, in first-use order.
  */
 export declare function capabilityPackages(id: PresetId): readonly string[];
+/**
+ * Every package one host probe has to answer for this preset: its gates and its config packages.
+ * @param id - which of `PRESET_IDS` to inspect.
+ * @returns the distinct package names, gates first.
+ */
+export declare function probePackages(id: PresetId): readonly string[];

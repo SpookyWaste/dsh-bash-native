@@ -258,7 +258,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 [`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册（`ctx.agentPresets.register()`），行数据在 [`src/preset-data.ts`](src/preset-data.ts)；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，好让宿主层与其他 preset（包括用 `pwsh` 的那些）完全不受影响。
 
-宿主探测<sub>0.1.5新增</sub>：harness 不支持的包就不挂在preset里，受支持的新版照常加载（如 0.2.1-alpha 增加的 `tool-schedule` 不会出现在 0.2.0-rc.2 的 preset 里）；子代理的提醒工具拒止另有一道能力门——只在宿主的 `dsh-tool-subagent` 导出的 `Config` 声明了 `toolFilter` 时才写入，因为 0.2.1-alpha.3 的该模块在挂载时拒绝这个键（子代理改由 Agent Preset 的 `agentPreset` 选择），那里的 preset 因此和上游一样不带它。
+宿主探测<sub>0.1.5新增</sub>：harness 不支持的包就不挂在preset里，受支持的新版照常加载（如 0.2.1-alpha 增加的 `tool-schedule` 不会出现在 0.2.0-rc.2 的 preset 里）；能力门问的是模块**自己导出的 `Config` 字段表**，读不到就不挂/不写——子代理的提醒工具拒止看 `dsh-tool-subagent` 有没有 `toolFilter`（0.2.1-alpha.3 的该模块挂载时拒绝这个键，改由 Agent Preset 的 `agentPreset` 选择），精简 preset 的只读图片文件工具与压缩组看 `dsh-tool-fs` 有没有 `read`/`readImage`/`write`/`edit`（旧线只有 readLimit 系列，配置会被静默忽略成完整 fs 套件，所以那里保持 persona + 持久 bash）。
 
 <table>
   <thead>
@@ -276,7 +276,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>，order 6</sub></td>
-      <td>镜像 harness 的 <code>minimal</code>：一个 persona、一个只读图片的文件工具、一个压缩组与一个持久 bash，没有作业与委派工具</td>
+      <td>镜像 harness 的 <code>minimal</code>：一个 persona 与一个持久 bash；宿主的 <code>dsh-tool-fs</code> 声明了 read/readImage/write/edit（0.2.1-alpha.3+）时再加一个只读图片的文件工具与一个压缩组，旧线保持 persona + 持久 bash</td>
       <td>只要一个 shell 的轻量会话</td>
     </tr>
   </tbody>
