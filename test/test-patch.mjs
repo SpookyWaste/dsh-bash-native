@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { PRESET_IDS, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -134,7 +134,12 @@ const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
   // The two places that configure this plugin must agree on the key set. Schemastery keeps an unknown
   // key instead of rejecting it, so a stale field (the deleted `engine` selection was one) would
   // otherwise sit in the composed configuration looking like it does something.
-  const shellGroup = composePreset("bash-native", new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE])).plugins.find(
+  // The capability fact does not move the shell group: this test is about the two configurations
+  // of this plugin agreeing on their key set.
+  const shellGroup = composePreset("bash-native", {
+    packages: new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]),
+    configs: new Map([[SUBAGENT_PACKAGE, new Set()]]),
+  }).plugins.find(
     (row) => row.id === "bash-native-shell",
   );
   const presetRow = shellGroup.config.find((row) => String(row.name).startsWith("file:"));

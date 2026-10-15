@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.2-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -90,16 +90,12 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
       <td>Windows x64</td>
     </tr>
     <tr>
-      <td><b>Node</b></td>
-      <td>24</td>
-    </tr>
-    <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.2 both verified here)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.3 both verified here)</td>
     </tr>
     <tr>
       <td><b>Persistent terminal component<sub>new in 0.1.6</sub></b></td>
-      <td>Requires <code>&gt;=0.2.1-alpha.2</code></td>
+      <td>Requires <code>&gt;=0.2.1-alpha.1</code> to enable</td>
     </tr>
   </tbody>
 </table>
@@ -239,8 +235,6 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 </details>
 
-> 🧷 Two crates.io dependencies are also replaced with patched copies (`[patch.crates-io]` points at a copy in the build cache; the patches and their guards are tabled in `patches/vendored/`): `uucore` keeps the OS error code in a refusal's wording, and `uu_tail` no longer sizes the block closest to the beginning of a file as zero when the file's size is a whole multiple of 64 KiB.
-
 > 💡 Every resolution verifies the artifact against the **sha256** in the lock, and skips the repeat check by **stamping**: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and an unchanged stamp means those 15.6 MB are never read again (`verifyArtifacts: 'always'` restores hashing every time).
 
 ---
@@ -258,7 +252,7 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 [`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time (`ctx.agentPresets.register()`) from the row data in [`src/preset-data.ts`](src/preset-data.ts), and each preset still owns an `isolate: { shell: true, terminals: true }` realm so that the host layer and every other preset (including the ones using `pwsh`) are left completely untouched.
 
-Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual. (The `tool-schedule` row 0.2.1-alpha added, for instance, appears only in that line's preset — never in 0.2.0-rc.2's.)
+Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual (the `tool-schedule` row 0.2.1-alpha added appears only in that line's preset, never in 0.2.0-rc.2's). A capability gate asks each module's own exported `Config` field map and leaves its rows out when the answer is unreadable: the subagent reminder-tool denial needs `dsh-tool-subagent` to declare `toolFilter` (0.2.1-alpha.3's module rejects that key at mount and selects an Agent Preset through `agentPreset` instead), and the lean preset's image-only file tool and compaction group need `dsh-tool-fs` to declare `read`/`readImage`/`write`/`edit` (older lines expose only the readLimit family, which would silently register the full fs suite, so there this preset stays persona + persistent bash).
 
 <table>
   <thead>
@@ -271,12 +265,12 @@ Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide k
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>, order 5</sub></td>
-      <td>Mirrors the harness's <code>standard</code> plus the shell group: a <code>bash</code> that runs every call in a fresh shell, <del>switchable to a persistent bash</del><sub>no longer offered in 0.1.5, matching the shipped standard preset</sub>, and the full set of file, job and delegation tools, plus<sub>new in 0.1.6</sub> the six interactive terminal tools</td>
+      <td>Mirrors the harness's <code>standard</code> plus the shell group: a <code>bash</code> that runs every call in a fresh shell, and the full set of file, job and delegation tools</td>
       <td>Everyday use</td>
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash, with no file, job or delegation tools, and deliberately no interactive terminal</td>
+      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash; when the host's <code>dsh-tool-fs</code> declares read/readImage/write/edit (0.2.1-alpha.3+) it adds an image-only file tool and a compaction group, while older lines stay persona + persistent bash</td>
       <td>A lightweight session that only wants a shell</td>
     </tr>
   </tbody>
@@ -378,7 +372,7 @@ That component registers the same tool names as the built-in **Persistent termin
 
 | Category | Contents |
 |---|---|
-| **Published** (20) | `grep`, `sed`<sub>synced with upstream in 0.1.5</sub>, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, and `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
+| **Published** (20) | `grep`, `sed`, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, and `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
 | **Installed but unpublished** (8) | `arch` plus the shell builtins `echo`, `printf`, `pwd`, `test`, `true`, `false`, `kill` — kept as the program form a child process needs |
 
 </details>
@@ -415,7 +409,6 @@ That component registers the same tool names as the built-in **Persistent termin
 - **The alias rewrite reads text, not intent**: a **data** argument that starts with `/tmp` is rewritten too (`grep /tmp/x file` goes looking for a temporary path); the escape hatch is again `DSH_BASH_NATIVE_NO_PATHCONV=1`, and with it every argument is passed through verbatim.
 - **`select` is not supported yet** — a whole command containing one fails at **parse time**.
 - **There is no `exec` and no `ulimit`**: the first needs to replace the process image, and the second's resource table is typed on `rlimit::Resource`, a crate that does not exist on Windows at all, so it could only report a few compatibility numbers with nothing behind them.
-
 ---
 
 ## 📄 License

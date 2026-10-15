@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
-import { PRESET_IDS, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE, PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_FS_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -123,12 +123,30 @@ if (upstreamPath === null) {
   process.exit(0);
 }
 
-/** The rows this bundle mirrors, keyed by the preset id they register, with every host gate open. */
-const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, ALL_GATES).plugins]));
+/**
+ * The host facts the alarm composes this bundle's mirror under.
+ *
+ * The reference moves to the newest published line by default, and the mirror follows it: the file
+ * tool declares the full toggle family, while the subagent tool does not declare `toolFilter` any more
+ * (0.2.1-alpha.3 selects Agent Presets instead). `DSH_WEB_APP_PRESET` exists for pointing at a
+ * fetched newest copy, not for claiming an older line — pinning one is expected to fail loudly on
+ * everything the mirror now takes from the newest line (the plan-mode sentence, the lean preset rows).
+ */
+const MIRROR_FACTS = {
+  // The newest line ships every optional row and both packages the lean preset's compaction group mounts.
+  packages: new Set([...ALL_GATES, COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE]),
+  configs: new Map([
+    [SUBAGENT_PACKAGE, new Set()],
+    [TOOL_FS_PACKAGE, new Set(["read", "readImage", "write", "edit"])],
+  ]),
+};
 
 /** The upstream presets, read from the directory the located one lives in. */
 const upstreamDir = dirname(upstreamPath);
 const upstream = load(upstreamPath)[0].insert[0].config.plugins;
+
+/** The rows this bundle mirrors, keyed by the preset id they register, with every host gate open. */
+const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, MIRROR_FACTS).plugins]));
 const ourIds = new Set(ours.get("bash-native").map((row) => row.id));
 const upstreamIds = upstream.map((row) => row.id);
 
@@ -164,11 +182,13 @@ pass("every mirrored standard-preset row carries the upstream configuration");
 
 // The configuration alarm is only worth its line if it can fire, and the keys it compares are paths: a
 // nested row that this preset stopped finding would be skipped silently, which is the failure a self-check
-// has to rule out. The mutation is on copies, so the checks below still read the file's own rows.
+// has to rule out. The field it drops is one the located alpha.3 preset still declares, so the alarm
+// fires for a nested row whose configuration lost a key, not only for a whole row that went missing.
+// The mutation is on copies, so the checks below still read the file's own rows.
 const mutated = ours.get("bash-native").map((row) => {
   if (row.id !== "delegation") return row;
   const config = row.config.map((child) =>
-    child.id !== "tool-subagent" ? child : { ...child, config: { ...child.config, toolFilter: undefined } },
+    child.id !== "tool-subagent" ? child : { ...child, config: { ...child.config, modelSelectionSettings: undefined } },
   );
   return { ...row, config };
 });
