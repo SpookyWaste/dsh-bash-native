@@ -106,6 +106,9 @@ export interface PresetDefinition {
     readonly order: number;
     readonly plugins: readonly PresetRow[];
 }
+/** The two packages the alpha.3 `minimal` compaction group mounts; both gate the run that carries it. */
+export declare const COMPACTION_BASIC_PACKAGE = "@deepseek-ai/dsh-compaction-basic";
+export declare const COMPACTION_COMMAND_PACKAGE = "@deepseek-ai/dsh-command-compact";
 /**
  * Build one preset's definition for a host.
  *

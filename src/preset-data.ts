@@ -333,6 +333,11 @@ const MINIMAL_ROWS: readonly PresetRow[] = [
     ],
   },
 ]
+
+/** The two packages the alpha.3 `minimal` compaction group mounts; both gate the run that carries it. */
+export const COMPACTION_BASIC_PACKAGE = '@deepseek-ai/dsh-compaction-basic'
+export const COMPACTION_COMMAND_PACKAGE = '@deepseek-ai/dsh-command-compact'
+
 /** The image-only file tool the shipped `minimal` preset gained in 0.2.1-alpha.3. */
 const TOOL_FS_ROW: PresetRow = {
   id: 'tool-fs',
@@ -347,8 +352,8 @@ const COMPACTION_ROW: PresetRow = {
   group: true,
   isolate: { compaction: true },
   config: [
-    { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic' },
-    { id: 'command-compact', name: '@deepseek-ai/dsh-command-compact' },
+    { id: 'compaction-basic', name: COMPACTION_BASIC_PACKAGE },
+    { id: 'command-compact', name: COMPACTION_COMMAND_PACKAGE },
   ],
 }
 
@@ -360,11 +365,16 @@ const COMPACTION_ROW: PresetRow = {
  * toggles can express the image-only row, and gets compaction beside it; an older line gets neither,
  * keeping its pre-0.1.8 composition (persona + one persistent shell) instead of a row whose toggles
  * schemastery would silently drop while the full read/write/edit suite registers.
+ *
+ * Every package this run mounts is a gate: the two compaction children are named here, so a host
+ * missing either of them drops the whole run instead of mounting a row whose module is absent. A
+ * host missing the file tool is covered by the requirement below: without the package there is no
+ * config to read, so the same predicate fails.
  */
 const MINIMAL_INSERTS: readonly GatedInsert[] = [
   {
     after: 'persona',
-    gates: [],
+    gates: [COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE],
     requires: [{ package: TOOL_FS_PACKAGE, fields: ['read', 'readImage', 'write', 'edit'] }],
     rows: [TOOL_FS_ROW, COMPACTION_ROW],
   },

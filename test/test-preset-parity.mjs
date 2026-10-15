@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
-import { PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_FS_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE, PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_FS_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -133,7 +133,8 @@ if (upstreamPath === null) {
  * everything the mirror now takes from the newest line (the plan-mode sentence, the lean preset rows).
  */
 const MIRROR_FACTS = {
-  packages: ALL_GATES,
+  // The newest line ships every optional row and both packages the lean preset's compaction group mounts.
+  packages: new Set([...ALL_GATES, COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE]),
   configs: new Map([
     [SUBAGENT_PACKAGE, new Set()],
     [TOOL_FS_PACKAGE, new Set(["read", "readImage", "write", "edit"])],

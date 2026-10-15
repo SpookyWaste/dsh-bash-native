@@ -90,16 +90,12 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td>Windows x64</td>
     </tr>
     <tr>
-      <td><b>Node</b></td>
-      <td>24</td>
-    </tr>
-    <tr>
       <td><b>DSH</b></td>
       <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 与 0.2.1-alpha.3 实测通过）</td>
     </tr>
     <tr>
       <td><b>持久终端组件<sub>0.1.6新增</sub></b></td>
-      <td>需要 <code>&gt;=0.2.1-alpha.2</code></td>
+      <td>需要 <code>&gt;=0.2.1-alpha.1</code>才能开启</td>
     </tr>
   </tbody>
 </table>
@@ -239,8 +235,6 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 </details>
 
-> 🧷 引擎还把两个 crates.io 依赖换成打过补丁的副本（`[patch.crates-io]` 指向构建缓存里的拷贝；补丁与各自的守卫表在 `patches/vendored/`）：`uucore` 让“拒绝访问”的措辞保留 OS 错误码，`uu_tail` 修掉“文件大小正好是 64 KiB 整数倍时最靠前那一块被算成 0 字节、`tail -n` 少一整块”的缺陷。
-
 > 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 15.6 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
 ---
@@ -271,7 +265,7 @@ https://github.com/SpookyWaste/dsh-bash-native
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>，order 5</sub></td>
-      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：每次调用都是全新的 <code>bash</code>、<del>可换成持久 bash</del><sub>0.1.5删除，对齐原版standard preset。0.1.6后由组件提供的工具接管</sub>、文件、作业、委派等全套工具</td>
+      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：每次调用都是全新的 <code>bash</code>，文件、作业、委派等全套工具</td>
       <td>日常使用</td>
     </tr>
     <tr>
@@ -378,7 +372,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 | 类别 | 内容 |
 |---|---|
-| **公布**（20） | `grep`、`sed`<sub>0.1.5同步上游版本</sub>、`awk`、`jq`、`find`、`xargs`、`diff`、`cmp`、`which`、`timeout`、`stat`、`ps`，以及 `tty`、`nohup`、`nice`、`uptime`、`hostid`、`pathchk`、`locate`、`updatedb` |
+| **公布**（20） | `grep`、`sed`、`awk`、`jq`、`find`、`xargs`、`diff`、`cmp`、`which`、`timeout`、`stat`、`ps`，以及 `tty`、`nohup`、`nice`、`uptime`、`hostid`、`pathchk`、`locate`、`updatedb` |
 | **只装不公布**（8） | `arch` 与 shell 内建 `echo`、`printf`、`pwd`、`test`、`true`、`false`、`kill`——留作子进程要用的程序形态 |
 
 </details>
@@ -415,7 +409,6 @@ https://github.com/SpookyWaste/dsh-bash-native
 - **别名改写只看文本不看意图**：以 `/tmp` 开头的**数据**参数也会被改写（`grep /tmp/x file` 会去找临时路径）；逃生开关同样是 `DSH_BASH_NATIVE_NO_PATHCONV=1`，开启后所有参数原样传递。
 - **`select` 暂不支持**——含它的整条命令在**解析期**即失败。
 - **没有 `exec`，也没有 `ulimit`**：前者要换进程映像，后者的资源表是按 `rlimit::Resource` 定型的，Windows 上整个 crate 都不存在，只能报几个没有对应物的兼容数字。
-
 ---
 
 ## 📄 许可

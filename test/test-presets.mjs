@@ -11,6 +11,8 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { Config, apply, inject, name, probeHostFacts } from "../lib/presets.js";
 import {
+  COMPACTION_BASIC_PACKAGE,
+  COMPACTION_COMMAND_PACKAGE,
   PRESET_IDS,
   SUBAGENT_PACKAGE,
   TIME_CONTEXT_PACKAGE,
@@ -31,6 +33,8 @@ function pass(label) {
 const root = fileURLToPath(new URL("..", import.meta.url));
 /** Every gate open: the harness line that ships both packages this bundle can add rows from. */
 const ALL_GATES = new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]);
+/** The two packages the alpha.3 lean preset's compaction group mounts, which its run gates on. */
+const MINIMAL_GATES = new Set([COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE]);
 /** No gate open: the older line, and the shape a host that cannot answer produces. */
 const NO_GATES = new Set();
 /** Only the clock: the measured 0.2.0-rc.2 desktop line. */
@@ -46,8 +50,11 @@ const factsOf = (packages, configs) => ({
 const FILTER_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: ["toolFilter"], [TOOL_FS_PACKAGE]: [] });
 /** Facts from 0.2.1-alpha.3: the reminder tools still ship, the subagent selects Agent Presets. */
 const AGENT_PRESET_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: [], [TOOL_FS_PACKAGE]: FS_TOGGLES });
-/** Facts from the newest line: both capabilities declared. */
-const CURRENT_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: ["toolFilter"], [TOOL_FS_PACKAGE]: FS_TOGGLES });
+/** Facts from the newest line: both capabilities declared and every lean-preset package shipped. */
+const CURRENT_FACTS = factsOf(new Set([...ALL_GATES, ...MINIMAL_GATES]), {
+  [SUBAGENT_PACKAGE]: ["toolFilter"],
+  [TOOL_FS_PACKAGE]: FS_TOGGLES,
+});
 /** Facts from a host whose subagent config could not be read. */
 const UNREADABLE_FACTS = factsOf(ALL_GATES, { [SUBAGENT_PACKAGE]: null, [TOOL_FS_PACKAGE]: FS_TOGGLES });
 /** Facts from the 0.2.0-rc.2 desktop line: clock only, `toolFilter` accepted, no fs toggles. */
@@ -104,10 +111,17 @@ const subagentsOf = (definition) =>
 {
   assert.deepEqual(gatePackages("bash-native"), [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]);
   assert.deepEqual(capabilityPackages("bash-native"), [SUBAGENT_PACKAGE], "the denial is written only where the subagent config declares its field");
-  assert.deepEqual(gatePackages("bash-native-minimal"), [], "the lean preset adds no package-gated row");
+  assert.deepEqual(
+    gatePackages("bash-native-minimal"),
+    [COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE],
+    "the lean run mounts both compaction children, so both are gates",
+  );
   assert.deepEqual(capabilityPackages("bash-native-minimal"), [TOOL_FS_PACKAGE], "its alpha.3 rows wait on the file tool toggles");
   assert.deepEqual(probePackages("bash-native"), [TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, SUBAGENT_PACKAGE]);
-  assert.deepEqual(probePackages("bash-native-minimal"), [TOOL_FS_PACKAGE]);
+  assert.deepEqual(
+    probePackages("bash-native-minimal"),
+    [COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE, TOOL_FS_PACKAGE],
+  );
   pass("each preset declares its row gates and the packages whose configs its host-dependent rows need");
 }
 
@@ -186,9 +200,10 @@ const subagentsOf = (definition) =>
   pass("an unreadable subagent config leaves the denial out");
 }
 
-// 3d. The alpha.3 `minimal` rows are gated by the file tool's own config: a host whose `dsh-tool-fs`
-// predates the toggles keeps the persona + shell composition instead of silently registering the full
-// read/write/edit suite under an image-only config.
+// 3d. The alpha.3 `minimal` rows need two facts: the file tool's own config declares the toggle
+// family (an older `dsh-tool-fs` would silently register the full read/write/edit suite under an
+// image-only config), and every package the run mounts is importable (a missing compaction child
+// would otherwise fail the whole preset's mount audit). Either miss keeps persona + shell.
 {
   const current = composePreset("bash-native-minimal", CURRENT_FACTS);
   assert.deepEqual(
@@ -204,7 +219,19 @@ const subagentsOf = (definition) =>
   );
   const unreadable = composePreset("bash-native-minimal", factsOf(NO_GATES, { [TOOL_FS_PACKAGE]: null }));
   assert.deepEqual(rowsOf(unreadable).map((row) => row.id), ["persona", "bash-native-shell-minimal"]);
-  pass("the lean preset carries the alpha.3 rows only where the file tool declares the full toggle family");
+  // Every package the run mounts is a gate: with the file tool ready but one compaction child absent,
+  // the whole run drops out instead of mounting a row whose module this host cannot import.
+  const missingBasic = composePreset(
+    "bash-native-minimal",
+    factsOf(new Set([COMPACTION_COMMAND_PACKAGE]), { [TOOL_FS_PACKAGE]: FS_TOGGLES }),
+  );
+  assert.deepEqual(rowsOf(missingBasic).map((row) => row.id), ["persona", "bash-native-shell-minimal"]);
+  const missingCommand = composePreset(
+    "bash-native-minimal",
+    factsOf(new Set([COMPACTION_BASIC_PACKAGE]), { [TOOL_FS_PACKAGE]: FS_TOGGLES }),
+  );
+  assert.deepEqual(rowsOf(missingCommand).map((row) => row.id), ["persona", "bash-native-shell-minimal"]);
+  pass("the lean preset carries the alpha.3 rows only where every mounted package is importable and the file tool declares the toggles");
 }
 
 // 4. A host that ships neither gets neither row and no denial, and nothing else moves.
@@ -584,6 +611,7 @@ const absent = (specifier) => Object.assign(new Error(`Cannot find package '${sp
     logs[0],
     /preset 'bash-native' registered \(\d+ rows; host rows @deepseek-ai\/dsh-time-context; not shipped by this harness: @deepseek-ai\/dsh-tool-schedule; config fields @deepseek-ai\/dsh-tool-subagent\.\{toolFilter\}=declared\)/,
   );
+  assert.match(logs[1], /host rows @deepseek-ai\/dsh-compaction-basic, @deepseek-ai\/dsh-command-compact/);
   assert.match(logs[1], /config fields @deepseek-ai\/dsh-tool-fs\.\{read,readImage,write,edit\}=missing/);
   dispose();
   assert.deepEqual(calls.unregistered, [...PRESET_IDS], "disposal unregisters both definitions");
