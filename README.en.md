@@ -15,7 +15,7 @@
 <br>
 
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
-[![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
 [![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.4-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
