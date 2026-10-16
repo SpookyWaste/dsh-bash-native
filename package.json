@@ -1,6 +1,6 @@
 {
   "name": "dsh-bash-native",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "dsh-bash-native: a Windows-native POSIX bash executor for the DSH shell seam, with engine resolution and DSH's three-tier file sandbox honored.",
   "keywords": [
     "dsh",
@@ -47,13 +47,15 @@
     "url": "https://github.com/SpookyWaste/dsh-bash-native/issues"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.12.0",
+    "dsh": ">=0.1.7-rc.2 <0.3.0-0"
   },
   "sideEffects": false,
   "dependencies": {
     "@deepseek-ai/dsh-bash-local": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-sandbox": ">=0.1.7-rc.2 <0.3.0-0",
-    "@deepseek-ai/schemastery": "~3.18.4"
+    "@deepseek-ai/schemastery": "~3.18.4",
+    "yaml": "^2.9.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-terminal": ">=0.1.7-rc.2 <0.3.0-0",
@@ -77,8 +79,7 @@
     "@deepseek-ai/dsh-tool-terminal": ">=0.1.7-rc.2 <0.3.0-0",
     "@deepseek-ai/dsh-tools": ">=0.1.7-rc.2 <0.3.0-0",
     "@types/node": "^26.2.0",
-    "typescript": "^7.0.2",
-    "yaml": "^2.9.0"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

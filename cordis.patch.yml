@@ -7,16 +7,21 @@
 # Only that second base sees a harness package the profile does not carry, which is what lets one
 # published composition follow the harness line it is installed on: a row whose package this host does
 # not ship is left out instead of failing the mount audit, which would mark the whole preset broken.
-# `lib/presets.js` reads the host once per activation and registers both definitions; `lib/preset-data.js`
-# holds the rows, and `test/test-preset-parity.mjs` is the drift alarm against the shipped `standard`
-# and `minimal` presets. The measurement behind this is docs/research.md section 58.
+# `lib/presets.js` reads both definitions from the shipped preset files of the host's own harness line
+# (`lib/preset-source.js` reads `presets/standard.patch.yml` and `presets/minimal.patch.yml` out of the
+# `@deepseek-ai/dsh-web-app` installation the registry itself lives in) and registers them with only the
+# shell surface replaced (`lib/preset-data.js`). Every other row — and every platform branch the shipped
+# file carries — therefore arrives from that file instead of a copy taken at release time, and
+# `test/test-preset-parity.mjs` is the drift alarm for the shape of the surface this bundle replaces. The
+# measurements behind this are docs/research.md sections 58 and 67.
 #
 # The row still only inserts. It never reconfigures or disables a row another bundle owns, so the host
 # plane keeps its own `ctx.shell` and the shipped presets keep their `pwsh` tool; the bash executor is
 # this bundle's own, inside the realm group each composition declares.
 #
 # It activates wherever an agent-preset registry does — the Web surface mounts one — and stays pending
-# elsewhere, exactly as the two declaration rows it replaces did.
+# elsewhere, exactly as the two declaration rows it replaces did. Off Windows it activates and registers
+# nothing, with one warning: the shell these presets advertise is the Windows engine this package ships.
 #
 # The shelved alternative lives in `overlays/single-agent-bash-native.yml`, which a single-agent
 # surface (`dsh tui`, `dsh headless`, `dsh acp`) applies explicitly with `--patch`.

@@ -10,14 +10,14 @@
 
 <br>
 
-`适配三档权限策略` · `后台作业` · `支持持久化终端`<sub>DSH ≥ 0.2.1-alpha.1</sub>
+`适配三档权限策略` · `后台作业` · `支持持久化终端`
 
 <br>
 
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.4-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by-brush-dea584)](https://github.com/reubeno/brush)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
@@ -31,7 +31,7 @@
 > ~~避免肥鱼被 cmd 咬~~，也规避了子系统和 MSYS 兼容层的性能开销
 
 <p align="center">
-  <img src="img/example0.jpg" width="220">
+  <img src="img/example0.jpg" width="240">
 </p>
 
 <table align="center">
@@ -91,11 +91,11 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 与 0.2.1-alpha.3 实测通过）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 与 0.2.1-alpha.1-4 实测通过）</td>
     </tr>
     <tr>
       <td><b>持久终端组件<sub>0.1.6新增</sub></b></td>
-      <td>需要 <code>&gt;=0.2.1-alpha.1</code>才能开启</td>
+      <td>需要 DSH <code>&gt;=0.2.1-alpha.1</code>才能开启</td>
     </tr>
   </tbody>
 </table>
@@ -248,11 +248,9 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ---
 
-## 🎛 两个预设
+## 🎛 两个预设<sub>0.2.0：静态挂载改为跟随官方预设替换</sub>
 
-[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册（`ctx.agentPresets.register()`），行数据在 [`src/preset-data.ts`](src/preset-data.ts)；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，好让宿主层与其他 preset（包括用 `pwsh` 的那些）完全不受影响。
-
-宿主探测<sub>0.1.5新增</sub>：harness 不支持的包就不挂在preset里，受支持的新版照常加载（如 0.2.1-alpha 增加的 `tool-schedule` 不会出现在 0.2.0-rc.2 的 preset 里）；能力门问的是模块**自己导出的 `Config` 字段表**，读不到就不挂/不写——子代理的提醒工具拒止看 `dsh-tool-subagent` 有没有 `toolFilter`（0.2.1-alpha.3 的该模块挂载时拒绝这个键，改由 Agent Preset 的 `agentPreset` 选择），精简 preset 的只读图片文件工具与压缩组看 `dsh-tool-fs` 有没有 `read`/`readImage`/`write`/`edit`（旧线只有 readLimit 系列，配置会被静默忽略成完整 fs 套件，所以那里保持 persona + 持久 bash）。
+[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册：启动时读**本机安装的**  `presets/{standard,minimal}.patch.yml`，把 shipped 的 shell 面换成插件自己的 realm group；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，宿主层与其他 preset（包括用 `pwsh` 的那些）不受影响。
 
 <table>
   <thead>
@@ -265,12 +263,12 @@ https://github.com/SpookyWaste/dsh-bash-native
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>，order 5</sub></td>
-      <td>镜像 harness 的 <code>standard</code> 再加 shell 组：每次调用都是全新的 <code>bash</code>，文件、作业、委派等全套工具</td>
+      <td>读本机 harness 那条线的 <code>standard</code> 并只换 shell 面：每次调用都是全新的 <code>bash</code>，文件、作业、委派等全套工具跟着那一版上游走</td>
       <td>日常使用</td>
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>，order 6</sub></td>
-      <td>镜像 harness 的 <code>minimal</code>：一个 persona 与一个持久 bash；宿主的 <code>dsh-tool-fs</code> 声明了 read/readImage/write/edit（0.2.1-alpha.3+）时再加一个只读图片的文件工具与一个压缩组，旧线保持 persona + 持久 bash</td>
+      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash；上游从 0.2.1-alpha.3 起那一版自带只读图片的文件工具与压缩组</td>
       <td>只要一个 shell 的轻量会话</td>
     </tr>
   </tbody>

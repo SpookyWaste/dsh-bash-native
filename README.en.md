@@ -10,14 +10,14 @@
 
 <br>
 
-`Three-tier file policy` · `Background jobs` · `Persistent terminal`<sub>DSH ≥ 0.2.1-alpha.1</sub>
+`Three-tier file policy` · `Background jobs` · `Persistent terminal`
 
 <br>
 
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![CI](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml/badge.svg)](https://github.com/SpookyWaste/dsh-bash-native/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.4-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -31,7 +31,7 @@
 > ~~So the fat fish stops getting bitten by cmd~~, and to avoid the cost of a subsystem or an MSYS compatibility layer
 
 <p align="center">
-  <img src="img/example0.jpg" width="220">
+  <img src="img/example0.jpg" width="240">
 </p>
 
 <table align="center">
@@ -91,11 +91,11 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.3 both verified here)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.1-4 both verified here)</td>
     </tr>
     <tr>
       <td><b>Persistent terminal component<sub>new in 0.1.6</sub></b></td>
-      <td>Requires <code>&gt;=0.2.1-alpha.1</code> to enable</td>
+      <td>Requires DSH <code>&gt;=0.2.1-alpha.1</code> to enable</td>
     </tr>
   </tbody>
 </table>
@@ -248,11 +248,9 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 
 ---
 
-## 🎛 The two presets
+## 🎛 The two presets<sub>0.2.0: static mounting replaced by following the shipped preset</sub>
 
-[`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time (`ctx.agentPresets.register()`) from the row data in [`src/preset-data.ts`](src/preset-data.ts), and each preset still owns an `isolate: { shell: true, terminals: true }` realm so that the host layer and every other preset (including the ones using `pwsh`) are left completely untouched.
-
-Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide keeps its row out of the preset, while a harness line that does provide it loads the row as usual (the `tool-schedule` row 0.2.1-alpha added appears only in that line's preset, never in 0.2.0-rc.2's). A capability gate asks each module's own exported `Config` field map and leaves its rows out when the answer is unreadable: the subagent reminder-tool denial needs `dsh-tool-subagent` to declare `toolFilter` (0.2.1-alpha.3's module rejects that key at mount and selects an Agent Preset through `agentPreset` instead), and the lean preset's image-only file tool and compaction group need `dsh-tool-fs` to declare `read`/`readImage`/`write`/`edit` (older lines expose only the readLimit family, which would silently register the full fs suite, so there this preset stays persona + persistent bash).
+[`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time: it reads the `presets/{standard,minimal}.patch.yml` of the **installation this host runs** and replaces the shipped shell surface with this bundle's realm group; each preset still owns an `isolate: { shell: true, terminals: true }` realm, leaving the host layer and every other preset (including the ones using `pwsh`) untouched.
 
 <table>
   <thead>
@@ -265,12 +263,12 @@ Per-host probing<sub>new in 0.1.5</sub>: a package this harness cannot provide k
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>, order 5</sub></td>
-      <td>Mirrors the harness's <code>standard</code> plus the shell group: a <code>bash</code> that runs every call in a fresh shell, and the full set of file, job and delegation tools</td>
+      <td>Follows the <code>standard</code> of the harness line this host runs and replaces only its shell surface: a <code>bash</code> that runs every call in a fresh shell, with that line's file, job and delegation tools</td>
       <td>Everyday use</td>
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Mirrors the harness's <code>minimal</code>: one persona and one persistent bash; when the host's <code>dsh-tool-fs</code> declares read/readImage/write/edit (0.2.1-alpha.3+) it adds an image-only file tool and a compaction group, while older lines stay persona + persistent bash</td>
+      <td>Follows that line's <code>minimal</code> and replaces only its shell surface: one persona and one persistent bash, plus the image-only file tool and compaction group that line ships from 0.2.1-alpha.3 on</td>
       <td>A lightweight session that only wants a shell</td>
     </tr>
   </tbody>

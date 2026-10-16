@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { PRESET_IDS, composePreset } from "../lib/preset-data.js";
 
 let passed = 0;
 function pass(name) {
@@ -134,11 +134,15 @@ const manifest = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
   // The two places that configure this plugin must agree on the key set. Schemastery keeps an unknown
   // key instead of rejecting it, so a stale field (the deleted `engine` selection was one) would
   // otherwise sit in the composed configuration looking like it does something.
-  // The capability fact does not move the shell group: this test is about the two configurations
-  // of this plugin agreeing on their key set.
+  // The two shipped shell rows are all the composition needs to place its group: this test is about the
+  // two configurations of this plugin agreeing on their key set, not about the shipped file's contents.
   const shellGroup = composePreset("bash-native", {
-    packages: new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]),
-    configs: new Map([[SUBAGENT_PACKAGE, new Set()]]),
+    path: "standard.patch.yml",
+    rows: [
+      { id: "persona", name: "@deepseek-ai/dsh-persona" },
+      { id: "tool-bash", name: "@deepseek-ai/dsh-tool-bash" },
+      { id: "tool-pwsh", name: "@deepseek-ai/dsh-tool-pwsh" },
+    ],
   }).plugins.find(
     (row) => row.id === "bash-native-shell",
   );

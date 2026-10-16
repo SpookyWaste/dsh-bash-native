@@ -117,13 +117,29 @@ if (composed === null) {
   assert.match(enginePath, /brush\.exe$/i, `the resolved engine is this package's artifact (got ${JSON.stringify(enginePath)})`);
   pass("this package resolves the brush engine the component hands its backend");
 
-  // 5. Disposal takes the registry and the tools with it, which is what makes the switch a switch.
+  // 5. The component claims no prompt section, in any layer. Its tools are the harness's six `terminal_*`
+  // names, not a `bash` tool, so the executor's environment sentence would describe a capability the
+  // session does not have — and placement makes the second half worse: a section registers in the mounting
+  // context's scope, and this component is a root-plane row whose only isolation is a `shell` service
+  // realm, so with the section on it lands in the **global** layer. Measured on a probe profile with the
+  // component switched on the way a web profile switches it on: `bash-native:environment` appeared among
+  // the global sections, where every preset's agent reads it — the shipped `standard` preset included.
+  {
+    const prompt = ctx.get("systemPrompt");
+    const global = [...prompt.layers.global.sections.entries()].map(([section]) => section);
+    assert.equal(global.includes("bash-native:environment"), false, "the component must not claim the global bash environment section");
+    const scoped = [...prompt.layers.scoped].flatMap(([, layer]) => [...layer.sections.entries()].map(([section]) => section));
+    assert.equal(scoped.includes("bash-native:environment"), false, "and must not claim one in a scope of its own either: its tools are not a bash tool");
+    pass("the component contributes no prompt section, global or scoped");
+  }
+
+  // 6. Disposal takes the registry and the tools with it, which is what makes the switch a switch.
   await fiber.dispose();
   assert.equal(ctx.get("terminals"), undefined, "disposal removes the registry");
   assert.equal(ctx.get("shell"), undefined, "and the executor");
   pass("disposing the component unregisters its registry and executor");
 
-  // 6. The manifest publishes no copy of the three packages, and the copies a checkout resolves agree on
+  // 7. The manifest publishes no copy of the three packages, and the copies a checkout resolves agree on
   // one harness line. Both halves guard the same failure: a second copy from another line keeps the tools
   // visible while the backend drives a sandbox and subprocess contract it was not built against, which
   // surfaces as every `terminal_open` failing rather than as anything a version check would report.

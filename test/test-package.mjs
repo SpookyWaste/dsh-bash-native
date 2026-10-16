@@ -150,8 +150,10 @@ try {
       "lib/shim.js",
       "lib/presets.js",
       "lib/preset-data.js",
+      "lib/preset-source.js",
       "lib/types/index.d.ts",
       "lib/types/presets.d.ts",
+      "lib/types/preset-source.d.ts",
       "lib/types/terminal.d.ts",
       // The Plugins page reads a component's display text from `<entry name>/locale/<lang>.json`, so a
       // dropped file shows up as the component losing its title and description in the GUI rather than
@@ -184,6 +186,28 @@ try {
         `got ${JSON.stringify(packedManifest.exports[pattern])}`,
       );
     }
+    // The harness window has one home: `engines.dsh`. From 0.2.1-alpha.4 the preflight reads that range
+    // first and ignores the `@deepseek-ai/dsh*` peers entirely when it is present, so the declared range
+    // decides alone; on every older line of the window neither app-boot nor the plugin manager read
+    // `engines` at all (measured: zero occurrences through 0.2.1-alpha.3), which is what makes the key
+    // inert there. A harness range that differs from `engines.dsh` is therefore a decision rather than an
+    // accident, and this case is where it has to be made: update the declaration and this expectation
+    // together, or keep them equal.
+    const harnessWindow = packedManifest.engines?.dsh;
+    check(
+      "the manifest declares the harness window in engines.dsh",
+      typeof harnessWindow === "string" && harnessWindow.trim().length > 0,
+      `got ${JSON.stringify(packedManifest.engines)}`,
+    );
+    const harnessRanges = Object.entries({ ...packedManifest.dependencies, ...packedManifest.peerDependencies }).filter(
+      ([name]) => name === "@deepseek-ai/dsh" || name.startsWith("@deepseek-ai/dsh-"),
+    );
+    const diverged = harnessRanges.filter(([, range]) => range !== harnessWindow);
+    check(
+      "every harness package range agrees with engines.dsh",
+      harnessRanges.length > 0 && diverged.length === 0,
+      diverged.length > 0 ? diverged.map(([name, range]) => `${name}: ${range} != ${harnessWindow}`).join(", ") : `${harnessRanges.length} ranges, none diverged`,
+    );
     const leaked = files.filter(
       (name) =>
         name.startsWith("src/") ||

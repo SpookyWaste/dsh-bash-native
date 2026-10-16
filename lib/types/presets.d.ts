@@ -7,8 +7,13 @@
  * else — while `register()` mounts a definition with the registry entry's own base inside the harness
  * installation. That second base is the one that sees the harness's own packages, and it is what lets
  * one published composition follow the harness line it is installed on instead of failing the mount
- * audit on every row at once. Which rows a host can mount is asked here, once per activation, before
- * the definition is built; `./preset-data.ts` owns the rows themselves.
+ * audit on every row at once.
+ *
+ * The composition itself is not this bundle's copy of a preset: `./preset-source.ts` reads the shipped
+ * `standard`/`minimal` preset of the installation the registry lives in, and `./preset-data.ts` replaces
+ * only its shell surface. That is what makes a released package equal to the preset its host ships —
+ * every other row, and every platform branch the shipped file carries, arrives from that file — instead
+ * of a mirror that has to be re-cut for every upstream release.
  *
  * The entry is exposed as the `dsh-bash-native/presets` subpath and mounted by one row in
  * `cordis.patch.yml`. It is a separate plugin from the executor because the executor provides
@@ -18,7 +23,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
-import type { HostFacts, PresetId } from './preset-data.js';
+import type { PresetId } from './preset-data.js';
 /** Plugin name, as the Loader tree and its diagnostics show it. */
 export declare const name = "bash-native-presets";
 /** The registry service this entry registers with. */
@@ -30,38 +35,27 @@ export interface Config {
 }
 export declare const Config: Schema<Config>;
 /**
- * Ask the host the facts one composition is built from: which packages a row could mount here, and
- * which fields the probed modules' own exported `Config` schemas declare.
+ * Register this bundle's presets, each one composed from the shipped preset of the host's own harness line.
  *
- * Every package is looked up with the call the Loader tree itself makes for a row naming it, and a
- * capability question is answered from the module's exported `Config` — the declaration its row's
- * config is validated against when it mounts. Names or versions cannot answer it: the reminder-tool
- * package still ships on 0.2.1-alpha.3 while `toolFilter` was removed from the subagent, and
- * `dsh-tool-fs` still ships while its `read`/`readImage`/`write`/`edit` toggles were added there.
- *
- * A lookup that fails because the package is absent reads as an absence; any other failure is a broken
- * package and propagates. The exception is a package listed in `capabilities`, which is probed only for
- * its config: a failure or an unreadable field map there answers `null` with a warning, because leaving
- * the dependent rows out cannot break a mount while writing them against an unproven declaration can.
- * @param ctx - this entry's context, for the Loader service.
- * @param base - the registry entry's base URL, when it exposes one.
- * @param specifiers - the packages to look for.
- * @param capabilities - which specifiers are read for their exported config and degrade on failure.
- * @returns what this host can mount, and the config field map each probed module declared.
- * @throws when a row-gate lookup fails for any reason other than a missing package.
- */
-export declare function probeHostFacts(ctx: Context, base: string | undefined, specifiers: readonly string[], capabilities: ReadonlySet<string>): Promise<HostFacts>;
-/**
- * Register this bundle's presets, reading the host once to decide which optional rows they carry.
- *
- * Registration failures propagate: a definition the registry rejects outright (a composition it cannot
- * parse, a conflict with a definition this entry did not replace) is a misconfiguration, and the
- * deployment needs to see it rather than lose the presets silently. A definition that mounts but fails
- * its audit does not throw here — the registry keeps that visible in its own roster and logs it — so
- * this entry reports the shape it registered and leaves the verdict to the registry. The one failure
- * that is *not* a misconfiguration is a taken id, which an upgrade in place produces on purpose: see
- * `takenByEarlierRegistration` below.
+ * Registration failures propagate: a shipped preset this host does not carry, a file whose shell surface
+ * has been reshaped, or a definition the registry rejects outright are all conditions the deployment has
+ * to see, and the alternative — losing both presets silently, or mounting one whose shell cannot start —
+ * is worse than a failed entry. The one failure that is *not* a misconfiguration is a taken id, which an
+ * upgrade in place produces on purpose: see `takenByEarlierRegistration` below.
  * @param ctx - the entry's context; `agentPresets` is present by `inject`.
  * @param config - which presets to register.
+ * @throws when a shipped preset cannot be read as the composition it must be, or the registry rejects it.
  */
 export declare function apply(ctx: Context, config: Config): Promise<void>;
+/**
+ * Register this bundle's presets for one platform.
+ *
+ * The platform is a parameter for the same reason it is one in `./resolve.ts`: the shipped engine exists
+ * on exactly one of them, and what the entry does elsewhere is a contract worth asking about without
+ * being on it. `apply` passes the running process's own.
+ * @param ctx - the entry's context; `agentPresets` is present by `inject`.
+ * @param config - which presets to register.
+ * @param platform - the platform to serve, normally `process.platform`.
+ * @throws when a shipped preset cannot be read as the composition it must be, or the registry rejects it.
+ */
+export declare function registerPresets(ctx: Context, config: Config, platform: string): Promise<void>;

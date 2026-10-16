@@ -1,11 +1,10 @@
-// Drift alarm for the mirrored preset body. The rows this bundle registers mirror the shipped
-// `standard` and `minimal` presets because a bundle patch cannot address rows inside an agent preset;
-// when upstream adds or removes a tool, this check says so instead of leaving the mirror quietly stale.
-//
-// The mirror is now data plus a host fact (`lib/preset-data.js`), so this check composes both presets
-// with every host gate OPEN — the shape a harness line that ships every optional package produces — and
-// compares that against the shipped presets row by row. Which rows a given host actually gets is
-// `test-presets.mjs`'s subject.
+// Drift alarm for the shell surface this bundle replaces. A bundle patch cannot address rows inside an
+// agent preset, so each of this bundle's presets is the host's own shipped `standard`/`minimal`
+// composition — read from the installation at boot and carried verbatim — with the shipped shell rows
+// replaced by this bundle's realm group. Every other row follows upstream for free; what can break on an
+// upstream release is the shape of the surface the replacement is anchored to, and this check runs the
+// production rule against the real shipped files so that a reshape is reported on the release that first
+// sees it instead of failing a mount on a user's machine.
 //
 // Upstream's preset is not a dependency, so the check needs a path to it, in this order:
 // `DSH_WEB_APP_PRESET`; an installed `@deepseek-ai/dsh-web-app` this package can resolve; and — the case
@@ -13,14 +12,14 @@
 // the preset. A CI runner has none of the three, so the workflow fetches the one tarball the preset lives
 // in with `scripts/fetch-upstream-preset.mjs` and exports the path (that script mirrors the newest published
 // version, which keeps the reference moving without letting a dist-tag that lags decide what "newest" means;
-// it also writes the lean preset beside the standard one, so the minimal half is no longer skipped). Without any of
-// them the check skips and says what to run.
+// it also writes the lean preset beside the standard one, so the minimal half is no longer skipped). Without
+// any of them the check skips and says what to run.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { parse } from "yaml";
-import { COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE, PRESET_IDS, SUBAGENT_PACKAGE, TIME_CONTEXT_PACKAGE, TOOL_FS_PACKAGE, TOOL_SCHEDULE_PACKAGE, composePreset } from "../lib/preset-data.js";
+import { SHELL_GROUP_IDS, SHIPPED_SOURCES, composePreset } from "../lib/preset-data.js";
+import { readPresetFile } from "../lib/preset-source.js";
 
 let passed = 0;
 function pass(name) {
@@ -28,20 +27,30 @@ function pass(name) {
   console.log("PASS  " + name);
 }
 
-const JS_TAG = { tag: "tag:yaml.org,2002:js", resolve: (value) => ({ __js: value }) };
-const load = (path) => parse(readFileSync(path, "utf8"), { customTags: [JS_TAG] });
+/**
+ * The shipped top-level rows the surface occupies, per preset.
+ *
+ * `standard` spells its shells as two rows; `minimal` spells them as the children of one group. The
+ * production rule replaces the declared child ids wherever they sit, so it does not need the group's name —
+ * but the position of the replacement does, and pinning that name here is what makes a de-grouped or
+ * renamed surface a reported drift instead of a preset whose group lands somewhere else.
+ */
+const SURFACE_ROWS = {
+  "bash-native": ["tool-bash", "tool-pwsh"],
+  "bash-native-minimal": ["persistent-shell"],
+};
 
-/** Every row of a preset subtree, keyed by path so a group's children keep their group in the key. */
-function rowIndex(rows, prefix = "") {
-  const index = new Map();
-  for (const row of rows) {
-    index.set(`${prefix}${row.id}`, row);
-    if (Array.isArray(row.config)) {
-      for (const [key, value] of rowIndex(row.config, `${prefix}${row.id}/`)) index.set(key, value);
-    }
-  }
-  return index;
-}
+/**
+ * The one row inside each group that registers the `bash` tool name enabled.
+ *
+ * On Windows the shipped `standard` preset means its one-shot bash tool to be the enabled shell, so the
+ * full preset mounts that row on this engine; the shipped `minimal` preset carries no one-shot tool at all,
+ * so the lean preset's one persistent shell is the enabled one.
+ */
+const ENABLED_BASH_ROWS = {
+  "bash-native": ["tool-bash"],
+  "bash-native-minimal": ["bash-native-persistent"],
+};
 
 /** A JSON form that ignores mapping key order, which YAML makes no promise about. */
 function canonical(value) {
@@ -55,39 +64,32 @@ function canonical(value) {
   );
 }
 
-/**
- * Mirrored rows whose fields no longer match upstream, as `id (field)` strings.
- *
- * Comparing identifiers alone left a hole worth closing: `tool-subagent` gained a `toolFilter` that keeps
- * a subagent from creating schedules, and a preset that missed it would still pass a rows-only alarm while
- * handing a subagent a capability the shipped standard preset denies it.
- * @param upstreamRows - the upstream preset's rows.
- * @param ourRows - this bundle's mirrored rows.
- * @param replaced - the identifiers this bundle replaces rather than mirrors.
- * @returns one entry per differing field, in upstream order.
- */
-function configDrift(upstreamRows, ourRows, replaced) {
-  const upstream = rowIndex(upstreamRows);
-  const ours = rowIndex(ourRows);
-  const drift = [];
-  for (const [id, row] of upstream) {
-    if (replaced.has(id) || replaced.has(id.split("/")[0])) continue;
-    const mine = ours.get(id);
-    // A missing row is the check above's report, not this one's.
-    if (mine === undefined) continue;
-    for (const field of ["name", "group", "disabled", "inject", "isolate", "config"]) {
-      if (canonical(row[field]) === undefined) continue;
-      if (JSON.stringify(canonical(row[field])) !== JSON.stringify(canonical(mine[field]))) drift.push(`${id} (${field})`);
-    }
+/** Every `!!js` expression node in a value tree, as its object path. */
+function jsExprPaths(value, path = "", found = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => jsExprPaths(item, `${path}[${index}]`, found));
+    return found;
   }
-  return drift;
+  if (value === null || typeof value !== "object") return found;
+  for (const [key, item] of Object.entries(value)) {
+    const next = path === "" ? key : `${path}.${key}`;
+    if (key === "__jsExpr") found.push(next);
+    jsExprPaths(item, next, found);
+  }
+  return found;
 }
 
-/** Rows a bundle cannot address inside an agent preset, so this preset deliberately replaces them. */
-const REPLACED_BY_DESIGN = new Set(["tool-bash", "tool-pwsh"]);
-
-/** Every host gate open: the composition a harness line shipping every optional package mounts. */
-const ALL_GATES = new Set([TIME_CONTEXT_PACKAGE, TOOL_SCHEDULE_PACKAGE]);
+/** Every row of a composition, keyed by path so a group's children keep their group in the key. */
+function rowIndex(rows, prefix = "") {
+  const index = new Map();
+  for (const row of rows) {
+    index.set(`${prefix}${row.id}`, row);
+    if (Array.isArray(row.config)) {
+      for (const [key, value] of rowIndex(row.config, `${prefix}${row.id}/`)) index.set(key, value);
+    }
+  }
+  return index;
+}
 
 /**
  * The preset inside a globally installed harness, derived rather than hard-coded.
@@ -104,7 +106,7 @@ function installedHarnessPreset(env) {
   return existsSync(candidate) ? candidate : null;
 }
 
-/** Locate the installed upstream preset, or null when this environment does not have it. */
+/** Locate the installed shipped preset, or null when this environment does not have it. */
 function upstreamPresetPath() {
   const configured = process.env.DSH_WEB_APP_PRESET;
   if (configured !== undefined && configured.length > 0) return existsSync(configured) ? configured : null;
@@ -124,140 +126,114 @@ if (upstreamPath === null) {
 }
 
 /**
- * The host facts the alarm composes this bundle's mirror under.
+ * Assert one shipped file is carried whole, with exactly its shell surface replaced.
  *
- * The reference moves to the newest published line by default, and the mirror follows it: the file
- * tool declares the full toggle family, while the subagent tool does not declare `toolFilter` any more
- * (0.2.1-alpha.3 selects Agent Presets instead). `DSH_WEB_APP_PRESET` exists for pointing at a
- * fetched newest copy, not for claiming an older line — pinning one is expected to fail loudly on
- * everything the mirror now takes from the newest line (the plan-mode sentence, the lean preset rows).
+ * Nothing here re-implements the replacement: the production reader parses the file and the production
+ * rule composes it, so a green run means the shipped file still has the shape this bundle anchors to. What
+ * the checks add is the other half of the contract — that every row beside the surface arrives verbatim,
+ * that the shipped platform branches are exactly the rows being replaced, and that the realm group mounts
+ * one bash tool and no pwsh tool.
+ * @param id - which of this bundle's presets to check.
+ * @param path - the shipped file to read.
+ * @returns the row count and the carried count, for the closing summary.
  */
-const MIRROR_FACTS = {
-  // The newest line ships every optional row and both packages the lean preset's compaction group mounts.
-  packages: new Set([...ALL_GATES, COMPACTION_BASIC_PACKAGE, COMPACTION_COMMAND_PACKAGE]),
-  configs: new Map([
-    [SUBAGENT_PACKAGE, new Set()],
-    [TOOL_FS_PACKAGE, new Set(["read", "readImage", "write", "edit"])],
-  ]),
-};
+async function checkShipped(id, path) {
+  const source = SHIPPED_SOURCES[id];
+  const groupId = SHELL_GROUP_IDS[id];
+  const shipped = await readPresetFile(path, source);
+  const definition = composePreset(id, shipped);
 
-/** The upstream presets, read from the directory the located one lives in. */
-const upstreamDir = dirname(upstreamPath);
-const upstream = load(upstreamPath)[0].insert[0].config.plugins;
-
-/** The rows this bundle mirrors, keyed by the preset id they register, with every host gate open. */
-const ours = new Map(PRESET_IDS.map((id) => [id, composePreset(id, MIRROR_FACTS).plugins]));
-const ourIds = new Set(ours.get("bash-native").map((row) => row.id));
-const upstreamIds = upstream.map((row) => row.id);
-
-const missing = upstreamIds.filter((id) => !REPLACED_BY_DESIGN.has(id) && !ourIds.has(id));
-assert.deepEqual(
-  missing,
-  [],
-  `upstream preset rows missing from this preset: ${missing.join(", ")}. ` +
-    "Update lib/preset-data.js (and its test) to mirror the shipped standard preset.",
-);
-pass("every upstream standard-preset row except the replaced shell tools is mirrored");
-
-const extras = [...ourIds].filter((id) => !upstreamIds.includes(id));
-assert.deepEqual(extras, ["bash-native-shell"], "the only extra row is this plugin's shell group");
-pass("the only row this preset adds is the bash shell group");
-
-const group = ours.get("bash-native").find((row) => row.id === "bash-native-shell");
-assert.ok(
-  upstreamIds.includes("tool-bash") && upstreamIds.includes("tool-pwsh"),
-  "upstream still declares the two shell tool rows this preset replaces",
-);
-assert.equal(group.config.filter((row) => row.name === "@deepseek-ai/dsh-tool-bash").length, 1);
-pass("the replaced shell tools are declared inside the shell group instead");
-
-const standardDrift = configDrift(upstream, ours.get("bash-native"), REPLACED_BY_DESIGN);
-assert.deepEqual(
-  standardDrift,
-  [],
-  `upstream standard-preset rows whose configuration this preset does not mirror: ${standardDrift.join(", ")}. ` +
-    "Copy the row from the shipped preset.",
-);
-pass("every mirrored standard-preset row carries the upstream configuration");
-
-// The configuration alarm is only worth its line if it can fire, and the keys it compares are paths: a
-// nested row that this preset stopped finding would be skipped silently, which is the failure a self-check
-// has to rule out. The field it drops is one the located alpha.3 preset still declares, so the alarm
-// fires for a nested row whose configuration lost a key, not only for a whole row that went missing.
-// The mutation is on copies, so the checks below still read the file's own rows.
-const mutated = ours.get("bash-native").map((row) => {
-  if (row.id !== "delegation") return row;
-  const config = row.config.map((child) =>
-    child.id !== "tool-subagent" ? child : { ...child, config: { ...child.config, modelSelectionSettings: undefined } },
-  );
-  return { ...row, config };
-});
-assert.ok(
-  configDrift(upstream, mutated, REPLACED_BY_DESIGN).includes("delegation/tool-subagent (config)"),
-  "a mirrored row whose configuration lost a field has to be reported",
-);
-pass("the configuration alarm fires on a nested row that lost a field");
-
-// The lean preset mirrors the shipped `minimal` one. Its shell rows are replaced as a whole — upstream
-// keeps them as separate top-level rows, this preset owns one realm group — so the alarm compares the
-// rows *outside* that group, and then checks the replacement itself.
-const minimalPath = join(upstreamDir, "minimal.patch.yml");
-if (!existsSync(minimalPath)) {
-  console.log("SKIP  the upstream minimal preset is not next to the located standard one");
-} else {
-  const upstreamMinimalIds = load(minimalPath)[0].insert[0].config.plugins.map((row) => row.id);
-  const ourMinimalIds = new Set(ours.get("bash-native-minimal").map((row) => row.id));
-  const REPLACED_IN_MINIMAL = new Set([
-    "persistent-shell",
-    "pty",
-    "terminal-bash",
-    "persistent-bash",
-    "terminal-pwsh",
-    "persistent-pwsh",
-  ]);
-  const missingMinimal = upstreamMinimalIds.filter((id) => !REPLACED_IN_MINIMAL.has(id) && !ourMinimalIds.has(id));
+  const shippedIds = shipped.rows.map((row) => row.id);
+  const surface = SURFACE_ROWS[id];
+  const at = shippedIds.indexOf(surface[0]);
+  assert.notEqual(at, -1, `${path} no longer carries ${surface[0]} at the top level`);
+  const expectedIds = shippedIds.filter((rowId) => !surface.includes(rowId));
+  expectedIds.splice(at, 0, groupId);
   assert.deepEqual(
-    missingMinimal,
+    definition.plugins.map((row) => row.id),
+    expectedIds,
+    `the composed ${id} has to be ${path} with ${surface.join(", ")} replaced by ${groupId}, in place`,
+  );
+  pass(`${id}: the realm group stands exactly where ${path} spelled its shell surface`);
+
+  const composed = rowIndex(definition.plugins);
+  const upstream = rowIndex(shipped.rows);
+  const drift = [];
+  for (const [key, row] of composed) {
+    // The realm group and everything it mounts are this bundle's own rows, not the shipped file's.
+    if (key === groupId || key.startsWith(`${groupId}/`)) continue;
+    const mine = upstream.get(key);
+    if (mine === undefined) {
+      drift.push(`${key} (not in ${path})`);
+      continue;
+    }
+    if (JSON.stringify(canonical(row)) !== JSON.stringify(canonical(mine))) drift.push(`${key} (fields)`);
+  }
+  for (const key of upstream.keys()) {
+    if (composed.has(key) || surface.some((rowId) => key === rowId || key.startsWith(`${rowId}/`))) continue;
+    drift.push(`${key} (dropped)`);
+  }
+  assert.deepEqual(drift, [], `shipped rows whose composition this preset does not carry verbatim: ${drift.join(", ")}. Fix lib/preset-data.js or the read in lib/preset-source.js.`);
+  pass(`${id}: every shipped row beside the shell surface is carried verbatim`);
+
+  // Only what is carried matters: the deferred expressions inside this bundle's own group (the PTY row
+  // reading the realm's executor) are its own contract and belong there.
+  const expressions = jsExprPaths(definition.plugins.filter((row) => row.id !== groupId));
+  assert.deepEqual(
+    expressions,
     [],
-    `upstream minimal-preset rows missing from the lean preset: ${missingMinimal.join(", ")}. ` +
-      "Update lib/preset-data.js (and its test) to mirror the shipped minimal preset.",
+    `the composed ${id} carries a shipped \`!!js\` at ${expressions.join(", ")}; the shipped platform branches live on the rows this bundle replaces, so a new expression has to be reviewed before it runs in this bundle's realm`,
   );
-  pass("every upstream minimal-preset row except the replaced shell rows is mirrored");
+  pass(`${id}: no shipped expression is carried into this bundle's realm`);
 
-  const extrasMinimal = [...ourMinimalIds].filter((id) => !upstreamMinimalIds.includes(id));
+  const group = definition.plugins.find((row) => row.id === groupId);
+  assert.deepEqual(group.isolate, { shell: true, terminals: true }, "the executor and its terminal registry are realm-scoped");
+  const bashTools = group.config.filter((row) => String(row.name).startsWith("@deepseek-ai/dsh-tool-bash"));
   assert.deepEqual(
-    extrasMinimal,
-    ["bash-native-shell-minimal"],
-    "the only row the lean preset adds is its own realm group",
+    bashTools.filter((row) => row.disabled !== true).map((row) => row.id),
+    ENABLED_BASH_ROWS[id],
+    "exactly one enabled row registers the tool name bash",
   );
-  pass("the only row the lean preset adds is its own shell group");
+  const pwsh = rowIndex(definition.plugins);
+  assert.equal([...pwsh.keys()].some((key) => key.endsWith("pwsh") || key.includes("pwsh/")), false, "no pwsh row or tool is carried");
+  assert.equal(rowIndex(group.config).size > 0, true, "the group mounts rows of its own");
+  pass(`${id}: the realm group mounts one bash tool on this bundle's engine and no pwsh tool`);
 
-  const minimalGroup = ours.get("bash-native-minimal").find((row) => row.id === "bash-native-shell-minimal");
-  // Upstream keeps its shell rows inside a group too, so the replacement is checked against the rows in
-  // that whole subtree: whichever shape upstream uses, the row this preset replaces has to be there.
-  const upstreamMinimalAll = load(minimalPath)[0]
-    .insert[0].config.plugins.flatMap((row) => (row.group && Array.isArray(row.config) ? [row, ...row.config] : [row]))
-    .map((row) => row.id);
-  assert.ok(
-    upstreamMinimalAll.includes("persistent-bash") && upstreamMinimalAll.includes("terminal-bash"),
-    "upstream's minimal preset still declares the persistent shell rows this preset replaces",
-  );
-  assert.deepEqual(
-    minimalGroup.config.filter((row) => row.name === "@deepseek-ai/dsh-tool-bash-persistent").map((row) => row.disabled ?? false),
-    [false],
-    "the replaced persistent shell is mounted and enabled inside the lean group",
-  );
-  pass("the replaced persistent shell is declared inside the lean shell group instead");
-
-  const minimalDrift = configDrift(load(minimalPath)[0].insert[0].config.plugins, ours.get("bash-native-minimal"), REPLACED_IN_MINIMAL);
-  assert.deepEqual(
-    minimalDrift,
-    [],
-    `upstream minimal-preset rows whose configuration this lean preset does not mirror: ${minimalDrift.join(", ")}. ` +
-      "Copy the row from the shipped preset.",
-  );
-  pass("every mirrored minimal-preset row carries the upstream configuration");
+  if (id === "bash-native-minimal") {
+    const persistent = group.config.find((row) => row.name === "@deepseek-ai/dsh-tool-bash-persistent");
+    assert.equal(persistent.disabled, undefined, "the lean preset's shell is the mounted one");
+    pass(`${id}: the persistent shell is mounted, as the shipped minimal preset means it on Windows`);
+  }
+  return { rows: definition.plugins.length, carried: definition.plugins.length - 1, shipped: shipped.rows.length };
 }
 
-console.log(`\nupstream preset: ${upstreamPath}`);
-console.log(`${passed} 项通过`);
+const standard = await checkShipped("bash-native", upstreamPath);
+console.log(`\nupstream preset: ${upstreamPath} (${standard.shipped} rows, ${standard.carried} carried)`);
+
+// The alarm is only worth its line if it can fire. The mutation is on copies of the parsed file, so the
+// checks above still read the file's own rows: renaming the row the surface is anchored to has to be
+// refused, which is what an upstream reshape looks like from here.
+{
+  const shipped = await readPresetFile(upstreamPath, SHIPPED_SOURCES["bash-native"]);
+  const renamed = shipped.rows.map((row) => (row.id === "tool-pwsh" ? { ...row, id: "tool-fish" } : row));
+  assert.throws(
+    () => composePreset("bash-native", { path: upstreamPath, rows: renamed }),
+    /no longer declares tool-pwsh/,
+    "a renamed shell row has to be reported, not mounted beside this bundle's own shell",
+  );
+  pass("the alarm fires on a reshaped shell surface");
+}
+
+// The lean preset follows the shipped `minimal` file that sits beside the located standard one; a CI
+// runner that fetched only one of them reports that instead of passing silently.
+{
+  const minimalPath = join(dirname(upstreamPath), "minimal.patch.yml");
+  if (!existsSync(minimalPath)) {
+    console.log("SKIP  the upstream minimal preset is not next to the located standard one");
+  } else {
+    const minimal = await checkShipped("bash-native-minimal", minimalPath);
+    console.log(`upstream preset: ${minimalPath} (${minimal.shipped} rows, ${minimal.carried} carried)`);
+  }
+}
+
+console.log(`\n${passed} 项通过`);
