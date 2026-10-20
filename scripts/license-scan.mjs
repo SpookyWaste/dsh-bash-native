@@ -97,6 +97,10 @@ const summary = [...byLicense.entries()].sort((left, right) => right[1] - left[1
  * vendored copy of brush. The notice therefore has to travel with the artifact the patches produce, which
  * is what this file describes.
  */
+/** The `uu_rmdir` port that lives in the vendored-crate channel rather than `patches/brush/`. */
+const UU_RMDIR_SENTENCE =
+  "The vendored `uu_rmdir` final-dot guard in `patches/vendored/uu_rmdir/` follows its `d48cee7d` too.";
+
 const OH_MY_PI_NOTICE = [
   "## Patches ported from oh-my-pi",
   "",
@@ -104,8 +108,9 @@ const OH_MY_PI_NOTICE = [
   "and not of this package. Several of them come from work first done for",
   "[`oh-my-pi`](https://github.com/can1357/oh-my-pi)'s own vendored copy of brush: `0002` and `0009` are",
   "transcribed from it, `0006` and `0007` port its descriptor-path grammar and its `wait` builtin, and",
-  "`0004` and `0019` follow fixes it found. The per-patch correspondence — which oh-my-pi commit each one",
-  "follows, and every place this repository's version differs — is recorded in `patches/brush/README.md`.",
+  "`0004` and `0019` follow fixes it found. " + UU_RMDIR_SENTENCE,
+  "The per-patch correspondence — which oh-my-pi commit each one follows, and every place this",
+  "repository's version differs — is recorded in `patches/brush/README.md`.",
   "This package is not affiliated with, or endorsed by, oh-my-pi or its authors.",
   "",
   "oh-my-pi is MIT licensed:",

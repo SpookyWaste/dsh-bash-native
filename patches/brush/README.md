@@ -639,7 +639,7 @@ corpus cases (`crlf-*`) pin the table above and all three boundaries.
 ### `0012-relative-command-paths.patch` — a relative command runs beside the script
 
 **Symptom.** `./tool` and `sub/dir/tool` report `command not found`, while the same file runs when the path
-is absolute. Measured on the shipped artifact, from `D:\Pi\dsh_plugins\dsh-bash-native`:
+is absolute. Measured on the shipped artifact, from the repository root:
 
 | Command word | Before | After |
 |---|---|---|
@@ -1010,6 +1010,82 @@ something this patch settles.
 **Coverage.** Five new cases: `shell-printf-partial-output-before-an-error`,
 `shell-printf-error-message-is-a-sentence`, `shell-printf-refused-conversion-status`,
 `shell-printf-unconverted-value-status` and `shell-printf-failure-does-not-linger`.
+
+### `0023-external-stdio-follows-the-stream.patch` — `2>&1` hands the child the stream it copied
+
+pin's `TryFrom<OpenFile> for Stdio` mapped every stream the shell itself owns to `Stdio::inherit()`. A child
+therefore received whichever descriptor it was assigned, not the stream that was duplicated into it, and the
+redirection was silently lost whenever the source was the shell's own stdout or stderr. Measured on the
+engine before this patch (status 0 in every row):
+
+| Snippet | Before | After |
+|---|---|---|
+| `node -e "console.error('boom')" 2>&1` | `boom` on **stderr**, stdout empty | `boom` on stdout |
+| `node -e "console.log('hi')" >&2` | `hi` on **stdout**, stderr empty | `hi` on stderr |
+| `node -e "console.error('boom')" 2>&1 >/dev/null` | error on stderr | error on the stdout that `2>&1` copied |
+| `tail no-such-file 2>&1` (bundled child) | message on stderr | message on stdout |
+| `seq 1 3 >&2` (bundled child) | `1 2 3` on stdout | `1 2 3` on stderr |
+
+A pipe or file destination was already right because those variants clone their handle; only the shell's own
+streams took the `inherit()` path, which is why `cmd 2>&1 | cat` never showed the defect. The fix maps
+`Stdin` to `inherit` (its descriptor is the process's standard input either way) and gives `Stdout`/`Stderr`
+their own stream; upstream made the same change in `b897ce3e` (#1515) and later unified the whole launcher fd
+path in #1525, which this project does not need.
+
+**Coverage.** `test-stdio-redirection.mjs` reads both streams for the external and bundled cases, the
+`2>&1 >/dev/null` ordering, and the pipe/file controls; the corpus adds
+`redirection-external-{stderr-to-stdout,stdout-to-stderr}`,
+`redirection-bundled-{stderr-to-stdout,stdout-to-stderr}`.
+
+### `0024-bash-source-includes-the-outer-script.patch` — `BASH_SOURCE` keeps every script frame
+
+At the top level the array was built from `iter_script_calls().next()` only, so a sourced file reported
+itself and stopped: `outer.sh` sourcing `inner.sh` gave `BASH_SOURCE[0]=./inner.sh`, `BASH_SOURCE[1]` empty.
+The patch collects every script frame, which is what bash reports (`BASH_SOURCE[1]` is the outer script, spelled as it was invoked). Upstream is
+`589e682c` (#1500).
+
+**Coverage.** `test-bash-source.mjs` runs the engine with a script path (the corpus runner only drives `-c`,
+where bash has no outer script frame to report) and asserts the two entries; a function frame keeps its
+position in the array.
+
+### `0025-arithmetic-command-requires-touching-parens.patch` — `( (cmd) )` is a subshell, not arithmetic
+
+The `arithmetic_command` rule matched any two `(` and any two `)` tokens, so `( (echo IN) )`,
+`((echo IN) )` and `( (echo IN))` were parsed as arithmetic commands. Measured before: each printed
+`arithmetic evaluation error: failed to parse expression: echo IN`, aborted the whole `-c` program with status
+1, and skipped every command after it; bash prints `IN` and continues. The patch requires the opening pair and
+the closing pair to touch (the same `locations_are_contiguous` helper the redirect rules use), otherwise the
+subshell rule reads the text.
+
+A line continuation between the parentheses still counts as touching, because the tokenizer's `SourceSpan` includes the backslash-newline in the token's span (its line-continuation snapshot records an end index of 5 for the three-character word `abc`); `(\` newline `(\` newline `10 + 3))` therefore remains an arithmetic command and returns 0. Three space-separated shapes and the continuation shape are in the corpus, plus `arithmetic-command-still-parses` as the regression guard for `((x++))`.
+
+The rule is unchanged on upstream `main`; issue #1526 carries the reporter's patch and the maintainer's note
+about the continuation case, and this project applies the same shape.
+
+**Coverage.** `nested-subshell-parens`, `nested-subshell-open-space`, `nested-subshell-close-space`,
+`nested-subshell-line-continuation`, `arithmetic-command-still-parses`.
+
+### `0026-exec-without-a-command-on-windows.patch` — `exec` exists, with an honest limit
+
+`exec` was compiled out on Windows (`#[cfg(all(feature = "builtin.exec", unix))]`, because the
+implementation used `std::os::unix::process::CommandExt`), so `type -a exec` reported `not found` and every
+`exec` spelling failed. The patch registers it everywhere and splits the two forms:
+
+- the no-argument form applies its redirections to the shell's own descriptor table
+  (`context.iter_fds()` + `replace_open_files`), so `exec >file 2>&1`, `exec 3>&1` and `exec 1>&3` work as in
+  bash; a subshell keeps the existing delegation to the `command` builtin;
+- the command form replaces the shell's process image, which Windows has no operation for. It returns
+  `unimp("exec with a command is not supported on Windows")` (status 99) instead of running the command and
+  returning, which would silently let the commands after `exec` run.
+
+Measured after: `type -t exec` is `builtin`; `exec 3>&1; echo hi >&3` prints `hi`; the redirect-and-restore
+pair works; `( exec true ); echo subshell-ok` prints `subshell-ok`; `exec node -e "0"` fails with the message
+above. Upstream `baf71016` (#1482) corrected the feature dependency and #1508/#1517 moved `exec` onto the
+launcher contract; the Windows split is this project's own because the engine has no launcher abstraction at
+this pin.
+
+**Coverage.** `test-exec-builtin.mjs` and the corpus case `exec-redirects-the-shell`. The command form is a
+documented limit in README's 已知限制, not a corpus expectation (bash would exec and never return).
 
 ## The last gap: a background job the shell registers no process for
 

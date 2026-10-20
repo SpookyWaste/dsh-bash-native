@@ -3248,6 +3248,148 @@
           "equals": "rc=0\n"
         }
       }
+    },
+    {
+      "id": "redirection-external-stderr-to-stdout",
+      "category": "descriptor",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "node -e \"console.error('boom')\" 2>&1",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "boom\n"
+        }
+      }
+    },
+    {
+      "id": "redirection-external-stdout-to-stderr",
+      "category": "descriptor",
+      "severity": "must-match",
+      "needs": [
+        "node"
+      ],
+      "host": true,
+      "snippet": "node -e \"console.log('hi')\" >&2",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": ""
+        }
+      }
+    },
+    {
+      "id": "redirection-bundled-stderr-to-stdout",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "tail no-such-file 2>&1",
+      "expect": {
+        "status": 1,
+        "stdout": {
+          "contains": [
+            "no-such-file"
+          ]
+        }
+      }
+    },
+    {
+      "id": "redirection-bundled-stdout-to-stderr",
+      "category": "descriptor",
+      "severity": "must-match",
+      "snippet": "seq 1 3 >&2",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": ""
+        }
+      }
+    },
+    {
+      "id": "exec-redirects-the-shell",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "exec 3>&1; exec > exec-out.txt; echo hi; exec 1>&3; cat exec-out.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "hi\n"
+        }
+      }
+    },
+    {
+      "id": "nested-subshell-parens",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "( (echo IN) )",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "IN\n"
+        }
+      }
+    },
+    {
+      "id": "nested-subshell-open-space",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "((echo IN) )",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "IN\n"
+        }
+      }
+    },
+    {
+      "id": "nested-subshell-close-space",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "( (echo IN))",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "IN\n"
+        }
+      }
+    },
+    {
+      "id": "nested-subshell-line-continuation",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "(\\\n(\\\n10 + 3)); echo rc=$?",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=0\n"
+        }
+      }
+    },
+    {
+      "id": "arithmetic-command-still-parses",
+      "category": "shell-syntax",
+      "severity": "must-match",
+      "snippet": "x=0; ((x++)); echo $x",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "1\n"
+        }
+      }
+    },
+    {
+      "id": "rmdir-refuses-a-final-dot",
+      "category": "coreutils",
+      "severity": "must-match",
+      "snippet": "mkdir empty-dir; rmdir empty-dir/. 2>/dev/null; echo \"rc=$?\"; test -d empty-dir && echo kept || echo gone",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "rc=1\nkept\n"
+        }
+      }
     }
   ]
 }

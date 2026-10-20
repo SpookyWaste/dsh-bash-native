@@ -1,0 +1,114 @@
+diff --git a/brush-builtins/src/exec.rs b/brush-builtins/src/exec.rs
+index d3ade04..239097b 100644
+--- a/brush-builtins/src/exec.rs
++++ b/brush-builtins/src/exec.rs
+@@ -1,7 +1,13 @@
+ use clap::Parser;
+-use std::{borrow::Cow, os::unix::process::CommandExt};
+ 
+-use brush_core::{ErrorKind, ExecutionExitCode, ExecutionResult, builtins, commands};
++use brush_core::{ExecutionResult, builtins};
++
++#[cfg(unix)]
++use brush_core::{ErrorKind, ExecutionExitCode, commands};
++#[cfg(unix)]
++use std::borrow::Cow;
++#[cfg(unix)]
++use std::os::unix::process::CommandExt;
+ 
+ /// Exec the provided command.
+ #[derive(Parser)]
+@@ -58,26 +64,48 @@ impl builtins::Command for ExecCommand {
+             return cmd_cmd.execute(context).await;
+         }
+ 
+-        let mut argv0 = Cow::Borrowed(self.name_for_argv0.as_ref().unwrap_or(&self.args[0]));
++        // Windows has no operation that replaces the process image, so `exec` with a command cannot
++        // be honored there. The no-argument form above already applied this command's redirections,
++        // which is the form scripts use; running the command and returning instead would let the
++        // commands after `exec` run, which is a silent wrong answer.
++        #[cfg(not(unix))]
++        return brush_core::error::unimp("exec with a command is not supported on Windows");
+ 
+-        if self.exec_as_login {
+-            argv0 = Cow::Owned(std::format!("-{argv0}"));
+-        }
++        #[cfg(unix)]
++        return exec_replacing_process(&context, self);
++    }
++}
+ 
+-        let mut cmd = commands::compose_std_command(
+-            &context,
+-            &self.args[0],
+-            argv0.as_str(),
+-            &self.args[1..],
+-            self.empty_environment,
+-        )?;
++/// Replace this shell's process image with the command, as bash's `exec` does.
++#[cfg(unix)]
++fn exec_replacing_process<SE: brush_core::ShellExtensions>(
++    context: &brush_core::ExecutionContext<'_, SE>,
++    command: &ExecCommand,
++) -> Result<ExecutionResult, brush_core::Error> {
++    let mut argv0 = Cow::Borrowed(
++        command
++            .name_for_argv0
++            .as_ref()
++            .unwrap_or(&command.args[0]),
++    );
++
++    if command.exec_as_login {
++        argv0 = Cow::Owned(std::format!("-{argv0}"));
++    }
+ 
+-        let exec_error = cmd.exec();
++    let mut cmd = commands::compose_std_command(
++        context,
++        &command.args[0],
++        argv0.as_str(),
++        &command.args[1..],
++        command.empty_environment,
++    )?;
+ 
+-        if exec_error.kind() == std::io::ErrorKind::NotFound {
+-            Ok(ExecutionExitCode::NotFound.into())
+-        } else {
+-            Err(ErrorKind::from(exec_error).into())
+-        }
++    let exec_error = cmd.exec();
++
++    if exec_error.kind() == std::io::ErrorKind::NotFound {
++        Ok(ExecutionExitCode::NotFound.into())
++    } else {
++        Err(ErrorKind::from(exec_error).into())
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/brush-builtins/src/factory.rs b/brush-builtins/src/factory.rs
+index 4821285..878f399 100644
+--- a/brush-builtins/src/factory.rs
++++ b/brush-builtins/src/factory.rs
+@@ -52,7 +52,7 @@ pub fn default_builtins<SE: brush_core::ShellExtensions>(
+     m.insert(".".into(), builtin::<dot::DotCommand, SE>().special());
+     #[cfg(feature = "builtin.eval")]
+     m.insert("eval".into(), builtin::<eval::EvalCommand, SE>().special());
+-    #[cfg(all(feature = "builtin.exec", unix))]
++    #[cfg(feature = "builtin.exec")]
+     m.insert("exec".into(), builtin::<exec::ExecCommand, SE>().special());
+     #[cfg(feature = "builtin.exit")]
+     m.insert("exit".into(), builtin::<exit::ExitCommand, SE>().special());
+diff --git a/brush-builtins/src/lib.rs b/brush-builtins/src/lib.rs
+index 5f83fa7..31f909b 100644
+--- a/brush-builtins/src/lib.rs
++++ b/brush-builtins/src/lib.rs
+@@ -48,7 +48,7 @@ mod echo;
+ mod enable;
+ #[cfg(feature = "builtin.eval")]
+ mod eval;
+-#[cfg(all(feature = "builtin.exec", unix))]
++#[cfg(feature = "builtin.exec")]
+ mod exec;
+ #[cfg(feature = "builtin.exit")]
+ mod exit;

@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VENDORED_CRATES, applyVendorOverrides, assertVendorGuards } from "../scripts/vendored-crates.mjs";
-import { UU_TAIL_CRATE } from "../scripts/vendored-crates.mjs";
+import { UU_RMDIR_CRATE, UU_TAIL_CRATE } from "../scripts/vendored-crates.mjs";
 import { UUCORE_CRATE, applyCrateOverride, assertCrateGuard, resolvedCrate } from "../scripts/uucore-override.mjs";
 
 let passed = 0;
@@ -57,6 +57,18 @@ pub fn strip_errno(err: &std::io::Error) -> String {
 }
 `;
 
+/** The unpatched `remove_single` region the tracked `uu_rmdir` patch was generated against. */
+const RMDIR_BODY = `            translate!("rmdir-verbose-removing-directory", "util_name" => "rmdir", "path" => path.quote())
+        );
+    }
+    remove_dir(path).map_err(|error| Error { error, path })
+}
+
+#[cfg(unix)]
+fn strip_trailing_slashes_from_path(path: &[u8]) -> &[u8] {
+    let mut end = path.len();
+`;
+
 /** A `Cargo.lock` whose `uu_tail` entry is a registry copy, the shape a fresh engine build resolves. */
 function registryLock(name, version) {
   return `version = 3
@@ -86,7 +98,7 @@ function scenario({ manifest = '[package]\nname = "victim"\nversion = "0.0.0"\n'
   mkdirSync(checkout, { recursive: true });
   mkdirSync(cacheRoot, { recursive: true });
   writeFileSync(join(checkout, "Cargo.toml"), manifest);
-  writeFileSync(join(checkout, "Cargo.lock"), registryLock("uu_tail", "0.12.0") + (uucore ? `\n${registryLock("uucore", "0.12.0")}` : ""));
+  writeFileSync(join(checkout, "Cargo.lock"), registryLock("uu_tail", "0.12.0") + (uucore ? `\n${registryLock("uucore", "0.12.0")}` : "") + `\n${registryLock("uu_rmdir", "0.12.0")}`);
   // The registry layout of a crate that carries a build script: `src/chunks.rs` sits beside `locales`, and
   // there is no `src/uu` above it, so nothing about the copy may depend on one existing.
   const source = join(cargoHome, "registry", "src", "fake-index", "uu_tail-0.12.0");
@@ -96,6 +108,11 @@ function scenario({ manifest = '[package]\nname = "victim"\nversion = "0.0.0"\n'
     writeFileSync(join(source, "Cargo.toml"), '[package]\nname = "uu_tail"\nversion = "0.12.0"\nbuild = false\n');
     writeFileSync(join(source, "src", "chunks.rs"), `${"// padding\n".repeat(74)}${CHUNKS_BODY}`);
     writeFileSync(join(source, "locales", "en-US.ftl"), "unused = no build script reads this\n");
+    // The `rmdir` copy is a plain crate too: padding puts the patch's context at the line the hunk names.
+    const rmdirSource = join(cargoHome, "registry", "src", "fake-index", "uu_rmdir-0.12.0");
+    mkdirSync(join(rmdirSource, "src"), { recursive: true });
+    writeFileSync(join(rmdirSource, "Cargo.toml"), '[package]\nname = "uu_rmdir"\nversion = "0.12.0"\nbuild = false\n');
+    writeFileSync(join(rmdirSource, "src", "rmdir.rs"), `${"// padding\n".repeat(116)}${RMDIR_BODY}`);
     if (uucore) {
       const uucoreSource = join(cargoHome, "registry", "src", "fake-index", "uucore-0.12.0");
       mkdirSync(join(uucoreSource, "src", "lib", "mods"), { recursive: true });
@@ -223,12 +240,16 @@ function scenario({ manifest = '[package]\nname = "victim"\nversion = "0.0.0"\n'
   assert.equal(manifest.match(/^\[patch\.crates-io\]$/gm).length, 1, "the section is not duplicated");
   assert.match(manifest, /^uucore = \{ path = "[^"]+" \}$/m, "uucore is pointed at its copy");
   assert.match(manifest, /^uu_tail = \{ path = "[^"]+" \}$/m, "uu_tail is pointed at its copy");
-  assert.deepEqual(test.calls.filter((call) => call.startsWith("cargo")), ["cargo update -p uucore", "cargo update -p uu_tail"], "each lock entry is adopted once");
+  assert.match(manifest, /^uu_rmdir = \{ path = "[^"]+" \}$/m, "uu_rmdir is pointed at its copy");
+  assert.deepEqual(test.calls.filter((call) => call.startsWith("cargo")), ["cargo update -p uucore", "cargo update -p uu_tail", "cargo update -p uu_rmdir"], "each lock entry is adopted once");
   const files = assertVendorGuards({ checkout: test.checkout, applied, io: test.io });
   assert.equal(files.get("uucore"), join(applied.get("uucore").vendorDir, "src", "lib", "mods", "error.rs"), "the uucore guard is read from its vendored copy");
   assert.equal(files.get("uu_tail"), join(applied.get("uu_tail").vendorDir, "src", "chunks.rs"), "the tail guard is read from its vendored copy");
+  assert.equal(files.get("uu_rmdir"), join(applied.get("uu_rmdir").vendorDir, "src", "rmdir.rs"), "the rmdir guard is read from its vendored copy");
+  assert.match(readFileSync(files.get("uu_rmdir"), "utf8"), /fn has_dot_last_component/, "the vendored rmdir carries the guard");
   assert.equal(resolvedCrate(test.checkout, "uucore")[0].fromPath, true, "the uucore lock entry resolves from a path");
   assert.equal(resolvedCrate(test.checkout, "uu_tail")[0].fromPath, true, "the tail lock entry resolves from a path");
+  assert.equal(resolvedCrate(test.checkout, "uu_rmdir")[0].fromPath, true, "the rmdir lock entry resolves from a path");
   pass("the whole table runs against one checkout and every entry is verified");
 }
 
@@ -275,6 +296,7 @@ function scenario({ manifest = '[package]\nname = "victim"\nversion = "0.0.0"\n'
     );
   }
   assert.equal(VENDORED_CRATES.includes(UU_TAIL_CRATE), true, "the tail fix is one of the table's entries");
+  assert.equal(VENDORED_CRATES.includes(UU_RMDIR_CRATE), true, "the rmdir fix is one of the table's entries");
   pass("every vendored crate names a patch, a module, and a guard its own patch adds");
 }
 

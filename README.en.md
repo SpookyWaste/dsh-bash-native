@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.4-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -91,10 +91,10 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 and 0.2.1-alpha.1-4 both verified here)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 through 0.2.1-alpha.5)</td>
     </tr>
     <tr>
-      <td><b>Persistent terminal component<sub>new in 0.1.6</sub></b></td>
+      <td><b>Persistent terminal component</b></td>
       <td>Requires DSH <code>&gt;=0.2.1-alpha.1</code> to enable</td>
     </tr>
   </tbody>
@@ -230,6 +230,26 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
       <td><code>0022-printf-error-path</code> <sub>new in 0.1.7</sub></td>
       <td><code>printf</code> flushes the bytes it already wrote before reporting a failure (<code>printf 'abc%'</code> leaves <code>abc</code>), words the message instead of printing <code>format-error-invalid-spec</code>, and lets the exit code uucore sets for a value it cannot convert take effect.</td>
     </tr>
+    <tr>
+      <td align="center">23</td>
+      <td><code>0023-external-stdio-follows-the-stream</code> <sub>new in 0.2.1</sub></td>
+      <td><code>2>&amp;1</code> and <code>&gt;&amp;2</code> hand the child the stream that was duplicated: external programs and bundled utilities are redirected as the syntax says, instead of falling back to their own descriptor.</td>
+    </tr>
+    <tr>
+      <td align="center">24</td>
+      <td><code>0024-bash-source-includes-the-outer-script</code> <sub>new in 0.2.1</sub></td>
+      <td>At the top level <code>BASH_SOURCE</code> keeps the whole script stack, so <code>BASH_SOURCE[1]</code> is the outer script.</td>
+    </tr>
+    <tr>
+      <td align="center">25</td>
+      <td><code>0025-arithmetic-command-requires-touching-parens</code> <sub>new in 0.2.1</sub></td>
+      <td><code>((</code> and <code>))</code> make an arithmetic command only when each pair touches; a nested subshell such as <code>( (cmd) )</code> no longer aborts the whole command as arithmetic, while a line continuation between the parentheses still counts as arithmetic.</td>
+    </tr>
+    <tr>
+      <td align="center">26</td>
+      <td><code>0026-exec-without-a-command-on-windows</code> <sub>new in 0.2.1</sub></td>
+      <td>The no-argument form of <code>exec</code> works on Windows (<code>exec &gt;file 2&gt;&amp;1</code>, <code>exec 3&gt;&amp;1</code>); the command form reports that it is unimplemented, because this platform has no process-image replacement.</td>
+    </tr>
   </tbody>
 </table>
 
@@ -268,7 +288,7 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Follows that line's <code>minimal</code> and replaces only its shell surface: one persona and one persistent bash, plus the image-only file tool and compaction group that line ships from 0.2.1-alpha.3 on</td>
+      <td>Follows that line's <code>minimal</code> and replaces only its shell surface: one persona and one persistent bash, plus the read-only image file tools and compaction group the upstream line ships from 0.2.1-alpha.3 on</td>
       <td>A lightweight session that only wants a shell</td>
     </tr>
   </tbody>
@@ -282,7 +302,7 @@ On the Plugins page, `dsh-bash-native` offers **two separately switchable compon
   <img src="img/example1.jpg" width="50%">
 </p>
 
-That component registers the same tool names as the built-in **Persistent terminals** (`@deepseek-ai/dsh-experimental-terminal-bundle`), so the two cannot be on at once. (`tool "terminal_open" is already registered`)
+That component registers the same tool names as the built-in **Persistent terminals** (`@deepseek-ai/dsh-experimental-terminal-bundle`), so the two cannot~~ and need not~~ be on at the same time. (`tool "terminal_open" is already registered`)
 
 ---
 
@@ -381,17 +401,15 @@ That component registers the same tool names as the built-in **Persistent termin
 - **Supports the same `/tmp` and drive aliases as the engine** (`$TMP` is still the recommendation), and a program starting another program stays on that path: `printf '/tmp/f\n' | xargs awk '{print}'`. The names the engine carries are rewritten on this path too (patch `0016`), so `printf '/tmp/x\n' | xargs rm` receives the real temporary path rather than the literal.
 - **It also puts `bash`, `sh` and the engine's 75 utility names on `PATH`** (the toolchain directory first, the **name directory** immediately after it, both ahead of the host's own `PATH`):
 
-  > `src/shim.ts` points those 77 names at the verified engine inside `%LOCALAPPDATA%\dsh-bash-native\shim\<engine sha256>\` — on one volume they are all **hard links**, so 77 names share the engine's single copy of the bytes — and the engine then dispatches on its own file name to the bundled implementation (patch `0016`). A child process cannot exec a shell builtin, so `xargs rm` and `find . -exec rm {} +` have to find a program by name, and the toolchain no longer publishes those 75 names a second time (the old layout's 103 names are down to 28).
+  > `src/shim.ts` points those 77 names at the verified engine inside `%LOCALAPPDATA%\dsh-bash-native\shim\<engine sha256>\` — on one volume they are all **hard links**, so 77 names share the engine's single copy of the bytes — and the engine then dispatches on its own file name to the bundled implementation (patch `0016`). A child process cannot exec a shell builtin, so `xargs rm` and `find . -exec rm {} +` have to find a program by name, and the toolchain no longer publishes those 75 names a second time.
 
-  That is what makes `bash script.sh`, `bash -c …`, `sh -c …` and a Makefile or npm hook that calls `bash` work; **running a script by its own path does not work yet** (`./s.sh`).
+  That is what makes `bash script.sh`, `bash -c …`, `sh -c …` and a Makefile or npm hook that calls `bash` work.
 
 ---
 
 ## ⚠️ Known limitations
 
 - **brush is still in preview on Windows**, so defects are possible.
-- When the shell registers no process for a background job, test liveness with `wait` rather than `kill -0`.
-- **`jobs` / `jobs -p` see an empty table inside a command substitution**; `kill` takes one target at a time (`kill %1 %2` reports 2); Windows delivers no signals, so any signal ends as **128+n** (TERM 143, KILL 137).
 - **When the reader closes early (a broken pipe)**, a bundled utility or an external program uses its own wording and its own exit code:
 
   | Command | Writer exit code | Note |
@@ -402,11 +420,7 @@ That component registers the same tool names as the built-in **Persistent termin
   | `ls -R some-dir \| head -c 1` | `1` | — |
   | The engine's own builtins | `141` | ends correctly |
 
-  This is what having no `SIGPIPE` on Windows costs (each utility decides for itself what to do about a broken pipe), so **do not judge a writer by `PIPESTATUS[0]` alone**.
-- **The drive rewrite cannot tell a path from a program's script operand**: `awk '/x/{print}'` arrives as `X:\{print}` and `sed '/x/d'` reports `invalid command code`; write `awk '$0 ~ /x/'`, or set `DSH_BASH_NATIVE_NO_PATHCONV=1` for that one command.
-- **The alias rewrite reads text, not intent**: a **data** argument that starts with `/tmp` is rewritten too (`grep /tmp/x file` goes looking for a temporary path); the escape hatch is again `DSH_BASH_NATIVE_NO_PATHCONV=1`, and with it every argument is passed through verbatim.
-- **`select` is not supported yet** — a whole command containing one fails at **parse time**.
-- **There is no `exec` and no `ulimit`**: the first needs to replace the process image, and the second's resource table is typed on `rlimit::Resource`, a crate that does not exist on Windows at all, so it could only report a few compatibility numbers with nothing behind them.
+  This is what having no `SIGPIPE` on Windows costs (each utility decides for itself what to do about a broken pipe).
 ---
 
 ## 📄 License

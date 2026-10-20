@@ -6,6 +6,7 @@ patched copy of the resolved version instead.
 | Crate | Patch | The rule it carries |
 |---|---|---|
 | `uu_tail` | `uu_tail/0001-tail-reads-the-last-block.patch` | [uu_tail/README.md](uu_tail/README.md) |
+| `uu_rmdir` | `uu_rmdir/0001-refuse-a-final-dot-on-windows.patch` | [uu_rmdir/README.md](uu_rmdir/README.md) |
 
 The table that drives the whole mechanism is `scripts/vendored-crates.mjs`: every entry names the crate, the
 tracked patch, the file inside the copy that patch edits, and a guard line only the patched file carries.
