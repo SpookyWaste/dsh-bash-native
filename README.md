@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.4-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by brush](https://img.shields.io/badge/powered%20by-brush-dea584)](https://github.com/reubeno/brush)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
@@ -91,10 +91,10 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 与 0.2.1-alpha.1-4 实测通过）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-alpha.5）</td>
     </tr>
     <tr>
-      <td><b>持久终端组件<sub>0.1.6新增</sub></b></td>
+      <td><b>持久终端组件</b></td>
       <td>需要 DSH <code>&gt;=0.2.1-alpha.1</code>才能开启</td>
     </tr>
   </tbody>
@@ -232,30 +232,28 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td align="center">23</td>
-      <td><code>0023-external-stdio-follows-the-stream</code></td>
+      <td><code>0023-external-stdio-follows-the-stream</code> <sub>0.2.1 新增</sub></td>
       <td><code>2>&amp;1</code> 与 <code>&gt;&amp;2</code> 把被复制的那个流交给子进程：外部程序与 bundled 工具都按语义重定向，而不是退回它自己的 fd。</td>
     </tr>
     <tr>
       <td align="center">24</td>
-      <td><code>0024-bash-source-includes-the-outer-script</code></td>
+      <td><code>0024-bash-source-includes-the-outer-script</code> <sub>0.2.1 新增</sub></td>
       <td>顶层 <code>source</code> 时 <code>BASH_SOURCE</code> 保留整条脚本栈，<code>BASH_SOURCE[1]</code> 是外层脚本。</td>
     </tr>
     <tr>
       <td align="center">25</td>
-      <td><code>0025-arithmetic-command-requires-touching-parens</code></td>
+      <td><code>0025-arithmetic-command-requires-touching-parens</code> <sub>0.2.1 新增</sub></td>
       <td><code>((</code> 与 <code>))</code> 只有各自紧邻时才是算术命令；<code>( (cmd) )</code> 这类嵌套子 shell 不再被误当算术而整段失败，行继续写法仍是算术。</td>
     </tr>
     <tr>
       <td align="center">26</td>
-      <td><code>0026-exec-without-a-command-on-windows</code></td>
+      <td><code>0026-exec-without-a-command-on-windows</code> <sub>0.2.1 新增</sub></td>
       <td><code>exec</code> 的无参数形式在 Windows 上可用（<code>exec &gt;file 2&gt;&amp;1</code>、<code>exec 3&gt;&amp;1</code>）；带命令的形式因平台没有进程映像替换而明确报未实现。</td>
     </tr>
   </tbody>
 </table>
 
 </details>
-
-> 🧩 另有一支 vendored crate 补丁：`uu_rmdir` 在 Windows 上拒绝末组件为 `.` 的路径（`rmdir dir/.` 与 Git Bash 一致地报 `EINVAL` 并保留目录），见 [`patches/vendored/README.md`](patches/vendored/README.md)。
 
 > 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 15.6 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
@@ -290,7 +288,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>，order 6</sub></td>
-      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash；上游从 0.2.1-alpha.3 起那一版自带只读图片的文件工具与压缩组</td>
+      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash；上游从 0.2.1-alpha.3 起自带只读图片的文件工具与压缩组</td>
       <td>只要一个 shell 的轻量会话</td>
     </tr>
   </tbody>
@@ -304,7 +302,7 @@ https://github.com/SpookyWaste/dsh-bash-native
   <img src="img/example1.jpg" width="50%">
 </p>
 
-该组件和内置的 **持久终端**（@deepseek-ai/dsh-experimental-terminal-bundle）注册同名工具，不能同时开启。 （`tool "terminal_open" is already registered`）
+该组件和内置的 **持久终端**（@deepseek-ai/dsh-experimental-terminal-bundle）注册同名工具，不能~~也不需要~~同时开启。 （`tool "terminal_open" is already registered`）
 
 ---
 
@@ -403,19 +401,15 @@ https://github.com/SpookyWaste/dsh-bash-native
 - **支持与引擎相同的 `/tmp` 与盘符别名**（仍然推荐使用 `$TMP`），“程序再启动程序”的链同样成立：`printf '/tmp/f\n' | xargs awk '{print}'`；引擎自带的那些名字在这条路上同样改写（补丁 `0016`），`printf '/tmp/x\n' | xargs rm` 拿到的是真实临时路径而不是字面量。
 - **顺带把 `bash`、`sh` 与引擎自带的 75 个工具名一起放到 `PATH` 上**（工具链目录在前，**名字目录**紧随其后，两者都排在宿主原有 `PATH` 之前）：
 
-  > `src/shim.ts` 在 `%LOCALAPPDATA%\dsh-bash-native\shim\<引擎 sha256>\` 里把这 77 个名字指向已校验引擎——同卷时全是**硬链接**，77 个名字共用引擎那一份字节——引擎再按自己的文件名分派到 bundled 实现（补丁 `0016`）——子进程 exec 不到 shell 内建，`xargs rm`、`find . -exec rm {} +` 只能按名字找程序，工具链也就不再重复发布这 75 个名字（旧布局的 103 个名字降到 28）。
+  > `src/shim.ts` 在 `%LOCALAPPDATA%\dsh-bash-native\shim\<引擎 sha256>\` 里把这 77 个名字指向已校验引擎——同卷时全是**硬链接**，77 个名字共用引擎那一份字节——引擎再按自己的文件名分派到 bundled 实现（补丁 `0016`）。
 
-  于是 `bash script.sh`、`bash -c …`、`sh -c …` 与调用 `bash` 的 Makefile/npm 钩子都能用；**按路径直接执行脚本暂不成立**（`./s.sh`）。
+  于是 `bash script.sh`、`bash -c …`、`sh -c …` 与调用 `bash` 的 Makefile/npm 钩子都能用。
 
 ---
 
 ## ⚠️ 已知限制
 
 - **brush 在 Windows 平台仍处于 preview 阶段**，有存在缺陷的可能。
-- shell 不为某个后台作业登记进程时，判活要用 `wait` 而不是 `kill -0`。
-- **`exec` 带命令的形式未实现**（Windows 没有进程映像替换）：`exec >file 2>&1`、`exec 3>&1` 这类无参形式可用，`exec cmd` 明确报 <code>unimplemented</code>，不会假装跑完再返回；`ulimit` 仍整体缺失（资源表按 `rlimit::Resource` 定型，Windows 上没有这个 crate）。
-- **沙箱拒绝识别只看 stderr**：`cmd 2>&1` 会把子进程的 `os error 5` 并进 stdout，因此这类命令被沙箱拒绝时不会被标成 `denied`（策略仍生效，命令仍然失败）。
-- **命令替换里的 `jobs` / `jobs -p` 看到空表**；`kill` 一次只接受一个目标（`kill %1 %2` 报 2）；Windows 不送信号，任何信号都以 **128+n** 结束（TERM 143、KILL 137）。用 ctx.jobs 注册的 job_* 工具比在终端里 & 更可靠。
 - **读端提前关闭（断管）时**，bundled 工具与外部程序用的是它们自己的措辞和退出码：
 
   | 命令 | 写端退出码 | 备注 |
