@@ -1,0 +1,18 @@
+diff --git a/brush-core/src/openfiles.rs b/brush-core/src/openfiles.rs
+index ccbcef6..8fc981d 100644
+--- a/brush-core/src/openfiles.rs
++++ b/brush-core/src/openfiles.rs
+@@ -238,7 +238,12 @@ impl TryFrom<OpenFile> for Stdio {
+         // fail (e.g. under descriptor exhaustion), so the conversion is fallible and the error is
+         // surfaced to the caller rather than silently degrading the child's streams.
+         match open_file {
+-            OpenFile::Stdin(_) | OpenFile::Stdout(_) | OpenFile::Stderr(_) => Ok(Self::inherit()),
++            OpenFile::Stdin(_) => Ok(Self::inherit()),
++            // `2>&1` and `>&2` duplicate one of the shell's own streams into another descriptor. The
++            // child must get the stream that was duplicated, not whichever descriptor it was assigned:
++            // inheriting fd 2 here would quietly undo the redirection.
++            OpenFile::Stdout(stream) => Ok(stream.into()),
++            OpenFile::Stderr(stream) => Ok(stream.into()),
+             OpenFile::File(f) => Ok(f.try_clone()?.into()),
+             OpenFile::PipeReader(r) => Ok(r.try_clone()?.into()),
+             OpenFile::PipeWriter(w) => Ok(w.try_clone()?.into()),

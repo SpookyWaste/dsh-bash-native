@@ -230,10 +230,32 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td><code>0022-printf-error-path</code> <sub>0.1.7 新增</sub></td>
       <td><code>printf</code> 报错前先刷新已经写出的字节（<code>printf 'abc%'</code> 留下 <code>abc</code>），把消息说成人话而不是 <code>format-error-invalid-spec</code>，并让 uucore 为“值转换不了”设的退出码真正生效。</td>
     </tr>
+    <tr>
+      <td align="center">23</td>
+      <td><code>0023-external-stdio-follows-the-stream</code></td>
+      <td><code>2>&amp;1</code> 与 <code>&gt;&amp;2</code> 把被复制的那个流交给子进程：外部程序与 bundled 工具都按语义重定向，而不是退回它自己的 fd。</td>
+    </tr>
+    <tr>
+      <td align="center">24</td>
+      <td><code>0024-bash-source-includes-the-outer-script</code></td>
+      <td>顶层 <code>source</code> 时 <code>BASH_SOURCE</code> 保留整条脚本栈，<code>BASH_SOURCE[1]</code> 是外层脚本。</td>
+    </tr>
+    <tr>
+      <td align="center">25</td>
+      <td><code>0025-arithmetic-command-requires-touching-parens</code></td>
+      <td><code>((</code> 与 <code>))</code> 只有各自紧邻时才是算术命令；<code>( (cmd) )</code> 这类嵌套子 shell 不再被误当算术而整段失败，行继续写法仍是算术。</td>
+    </tr>
+    <tr>
+      <td align="center">26</td>
+      <td><code>0026-exec-without-a-command-on-windows</code></td>
+      <td><code>exec</code> 的无参数形式在 Windows 上可用（<code>exec &gt;file 2&gt;&amp;1</code>、<code>exec 3&gt;&amp;1</code>）；带命令的形式因平台没有进程映像替换而明确报未实现。</td>
+    </tr>
   </tbody>
 </table>
 
 </details>
+
+> 🧩 另有一支 vendored crate 补丁：`uu_rmdir` 在 Windows 上拒绝末组件为 `.` 的路径（`rmdir dir/.` 与 Git Bash 一致地报 `EINVAL` 并保留目录），见 [`patches/vendored/README.md`](patches/vendored/README.md)。
 
 > 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 15.6 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
@@ -391,6 +413,8 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 - **brush 在 Windows 平台仍处于 preview 阶段**，有存在缺陷的可能。
 - shell 不为某个后台作业登记进程时，判活要用 `wait` 而不是 `kill -0`。
+- **`exec` 带命令的形式未实现**（Windows 没有进程映像替换）：`exec >file 2>&1`、`exec 3>&1` 这类无参形式可用，`exec cmd` 明确报 <code>unimplemented</code>，不会假装跑完再返回；`ulimit` 仍整体缺失（资源表按 `rlimit::Resource` 定型，Windows 上没有这个 crate）。
+- **沙箱拒绝识别只看 stderr**：`cmd 2>&1` 会把子进程的 `os error 5` 并进 stdout，因此这类命令被沙箱拒绝时不会被标成 `denied`（策略仍生效，命令仍然失败）。
 - **命令替换里的 `jobs` / `jobs -p` 看到空表**；`kill` 一次只接受一个目标（`kill %1 %2` 报 2）；Windows 不送信号，任何信号都以 **128+n** 结束（TERM 143、KILL 137）。用 ctx.jobs 注册的 job_* 工具比在终端里 & 更可靠。
 - **读端提前关闭（断管）时**，bundled 工具与外部程序用的是它们自己的措辞和退出码：
 
@@ -402,11 +426,7 @@ https://github.com/SpookyWaste/dsh-bash-native
   | `ls -R 某目录 \| head -c 1` | `1` | — |
   | 引擎自己的内建 | `141` | 正确结束 |
 
-  这是 Windows 没有 `SIGPIPE` 的后果（每个工具各自决定断管怎么办），因此**别只凭 `PIPESTATUS[0]` 判断写端成败**。
-- **盘符改写分不清路径与程序的脚本操作数**：`awk '/x/{print}'` 到手是 `X:\{print}`、`sed '/x/d'` 报 `invalid command code`；改写 `awk '$0 ~ /x/'`，或对那条命令设 `DSH_BASH_NATIVE_NO_PATHCONV=1`。
-- **别名改写只看文本不看意图**：以 `/tmp` 开头的**数据**参数也会被改写（`grep /tmp/x file` 会去找临时路径）；逃生开关同样是 `DSH_BASH_NATIVE_NO_PATHCONV=1`，开启后所有参数原样传递。
-- **`select` 暂不支持**——含它的整条命令在**解析期**即失败。
-- **没有 `exec`，也没有 `ulimit`**：前者要换进程映像，后者的资源表是按 `rlimit::Resource` 定型的，Windows 上整个 crate 都不存在，只能报几个没有对应物的兼容数字。
+  这是 Windows 没有 `SIGPIPE` 的后果（每个工具各自决定断管怎么办）。
 ---
 
 ## 📄 许可

@@ -10,8 +10,8 @@
   ],
   "artifact": {
     "path": "engine/win32-x64/brush.exe",
-    "sha256": "16b2d1ecf74cbccd755dcdd76e43e33e9bc39cdebedf84e7cf6ab710b3e98469",
-    "bytes": 15684096
+    "sha256": "54719768922b5c44a353ba55cf2e0d035d30f0f8042b43e498734eb7d30f34a4",
+    "bytes": 15703040
   },
   "why": "Upstream brush implements $! as current_job().representative_pid(), and the published engine returns an empty value, while the source at this commit is what has to be measured rather than assumed. `experimental-bundled-coreutils` is required for parity with the published engine, which is where the in-process utilities the prompt contract lists come from: built with default features alone, `sleep`, `cat`, `ls` and `uname` are missing entirely and the contract's claim would be false."
 }
