@@ -20,8 +20,17 @@ export const UU_TAIL_CRATE = {
   guardFailure: "does not give the block closest to the beginning of the file its remainder",
 };
 
+/** The `rmdir` final-dot guard, tracked as `patches/vendored/uu_rmdir/0001-refuse-a-final-dot-on-windows.patch`. */
+export const UU_RMDIR_CRATE = {
+  name: "uu_rmdir",
+  patch: join("patches", "vendored", "uu_rmdir", "0001-refuse-a-final-dot-on-windows.patch"),
+  module: join("src", "rmdir.rs"),
+  guard: "if has_dot_last_component(path) {",
+  guardFailure: "does not refuse a final dot before Win32 folds it away and removes the directory",
+};
+
 /** Every crate this build vendors, in the order the overrides are applied. */
-export const VENDORED_CRATES = [UUCORE_CRATE, UU_TAIL_CRATE];
+export const VENDORED_CRATES = [UUCORE_CRATE, UU_TAIL_CRATE, UU_RMDIR_CRATE];
 
 /**
  * Point the checkout at a patched copy of every vendored crate.
