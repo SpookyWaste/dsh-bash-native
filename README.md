@@ -324,6 +324,27 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ---
 
+## 🧹 磁盘足迹与清理
+
+运行时状态都在 `%LOCALAPPDATA%\dsh-bash-native` 下，并且**按内容寻址**：每个引擎构建一个 `shim/<引擎 sha256>/`（`bash`/`sh` 两个名字），每个随包工具链一个 `toolchain/<manifest 摘要>/`（程序本体加 `bin/` 下的名字）。升级后字节变了就落到新目录，旧目录**故意不自动删**：另一个已安装的版本或一个还活着的进程可能仍在使用它。
+
+| 目录 | 谁写的 | 大小 | 删掉会怎样 |
+|---|---|:---:|---|
+| `shim/<摘要>/` | 每次解析 | 引擎大小（同卷硬链接时约 0） | 下次解析重建 |
+| `toolchain/<摘要>/` | 每次解析 | 约 36 MB（同卷硬链接时约 0） | 下次解析重建 |
+| `tools/` | `npm run toolchain` | 约 36 MB | 要重新构建（Rust，慢） |
+| `build/`、`engine-backup/`、`rubash.exe` | `scripts/build-engine.mjs` | 1–2 GB | 只影响开发构建 |
+| `verified/` | 每次校验 | 几十 KB | 只会多一次哈希 |
+
+显式清理（**停掉 DSH 之后**运行）：
+
+```sh
+node node_modules/dsh-bash-native/bin/clean-state.mjs          # 只报告，不动文件
+node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代的 shim/ 与 toolchain/ 缓存
+```
+
+`--tools` 连自建工具链一起删，`--dev` 连开发残留一起删；`verified/` 与 rc 文件永远保留。脚本只按「目录名是不是 64 位 sha256」和「是不是本包正在用的那个摘要」判断，认不出来的条目不碰；两个摘要都读不到时它拒绝删除。
+
 ## 📄 许可
 
 | 内容 | 许可 | 声明与扫描 |

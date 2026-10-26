@@ -324,6 +324,27 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
 
 ---
 
+## 🧹 Disk footprint and cleanup
+
+The runtime state lives under `%LOCALAPPDATA%\dsh-bash-native` and is **content-addressed**: one `shim/<engine sha256>/` per engine build (the `bash`/`sh` names), one `toolchain/<manifest digest>/` per packaged toolchain (the programs plus the names under `bin/`). An upgrade whose bytes changed lands in a new directory, and the old one is **deliberately not pruned**: another installed version, or a live process, may still be using it.
+
+| Directory | Written by | Size | If deleted |
+|---|---|:---:|---|
+| `shim/<digest>/` | every resolution | the engine's size (about 0 with a hard link on the same volume) | recreated on the next resolution |
+| `toolchain/<digest>/` | every resolution | about 36 MB (about 0 with hard links on the same volume) | recreated on the next resolution |
+| `tools/` | `npm run toolchain` | about 36 MB | must be rebuilt (Rust, slow) |
+| `build/`, `engine-backup/`, `rubash.exe` | `scripts/build-engine.mjs` | 1–2 GB | only development builds are affected |
+| `verified/` | every verification | tens of KB | one extra hash, nothing else |
+
+To clean up explicitly (run it with **DSH stopped**):
+
+```sh
+node node_modules/dsh-bash-native/bin/clean-state.mjs          # report only, change nothing
+node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the superseded shim/ and toolchain/ caches
+```
+
+`--tools` also deletes the source-built toolchain, `--dev` also deletes the development leftovers; `verified/` and the rc file are always kept. The script decides only on “is the directory name a 64-character sha256” and “is it the digest this package uses”; anything it cannot classify is left alone, and it refuses to delete when either digest cannot be read.
+
 ## 📄 License
 
 | What | License | Notice and scan |
