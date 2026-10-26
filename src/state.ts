@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { lstatSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** A cache directory name: the 64 lowercase hex characters of a sha256 digest. */
@@ -33,6 +33,20 @@ const DEVELOPMENT_ENTRIES = ['build', 'engine-backup', 'rubash.exe'] as const
 /** The source-built toolchain directory `scripts/build-toolchain.mjs` writes by default. */
 const BUILT_TOOLCHAIN_ENTRY = 'tools'
 
+/** One child of a directory, as `readdir` reports it.
+ *
+ * The type has to come from the directory entry rather than from `lstat`, because Windows reports a junction
+ * as a plain directory through `lstat` while `readdir` flags it as a link. Measurement and deletion both care:
+ * a junction inside a cache would otherwise be measured through its target.
+ */
+export interface StateDirEntry {
+  readonly name: string
+  /** Whether the name is a link or junction, which is never followed. */
+  readonly link: boolean
+  /** Whether it is a directory (false for links, even ones that point at directories). */
+  readonly directory: boolean
+}
+
 /** One file as the classification needs it. */
 export interface StateFile {
   /** Size in bytes. */
@@ -43,14 +57,16 @@ export interface StateFile {
   readonly identity: string | null
   /** How many names this file has in total. */
   readonly links: number
+  /** Whether the name itself is a link or junction, which is never followed or descended into. */
+  readonly link: boolean
 }
 
 /** The filesystem questions this module asks, injected so the classification is testable without a tree. */
 export interface StateIo {
   /** @param path - candidate path. @returns whether it is a directory. */
   isDirectory(path: string): boolean
-  /** @param path - directory. @returns its entry names, or null when it cannot be read. */
-  names(path: string): readonly string[] | null
+  /** @param path - directory. @returns its entries with the type `readdir` reports, or null when unreadable. */
+  names(path: string): readonly StateDirEntry[] | null
   /** @param path - candidate path. @returns its identity, or null when it is absent. */
   stat(path: string): StateFile | null
   /** Deletes a file or a directory tree, ignoring absence. */
@@ -72,6 +88,8 @@ export interface StateEntry {
   readonly bytes: number
   /** Part of `bytes` whose inode has another name outside this entry, so deleting it frees nothing. */
   readonly shared: number
+  /** Whether the tree holds a link or junction; deleting it could reach outside, so the automatic pass refuses. */
+  readonly linked: boolean
   /** Whether this is the directory the current package would materialize. */
   readonly current: boolean
   readonly removable: StateRemoval
@@ -102,23 +120,31 @@ export interface PruneResult {
 export const nodeIo: StateIo = {
   isDirectory: (path) => {
     try {
-      return statSync(path).isDirectory()
+      return lstatSync(path).isDirectory() && !lstatSync(path).isSymbolicLink()
     } catch {
       return false
     }
   },
   names: (path) => {
     try {
-      return readdirSync(path)
+      return readdirSync(path, { withFileTypes: true }).map((entry) => ({
+        name: entry.name,
+        link: entry.isSymbolicLink(),
+        directory: entry.isDirectory(),
+      }))
     } catch {
       return null
     }
   },
   stat: (path) => {
     try {
-      const found = statSync(path)
-      if (!found.isFile()) return { bytes: 0, file: false, identity: null, links: 0 }
-      return { bytes: found.size, file: true, identity: `${found.dev}:${found.ino}`, links: found.nlink }
+      // `lstat`, never `stat`: a junction or symlink inside the cache must be reported as a link rather than
+      // measured through whatever it points at, or the classification would count another directory's files
+      // and a deletion would look cheaper than it is.
+      const found = lstatSync(path)
+      if (found.isSymbolicLink()) return { bytes: 0, file: false, identity: null, links: 0, link: true }
+      if (!found.isFile()) return { bytes: 0, file: false, identity: null, links: 0, link: false }
+      return { bytes: found.size, file: true, identity: `${found.dev}:${found.ino}`, links: found.nlink, link: false }
     } catch {
       return null
     }
@@ -173,17 +199,21 @@ export function currentDigests(packageRoot: string): { engine: string | null; to
  * @param seen - the file identities an earlier entry already accounted for.
  * @returns the bytes this entry owns and the part of them that deletion would not free.
  */
-function measureEntry(path: string, io: StateIo, seen: Set<string>): { bytes: number; shared: number } {
+function measureEntry(path: string, io: StateIo, seen: Set<string>): { bytes: number; shared: number; linked: boolean } {
   const found = io.stat(path)
-  if (found === null) return { bytes: 0, shared: 0 }
+  if (found === null) return { bytes: 0, shared: 0, linked: false }
+  if (found.link) return { bytes: 0, shared: 0, linked: true }
   if (found.file) {
-    if (found.identity !== null && seen.has(found.identity)) return { bytes: 0, shared: 0 }
+    if (found.identity !== null && seen.has(found.identity)) return { bytes: 0, shared: 0, linked: false }
     if (found.identity !== null) seen.add(found.identity)
-    return { bytes: found.bytes, shared: found.links > 1 ? found.bytes : 0 }
+    return { bytes: found.bytes, shared: found.links > 1 ? found.bytes : 0, linked: false }
   }
   // A directory is measured in two passes: how often each inode appears inside it, and what that costs.
   const counts = new Map<string, { bytes: number; links: number; count: number }>()
-  countNames(path, io, counts)
+  let linked = false
+  countNames(path, io, counts, () => {
+    linked = true
+  })
   let bytes = 0
   let shared = 0
   for (const [identity, entry] of counts) {
@@ -192,7 +222,7 @@ function measureEntry(path: string, io: StateIo, seen: Set<string>): { bytes: nu
     bytes += entry.bytes
     if (entry.links > entry.count) shared += entry.bytes
   }
-  return { bytes, shared }
+  return { bytes, shared, linked }
 }
 
 /**
@@ -201,15 +231,24 @@ function measureEntry(path: string, io: StateIo, seen: Set<string>): { bytes: nu
  * @param io - filesystem seam.
  * @param counts - identity → `{ bytes, links, count }`, accumulated in place.
  */
-function countNames(path: string, io: StateIo, counts: Map<string, { bytes: number; links: number; count: number }>): void {
-  for (const name of io.names(path) ?? []) {
-    const child = join(path, name)
-    const found = io.stat(child)
-    if (found === null) continue
-    if (!found.file) {
-      countNames(child, io, counts)
+function countNames(
+  path: string,
+  io: StateIo,
+  counts: Map<string, { bytes: number; links: number; count: number }>,
+  markLinked: () => void,
+): void {
+  for (const entry of io.names(path) ?? []) {
+    const child = join(path, entry.name)
+    if (entry.link) {
+      markLinked()
       continue
     }
+    if (entry.directory) {
+      countNames(child, io, counts, markLinked)
+      continue
+    }
+    const found = io.stat(child)
+    if (found === null || !found.file) continue
     const key = found.identity ?? child
     const known = counts.get(key)
     if (known === undefined) counts.set(key, { bytes: found.bytes, links: found.links, count: 1 })
@@ -232,21 +271,22 @@ function countNames(path: string, io: StateIo, counts: Map<string, { bytes: numb
  */
 function cacheEntries(root: string, kind: 'shim' | 'toolchain', current: string | null, io: StateIo, seen: Set<string>): StateEntry[] {
   const entries: StateEntry[] = []
-  for (const name of [...(io.names(join(root, kind)) ?? [])].sort()) {
-    const path = join(root, kind, name)
-    const isVersion = io.isDirectory(path) && DIGEST_NAME.test(name)
+  for (const name of [...(io.names(join(root, kind)) ?? [])].sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(root, kind, name.name)
+    const isVersion = !name.link && name.directory && DIGEST_NAME.test(name.name)
     if (!isVersion) {
-      entries.push({ kind: 'other', name: `${kind}/${name}`, path, bytes: 0, shared: 0, current: false, removable: null })
+      entries.push({ kind: 'other', name: `${kind}/${name.name}`, path, bytes: 0, shared: 0, linked: name.link, current: false, removable: null })
       continue
     }
-    const isCurrent = current !== null && name === current
+    const isCurrent = current !== null && name.name === current
     const measured = measureEntry(path, io, seen)
     entries.push({
       kind,
-      name,
+      name: name.name,
       path,
       bytes: measured.bytes,
       shared: measured.shared,
+      linked: measured.linked,
       current: isCurrent,
       removable: current === null || isCurrent ? null : 'superseded',
     })
@@ -262,9 +302,9 @@ function cacheEntries(root: string, kind: 'shim' | 'toolchain', current: string 
  * @param seen - the file identities already counted by this report.
  * @returns the entry, with `removable` naming what would delete it.
  */
-function topLevelEntry(path: string, name: string, io: StateIo, seen: Set<string>): StateEntry {
-  const measured = measureEntry(path, io, seen)
-  const base = { bytes: measured.bytes, shared: measured.shared, current: false }
+function topLevelEntry(path: string, name: string, link: boolean, io: StateIo, seen: Set<string>): StateEntry {
+  const measured = link ? { bytes: 0, shared: 0, linked: true } : measureEntry(path, io, seen)
+  const base = { bytes: measured.bytes, shared: measured.shared, linked: measured.linked, current: false }
   if ((DEVELOPMENT_ENTRIES as readonly string[]).includes(name)) return { kind: 'dev', name, path, ...base, removable: 'dev' }
   if (name === BUILT_TOOLCHAIN_ENTRY) return { kind: 'tools', name, path, ...base, removable: 'tools' }
   return { kind: 'other', name, path, ...base, removable: null }
@@ -290,9 +330,9 @@ export function inspectState(options: {
     ...cacheEntries(options.root, 'shim', options.engine, io, seen),
     ...cacheEntries(options.root, 'toolchain', options.toolchain, io, seen),
   ]
-  for (const name of [...(io.names(options.root) ?? [])].sort()) {
-    if ((CACHE_DIRECTORIES as readonly string[]).includes(name)) continue
-    entries.push(topLevelEntry(join(options.root, name), name, io, seen))
+  for (const child of [...(io.names(options.root) ?? [])].sort((left, right) => left.name.localeCompare(right.name))) {
+    if ((CACHE_DIRECTORIES as readonly string[]).includes(child.name)) continue
+    entries.push(topLevelEntry(join(options.root, child.name), child.name, child.link, io, seen))
   }
   const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
   return {
@@ -369,7 +409,9 @@ export function pruneSuperseded(options: {
     return { removed: 0, bytes: 0, names: [] }
   }
   const report = inspectState({ root: options.root, engine: options.engine, toolchain: options.toolchain, io })
-  const doomed = removable(report.entries, { superseded: true }).filter((entry) => entry.shared === 0)
+  // A tree holding a link or junction is never a candidate: deleting it would be a decision about names
+  // outside this directory, and the pass only ever means to remove bytes it laid down itself.
+  const doomed = removable(report.entries, { superseded: true }).filter((entry) => entry.shared === 0 && !entry.linked)
   let removed = 0
   let bytes = 0
   const names: string[] = []
@@ -427,8 +469,10 @@ export function formatReport(report: StateReport): string {
     if (entries.length === 0) continue
     lines.push(`  ${kind}: ${description}`)
     for (const entry of entries) {
-      const shared = entry.shared > 0 ? ` · ${formatBytes(entry.shared)} shared` : ''
-      lines.push(`    ${entry.name.slice(0, 20).padEnd(22)}${formatBytes(entry.bytes).padStart(8)}  ${stateLabel(entry)}${shared}`)
+      const notes = [entry.shared > 0 ? `${formatBytes(entry.shared)} shared` : '', entry.linked ? 'contains a link' : '']
+        .filter((note) => note.length > 0)
+        .join(' · ')
+      lines.push(`    ${entry.name.slice(0, 20).padEnd(22)}${formatBytes(entry.bytes).padStart(8)}  ${stateLabel(entry)}${notes.length > 0 ? ` · ${notes}` : ''}`)
     }
   }
   lines.push(`${formatBytes(report.removableBytes)} in superseded caches; rerun with --yes to delete them`)

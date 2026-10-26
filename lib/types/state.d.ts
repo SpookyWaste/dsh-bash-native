@@ -16,6 +16,19 @@
  * elsewhere" — an installed package's own copy of the same binary, for example.
  * @module dsh-bash-native/state
  */
+/** One child of a directory, as `readdir` reports it.
+ *
+ * The type has to come from the directory entry rather than from `lstat`, because Windows reports a junction
+ * as a plain directory through `lstat` while `readdir` flags it as a link. Measurement and deletion both care:
+ * a junction inside a cache would otherwise be measured through its target.
+ */
+export interface StateDirEntry {
+    readonly name: string;
+    /** Whether the name is a link or junction, which is never followed. */
+    readonly link: boolean;
+    /** Whether it is a directory (false for links, even ones that point at directories). */
+    readonly directory: boolean;
+}
 /** One file as the classification needs it. */
 export interface StateFile {
     /** Size in bytes. */
@@ -26,13 +39,15 @@ export interface StateFile {
     readonly identity: string | null;
     /** How many names this file has in total. */
     readonly links: number;
+    /** Whether the name itself is a link or junction, which is never followed or descended into. */
+    readonly link: boolean;
 }
 /** The filesystem questions this module asks, injected so the classification is testable without a tree. */
 export interface StateIo {
     /** @param path - candidate path. @returns whether it is a directory. */
     isDirectory(path: string): boolean;
-    /** @param path - directory. @returns its entry names, or null when it cannot be read. */
-    names(path: string): readonly string[] | null;
+    /** @param path - directory. @returns its entries with the type `readdir` reports, or null when unreadable. */
+    names(path: string): readonly StateDirEntry[] | null;
     /** @param path - candidate path. @returns its identity, or null when it is absent. */
     stat(path: string): StateFile | null;
     /** Deletes a file or a directory tree, ignoring absence. */
@@ -51,6 +66,8 @@ export interface StateEntry {
     readonly bytes: number;
     /** Part of `bytes` whose inode has another name outside this entry, so deleting it frees nothing. */
     readonly shared: number;
+    /** Whether the tree holds a link or junction; deleting it could reach outside, so the automatic pass refuses. */
+    readonly linked: boolean;
     /** Whether this is the directory the current package would materialize. */
     readonly current: boolean;
     readonly removable: StateRemoval;

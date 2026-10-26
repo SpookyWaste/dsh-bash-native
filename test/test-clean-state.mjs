@@ -6,7 +6,7 @@
 // here is a fixture: this suite never touches the machine's real state directory.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { currentDigests, formatBytes, inspectState, pruneSuperseded, removable, removeEntries } from "../lib/state.js";
@@ -192,6 +192,39 @@ function file(path, bytes) {
   rmSync(join(ROOT, "package-copy.exe"), { force: true });
   rmSync(state, { recursive: true, force: true });
   pass("the automatic pass removes superseded, unshared caches and nothing else");
+}
+
+// 8. A cache directory that holds a link is never auto-deleted, and deleting it by hand never follows it.
+//
+// A junction inside the cache could point anywhere. The automatic pass refuses such a tree outright, and the
+// explicit tool removes the link itself: Node's recursive removal unlinks a reparse point instead of walking
+// into it, which the last assertion pins.
+{
+  const state = join(ROOT, "links-in-cache");
+  const stale = join(state, "shim", PREVIOUS_ENGINE);
+  file(join(stale, "bash.exe"), 10);
+  const target = join(ROOT, "user-docs");
+  mkdirSync(target, { recursive: true });
+  writeFileSync(join(target, "keep.txt"), "user data");
+  symlinkSync(target, join(stale, "linked"), "junction");
+
+  const report = inspectState({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
+  const entry = report.entries.find((one) => one.kind === "shim");
+  assert.equal(entry.linked, true, "the report says the tree holds a link");
+  assert.equal(
+    pruneSuperseded({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN }).removed,
+    0,
+    "the automatic pass leaves a tree holding a link alone",
+  );
+  assert.equal(existsSync(join(target, "keep.txt")), true, "the link target is untouched");
+
+  removeEntries(removable(report.entries, { superseded: true }));
+  assert.equal(existsSync(stale), false, "the explicit tool still removes the cache directory");
+  assert.equal(existsSync(join(target, "keep.txt")), true, "removing a junction does not remove its target");
+
+  rmSync(target, { recursive: true, force: true });
+  rmSync(state, { recursive: true, force: true });
+  pass("a cache tree holding a link is never auto-deleted, and manual deletion does not follow it");
 }
 
 rmSync(ROOT, { recursive: true, force: true });
