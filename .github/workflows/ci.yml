@@ -58,6 +58,17 @@ jobs:
           "::error::--- last 15 lines ---"
           $lines | Select-Object -Last 15 | ForEach-Object { "::error::$_" }
 
+  oracle:
+    # The Linux half of the corpus. GNU bash and the GNU tools are the reference the Windows suites
+    # score against, so an expectation that drifted from GNU has to fail somewhere before it can
+    # excuse a Windows deviation. No Node and no build: the suite is plain bash and the runner has
+    # every program it asks for.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Corpus on GNU bash
+        run: bash test/linux-oracle/run.sh
+
   engine:
     # Build the engine and the toolchain from source, then check this plugin's capability claims
     # against both. Manual only: the builds download the whole crate graph and the toolchain sources.
