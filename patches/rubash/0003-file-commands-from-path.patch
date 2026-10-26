@@ -1,0 +1,136 @@
+diff --git a/src/executor/external_file_builtins.rs b/src/executor/external_file_builtins.rs
+index cf1f47dd..f4875ac6 100644
+--- a/src/executor/external_file_builtins.rs
++++ b/src/executor/external_file_builtins.rs
+@@ -4,6 +4,31 @@ use crate::shell::var_table::VarTable;
+ use std::io::IsTerminal;
+ 
+ impl Executor {
++    /// The raw `RUBASH_FILE_COMMANDS_FROM_PATH` value this shell carries, if any.
++    ///
++    /// dsh-bash-native patch: read from the shell's own variable table rather than the process
++    /// environment once at startup, so a startup file can set it (a persistent session inherits the
++    /// host's environment and never passes through the executor that layers this in) and a
++    /// `bash -c` child inherits the exported value.
++    pub(in crate::executor) fn file_commands_from_path(&self) -> Option<&str> {
++        self.shell_state
++            .env_vars
++            .get(FILE_COMMANDS_FROM_PATH_VAR)
++            .map(String::as_str)
++            .filter(|value| !value.trim().is_empty())
++    }
++
++    /// Whether one word names a file command `PATH` should answer instead of the in-process layer.
++    ///
++    /// dsh-bash-native patch: the layer below is a second implementation of commands a POSIX toolchain
++    /// also publishes, and the two do not agree on every form. A shell that wants the program names it
++    /// here; the command then takes the ordinary external path, which records its own hash entry.
++    pub(in crate::executor) fn defers_file_command_to_path(&self, word: &str) -> bool {
++        self.file_commands_from_path()
++            .map(|policy| policy_defers_file_command(policy, word))
++            .unwrap_or(false)
++    }
++
+     pub(in crate::executor) fn handle_external_file_builtins(
+         &mut self,
+         cmd: &CommandNode,
+@@ -33,6 +58,11 @@ impl Executor {
+                 | "/bin/tty"
+                 | "/usr/bin/tty"
+         );
++        // dsh-bash-native patch: a name the shell hands to `PATH` leaves before the layer can
++        // answer it — and before it records the hash entry below; that path records its own.
++        if emulated && self.defers_file_command_to_path(name) {
++            return Ok(false);
++        }
+         // GNU findcmd.c:365/416 (search_for_command): a plain name resolved
+         // through PATH for execution enters the hash table with
+         // times_found=1. The emulated commands below stand in for that PATH
+@@ -2149,6 +2179,34 @@ fn apply_chmod_mode(base: u32, mode: &str) -> Option<u32> {
+     Some(current & 0o777)
+ }
+ 
++/// The shell variable that decides which of the commands above run from `PATH`.
++const FILE_COMMANDS_FROM_PATH_VAR: &str = "RUBASH_FILE_COMMANDS_FROM_PATH";
++
++/// Whether a `RUBASH_FILE_COMMANDS_FROM_PATH` value leaves `word` to `PATH`.
++///
++/// dsh-bash-native patch: `all`/`on`/`1` leaves every name to PATH, `none`/`off`/`0`/empty
++/// (the default) leaves none, and any other value is a comma- or whitespace-separated list of
++/// command names. A name matches the word itself or its base name, case-insensitively, so `cat`
++/// also covers `/bin/cat` and `/usr/bin/cat` — the layer intercepts all three spellings of one
++/// program, which is why the list may name any of them.
++fn policy_defers_file_command(policy: &str, word: &str) -> bool {
++    let policy = policy.trim();
++    if policy.is_empty() {
++        return false;
++    }
++    match policy.to_ascii_lowercase().as_str() {
++        "all" | "on" | "yes" | "true" | "1" => return true,
++        "none" | "off" | "no" | "false" | "0" => return false,
++        _ => {}
++    }
++    let base = word.rsplit('/').next().unwrap_or(word);
++    policy
++        .split(|ch: char| ch == ',' || ch.is_whitespace())
++        .map(str::trim)
++        .filter(|name| !name.is_empty())
++        .any(|name| name.eq_ignore_ascii_case(word) || name.eq_ignore_ascii_case(base))
++}
++
+ /// Windows-port-only emulated mode store: unix chmod writes the real inode
+ /// mode instead (PermissionsExt::set_mode above).
+ #[cfg_attr(unix, allow(dead_code))]
+@@ -2169,3 +2227,23 @@ fn store_emulated_file_mode(env_vars: &mut VarTable, windows: &str, mode: u32) {
+     kept.push(format!("{}={:o}", windows, mode));
+     env_vars.insert(key.to_string(), kept.join(DATA_DOLLAR_STR));
+ }
++
++#[cfg(test)]
++mod file_commands_from_path_tests {
++    use super::policy_defers_file_command;
++
++    #[test]
++    fn policy_table_selects_commands_and_base_names() {
++        assert!(!policy_defers_file_command("", "cat"));
++        assert!(!policy_defers_file_command("   ", "cat"));
++        assert!(!policy_defers_file_command("none", "cat"));
++        assert!(!policy_defers_file_command("0", "cat"));
++        assert!(!policy_defers_file_command("1", "cat"));
++        assert!(policy_defers_file_command("all", "cat"));
++        assert!(policy_defers_file_command("all", "/bin/pwd"));
++        assert!(policy_defers_file_command("sed,rmdir", "sed"));
++        assert!(policy_defers_file_command(" sed , rmdir ", "/usr/bin/sed"));
++        assert!(!policy_defers_file_command("sed,rmdir", "cat"));
++        assert!(policy_defers_file_command("SED", "sed"));
++    }
++}
+diff --git a/src/executor/pipeline_exec.rs b/src/executor/pipeline_exec.rs
+index 1172061d..1ceefddb 100644
+--- a/src/executor/pipeline_exec.rs
++++ b/src/executor/pipeline_exec.rs
+@@ -3350,6 +3350,12 @@ impl Executor {
+                 Ok(Some((spec.apply(input), String::new(), 0)))
+             }
+             "cat" => {
++                // dsh-bash-native patch: the inline arms are the in-process layer too, so the host's
++                // own switch and the PATH policy both apply here — this arm used to ignore the switch
++                // entirely, which made a "layer off" host still get the emulated cat in a pipeline.
++                if !self.external_file_builtins_enabled || self.defers_file_command_to_path(name) {
++                    return self.execute_external_pipeline_stage(command, input, stdin_inherit);
++                }
+                 use crate::executor::external_file_builtins::{
+                     cat_format, parse_cat_argv, CatParsed,
+                 };
+@@ -3541,6 +3547,11 @@ impl Executor {
+                 Ok(Some((output, String::new(), 0)))
+             }
+             "sed" => {
++                // dsh-bash-native patch: same gate as the cat arm above — the inline sed is the
++                // in-process copy whose BRE support is narrower than the program's.
++                if !self.external_file_builtins_enabled || self.defers_file_command_to_path(name) {
++                    return self.execute_external_pipeline_stage(command, input, stdin_inherit);
++                }
+                 let args = command.words[1..]
+                     .iter()
+                     .map(|word| self.expand_word(word))
