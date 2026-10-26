@@ -100,7 +100,7 @@ function shell(id, script, files, options = {}) {
 
 // 0007/0008 — wait selectors and the kill builtin.
 {
-  const result = shell("wait-kill", 'sh -c "exit 4" & p=$!; wait "$p"; echo rc=$?; sleep 0.1 & wait -n; echo n=$?; sleep 5 & q=$!; kill "$q"; wait "$q"; echo k=$?');
+  const result = shell("wait-kill", '"$BASH" -c "exit 4" & p=$!; wait "$p"; echo rc=$?; sleep 0.1 & wait -n; echo n=$?; sleep 5 & q=$!; kill "$q"; wait "$q"; echo k=$?');
   assert.equal(result.stdout, "rc=4\nn=0\nk=143", "wait reports the job's status and kill ends it with 128+n");
   pass("0007/0008: wait $pid, wait -n and kill report the statuses they owe");
 }
@@ -114,7 +114,7 @@ function shell(id, script, files, options = {}) {
 
 // 0011 — a CRLF-authored script parses as text.
 {
-  const result = shell("crlf", "bash crlf.sh; echo rc=$?", { "crlf.sh": "echo one\r\necho two\r\nmkdir -p /tmp/dsh-probe-crlf\r\n" });
+  const result = shell("crlf", "\"$BASH\" crlf.sh; echo rc=$?", { "crlf.sh": "echo one\r\necho two\r\nmkdir -p /tmp/dsh-probe-crlf\r\n" });
   assert.equal(result.stdout, "one\ntwo\nrc=0", "carriage returns do not become part of the tokens");
   pass("0011: a CRLF script runs as written");
 }
@@ -168,9 +168,9 @@ function shell(id, script, files, options = {}) {
 // 0023/0024/0025 — stdio follows the copy, BASH_SOURCE keeps the frame, `(( ))` is arithmetic only when the
 // parentheses touch.
 {
-  const stdio = shell("stdio", 'sh -c "echo e >&2" 2>&1 | cat');
+  const stdio = shell("stdio", '"$BASH" -c "echo e >&2" 2>&1 | cat');
   assert.equal(stdio.stdout, "e", "2>&1 hands the child the stream it copied");
-  const source = shell("bash-source", "bash s.sh", { "s.sh": 'echo "${BASH_SOURCE[0]}"\n' });
+  const source = shell("bash-source", "\"$BASH\" s.sh", { "s.sh": 'echo "${BASH_SOURCE[0]}"\n' });
   assert.equal(source.stdout, "s.sh", "BASH_SOURCE names the script frame");
   const arithmetic = shell("arithmetic", "(( 1 + 1 )); echo a=$?; (( 0 )); echo b=$?; ( (echo sub) )");
   assert.equal(arithmetic.stdout, "a=0\nb=1\nsub", "(( )) is arithmetic, ( (cmd) ) is a subshell");
