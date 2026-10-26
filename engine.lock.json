@@ -12,8 +12,8 @@
   ],
   "artifact": {
     "path": "engine/win32-x64/rubash.exe",
-    "sha256": "f0954fae2fdb13711c0fd9138c52018398e70c625ecfbbd06c0c9f924ca02215",
-    "bytes": 10952192
+    "sha256": "6576c35497b5ff19b29c4eb37f8c74d3de5222aa206abaa8af673d907409a312",
+    "bytes": 10951680
   },
   "why": "rubash is a from-scratch bash 5.3 engine whose own test surface is the GNU upstream suite, so almost everything this repository used to patch (a real PID behind $!, /tmp as an alias, descriptor paths, kill as a builtin, CRLF scripts, select, nameref, read -t) is correct upstream. The one behaviour still missing is the data-primary rule above, which only the WinuxCmd suite gets; patch 0001 extends it to every child class. Patch 0002 drops an environment entry Unicode cannot carry instead of aborting before the first command. Patch 0003 adds RUBASH_FILE_COMMANDS_FROM_PATH, which is how this plugin sends sed and rmdir to its toolchain's programs: the in-process copies of those two disagree with GNU (no \\b, \\{m,n\\} or \\| in the matcher; rmdir accepts a final dot and swallows every error), and the command runs in the inline pipeline path as well as the plain one."
 }

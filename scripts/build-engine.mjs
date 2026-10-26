@@ -24,6 +24,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -147,11 +148,21 @@ function applyPatches() {
   console.log(`patch  ${files.length} applied (${marked.split('\n').join(', ')})`)
 }
 
+/**
+ * The source paths that must not reach the artifact.
+ *
+ * `file!()` bakes a panic's source location into the release binary, and for code inside a dependency that
+ * location is the cargo registry under the builder's home directory — a name and a layout that has no
+ * business in a published binary. Remapping the home prefix is the compile-time fix; stripping does not
+ * remove the strings. The toolchain build does the same thing with the same prefix.
+ */
+const REMAP_BUILD_PATHS = `--remap-path-prefix=${homedir()}=/build`
+
 /** The environment a `cargo` call needs: a named installed toolchain, so rustup never tries the network. */
 function rustEnv() {
   const active = spawnSync('rustup', ['show', 'active-toolchain'], { encoding: 'utf8', windowsHide: true })
   const name = (active.stdout ?? '').split(' ')[0]?.trim() ?? ''
-  return { ...process.env, ...(name.length === 0 ? {} : { RUSTUP_TOOLCHAIN: name }) }
+  return { ...process.env, RUSTFLAGS: REMAP_BUILD_PATHS, ...(name.length === 0 ? {} : { RUSTUP_TOOLCHAIN: name }) }
 }
 
 /** Build the binary the pin declares, and name the one failure that is about this session rather than the pin. */
