@@ -104,7 +104,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 
 ## ⚙️ Engine
 
-The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies two patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
+The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies three patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
 
 It reports a GNU bash 5.3 banner and an **MSYS-compatible `uname -s`** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
@@ -128,6 +128,10 @@ It reports a GNU bash 5.3 banner and an **MSYS-compatible `uname -s`** (`MSYS_NT
     <tr>
       <td><code>0002-drop-undecodable-environment-entries</code></td>
       <td>Drops environment entries Windows can hand a process but Unicode cannot represent (<code>std::env::vars()</code> panics on one) before anything reads the environment, so the cost is that one variable instead of every command aborting.</td>
+    </tr>
+    <tr>
+      <td><code>0003-file-commands-from-path</code></td>
+      <td>Adds <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>: the shell names the in-process file commands that should run from a program on <code>PATH</code> instead (<code>all</code>, <code>none</code>, or a list), read from the shell's own variables so an <code>--rcfile</code> can set it; it also makes the inline pipeline arms honour the host's switch for turning the in-process copies off.</td>
     </tr>
   </tbody>
 </table>
@@ -224,6 +228,11 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
       <td>The POSIX toolchain directory; empty = first the per-user build (<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>), and if it holds no programs the bundled one. A configured directory is used as-is, even when empty (it is never silently swapped for the bundled copy)</td>
     </tr>
     <tr>
+      <td><code>fileCommandsFromPath</code></td>
+      <td><code>['sed','rmdir']</code></td>
+      <td>Engine file commands to run from the toolchain's program instead (only the twelve names the engine implements in-process); a name the toolchain does not publish, or one published on a directory that is not on <code>PATH</code>, is ignored and the in-process copy keeps answering. See “Known limitations” below.</td>
+    </tr>
+    <tr>
       <td><code>bashPath</code></td>
       <td><code>''</code></td>
       <td>Absolute engine path; empty = resolve in the usual order</td>
@@ -289,12 +298,14 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
 
 ## ⚠️ Known limitations
 
-- **The engine's own utility layer takes precedence over the toolchain**: `mkdir`, `touch`, `chmod`, `cp`, `rm`, `rmdir`, `cat`, `sed`, `mkfifo` and `tty` are handled in-process for “simple forms”, and only complex forms reach the toolchain programs. The following differences therefore bypass the toolchain's patches:
+- **`sed` and `rmdir` are answered by the toolchain's programs** (the `fileCommandsFromPath` default): both of the engine's own copies differ from GNU in measured ways — `sed` does not recognise `\b`, `\{m,n\}` or `\|`, and `rmdir` exits 0 for a missing operand and removes the parent of `d/.`. Running the programs fixes both, at the cost of one process per call (about 11–13 ms, against about 0.05 ms in-process).
+
+- **The other ten in-process file commands stay as they are** (`cat`, `rm`, `mkdir`, `touch`, `cp`, `tty`, `pwd`, `printf`, `chmod`, `mkfifo`): no measured difference from GNU, and `chmod` and `mkfifo` have **no toolchain program at all** on Windows (uutils publishes neither applet), so sending them to `PATH` only produces `command not found`. `shellEnvOverrides: { RUBASH_FILE_COMMANDS_FROM_PATH: 'all' }` switches the whole layer off, but then `chmod +x` starts failing and every `cat`/`rm` pays the process.
+
+- **Two platform differences unrelated to the in-process copies**:
 
   | Shape | Measured |
   |---|---|
-  | `printf 'aaaa\n' \| sed 's/a\{2,3\}/X/'` | the engine's sed does not recognise `\{m,n\}` or `\b` in a BRE and prints the input unchanged |
-  | `rmdir /definitely/absent` | silently succeeds (`rc=0`); `rmdir d/.` removes `d` |
   | `cd /absent 2>err.txt \| cat` | the diagnostic lands neither in `err.txt` nor on the shell's stderr |
   | `PIPESTATUS[0]` of `printf … \| head -c 1` | a builtin writer does not report the closed pipe: `0` instead of `141` |
 
@@ -325,7 +336,7 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
 
 ## 🙏 References and thanks
 
-The engine, [rubash](https://github.com/unixwin/rubash), is implemented by the unixwin team; this repository only patches it twice and builds it. It is the first-hand behavioural baseline for the two facts this plugin states — data positions are never translated, and an environment entry the host cannot decode must not take every command down.
+The engine, [rubash](https://github.com/unixwin/rubash), is implemented by the unixwin team; this repository only patches it three times and builds it. It is the first-hand behavioural baseline for the three facts this plugin states — data positions are never translated, an environment entry the host cannot decode must not take every command down, and the shell decides which file commands come from PATH rather than its own in-process copy.
 
 On the road to a native bash on Windows, **[oh-my-pi](https://github.com/can1357/oh-my-pi)** was one of the earliest implementations, and this plugin's earlier brush-era diagnoses and fixes benefited from the record it left behind.
 

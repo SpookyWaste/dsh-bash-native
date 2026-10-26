@@ -104,7 +104,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用两笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
+引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
 
 它报告 GNU bash 5.3 的版本横幅，以及 **MSYS 兼容的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑照常成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 
@@ -128,6 +128,10 @@ https://github.com/SpookyWaste/dsh-bash-native
     <tr>
       <td><code>0002-drop-undecodable-environment-entries</code></td>
       <td>启动时丢掉 Win32 能传入、但 Unicode 表示不了的环境项（<code>std::env::vars()</code> 遇到它会 panic）；代价是那一条变量，而不是每条命令都在建 shell 时 abort。</td>
+    </tr>
+    <tr>
+      <td><code>0003-file-commands-from-path</code></td>
+      <td>新增 <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>：由 shell 指定哪些「进程内文件命令」改从 <code>PATH</code> 上的程序执行（<code>all</code> / <code>none</code> / 名字列表），并从 shell 自己的变量表读取，所以 <code>--rcfile</code> 也能设置；顺带让内联管道分支不再无视宿主的「关掉进程内副本」开关。</td>
     </tr>
   </tbody>
 </table>
@@ -224,6 +228,11 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td>POSIX 工具链目录；空 = 先看每用户目录里自建的那份（<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>），没有程序就用随包工具链。填了则照用，空目录也算数（不会悄悄换成随包那份）</td>
     </tr>
     <tr>
+      <td><code>fileCommandsFromPath</code></td>
+      <td><code>['sed','rmdir']</code></td>
+      <td>改从工具链程序执行的引擎内建文件命令（仅限引擎实现的 12 个名字）；工具链没有提供该程序、或工具链目录不在 <code>PATH</code> 上时自动忽略，进程内副本继续生效。见下面的「已知限制」</td>
+    </tr>
+    <tr>
       <td><code>bashPath</code></td>
       <td><code>''</code></td>
       <td>引擎绝对路径；空 = 按解析顺序找</td>
@@ -289,12 +298,14 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚠️ 已知限制
 
-- **引擎自带的工具层优先于工具链**：`mkdir`、`touch`、`chmod`、`cp`、`rm`、`rmdir`、`cat`、`sed`、`mkfifo`、`tty` 的“简单形态”在引擎进程内处理，复杂形态才落到工具链的程序。因此这几条差异会绕开工具链的补丁：
+- **`sed` 与 `rmdir` 由工具链的程序回答**（`fileCommandsFromPath` 的默认值）：引擎自己那两份实现与 GNU 有实测差异——`sed` 不认 `\b`、`\{m,n\}`、`\|`，`rmdir` 对不存在的路径返回 0、并把 `d/.` 的父目录删掉。改走工具链后这两条都正确，代价是每次调用多一次进程创建（约 11–13 ms；进程内约 0.05 ms）。
+
+- **其余 10 个进程内文件命令保持原样**（`cat`、`rm`、`mkdir`、`touch`、`cp`、`tty`、`pwd`、`printf`、`chmod`、`mkfifo`）：它们的简单形态没有测到与 GNU 的差异，而 `chmod`、`mkfifo` 在 Windows 上**没有工具链程序**（uutils 不发布这两个 applet），改走 `PATH` 只会得到 `command not found`。需要全关时可用 `shellEnvOverrides: { RUBASH_FILE_COMMANDS_FROM_PATH: 'all' }`，但 `chmod +x` 会开始失败，`cat`/`rm` 每次也多一次进程创建。
+
+- **两条与进程内副本无关的平台差异**：
 
   | 形态 | 实测 |
   |---|---|
-  | `printf 'aaaa\n' \| sed 's/a\{2,3\}/X/'` | 引擎的 sed 不认 BRE 的 `\{m,n\}` 与 `\b`，输出原样 |
-  | `rmdir /definitely/absent` | 静默成功（`rc=0`）；`rmdir d/.` 会把 `d` 删掉 |
   | `cd /absent 2>err.txt \| cat` | 诊断既不在 `err.txt` 也不在 shell 的 stderr 上 |
   | `printf … \| head -c 1` 的 `PIPESTATUS[0]` | 内建写端不报断管，`0` 而不是 `141` |
 
@@ -325,7 +336,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## 🙏 参考与致谢
 
-引擎 [rubash](https://github.com/unixwin/rubash) 由 unixwin 团队实现，本仓库只做两笔补丁与构建；它对本插件声明的“数据位不翻译”和“解不出的环境变量不该拖垮整条命令”两件事提供了第一手的行为基线。
+引擎 [rubash](https://github.com/unixwin/rubash) 由 unixwin 团队实现，本仓库只做三笔补丁与构建；它对本插件声明的“数据位不翻译”“解不出的环境变量不该拖垮整条命令”“哪些文件命令改从 <code>PATH</code> 上的程序执行”三件事提供了第一手的行为基线。
 
 Windows 原生 bash 这条路上，**[oh-my-pi](https://github.com/can1357/oh-my-pi)** 是最早的先行实现之一，本插件早期针对 brush 的诊断与修法也受益于它留下的记录。
 
