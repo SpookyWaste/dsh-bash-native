@@ -19,6 +19,7 @@ function pass(name) {
   assert.equal(config.promptDetail, "full", "the retained shape key still defaults to full");
   assert.deepEqual(config.shellEnvOverrides, {});
   assert.equal(config.verifyArtifacts, "stamped", "verification is stamped unless a deployment says otherwise");
+  assert.deepEqual(config.fileCommandsFromPath, ["sed", "rmdir"], "the two measured disagreements default to the toolchain's programs");
   assert.equal(config.cwd.get(), undefined, "the inherited cwd stays optional and resolves at resolve() time");
   for (const field of ["timeoutMs", "maxTimeoutMs", "maxOutputBytes", "maxSpillBytes", "graceMs"]) {
     assert.equal(typeof config[field].get(), "number", `${field} resolves to a volatile handle`);
@@ -63,6 +64,9 @@ function pass(name) {
   assert.throws(() => Config({ promptDetail: "short" }), /promptDetail/);
   // A third verification mode would be a silent fallback to the weaker one, so the union rejects it too.
   assert.throws(() => Config({ verifyArtifacts: "sometimes" }), /verifyArtifacts/);
+  // A command the engine does not answer in-process would be a silent no-op, so the union rejects it.
+  assert.throws(() => Config({ fileCommandsFromPath: ["nope"] }), /fileCommandsFromPath/);
+  assert.throws(() => Config({ fileCommandsFromPath: "sed" }), /fileCommandsFromPath/);
   pass("schema violations are rejected loudly");
 }
 

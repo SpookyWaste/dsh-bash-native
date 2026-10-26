@@ -322,9 +322,17 @@ export function violatesGuards(stdout, expectation) {
  */
 export function probeNeeds(run, needs, options = {}) {
   if (needs.length === 0) return { missing: [], collisions: [], foreign: [] }
-  // `command -v` can name a path the engine will not be able to run (rubash answers /bin/ls for a name
-  // that is absent), so the resolved path only counts when the file is really there.
-  const script = needs.map((name) => `p=$(command -v ${name} 2>/dev/null); [ -n "$p" ] && [ -e "$p" ] || p=; printf '%s\\t%s\\n' ${name} "$p"`).join('; ')
+  // `command -v` alone cannot answer this: rubash answers `/bin/ls` for a name whose program is absent (a
+  // display namespace its own upstream suite needs), and that path only resolves when some directory the
+  // shell treats as a `/bin` root is on PATH — a stale one from an older build makes the answer look real
+  // when it is the wrong program. `type -a` lists every hit in PATH order, so the first one the filesystem
+  // really holds is the program the shell would run, which is what this probe is about.
+  const script = needs
+    .map(
+      (name) =>
+        `p=$(type -a ${name} 2>/dev/null | while read -r line; do c=\${line#* is }; if [ -e "$c" ]; then printf '%s\\n' "$c"; break; fi; done); printf '%s\\t%s\\n' ${name} "$p"`,
+    )
+    .join('; ')
   const missing = []
   const collisions = []
   const foreign = []

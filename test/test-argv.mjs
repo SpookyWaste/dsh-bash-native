@@ -71,6 +71,18 @@ const bashEngine = resolveEngine(baseInput, { PATH: "C:\\tools" }, "win32", fixt
   pass("prepended directories keep their order and cannot duplicate an entry");
 }
 
+// 3c. Engine policy entries sit above the model-friendly defaults and below the operator's own.
+{
+  const env = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed,rmdir" } });
+  assert.equal(env.RUBASH_FILE_COMMANDS_FROM_PATH, "sed,rmdir");
+  assert.equal(env.TERM, "dumb", "the model-friendly defaults are still there");
+  const overrides = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed" }, overrides: { RUBASH_FILE_COMMANDS_FROM_PATH: "all" } });
+  assert.equal(overrides.RUBASH_FILE_COMMANDS_FROM_PATH, "all", "shellEnvOverrides replaces the derived policy");
+  const request = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed" }, env: { RUBASH_FILE_COMMANDS_FROM_PATH: "none" } });
+  assert.equal(request.RUBASH_FILE_COMMANDS_FROM_PATH, "none", "a request entry outranks the derived policy");
+  pass("engine policy entries sit between the defaults and the operator's own entries");
+}
+
 // 4. Temp variables stay out of the executor's hands: the sandbox runner owns them.
 {
   const env = buildShellEnv({});
