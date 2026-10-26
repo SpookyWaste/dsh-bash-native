@@ -14,7 +14,7 @@ import { delimiter, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveEngine } from '../lib/resolve.js'
 import { packageRoot, preparePackagedEngine } from '../lib/artifact.js'
-import { captureStdio, readBrushVersion } from '../lib/verify.js'
+import { captureStdio, readEngineVersion } from '../lib/verify.js'
 import { prepareShellNames } from '../lib/shim.js'
 
 const isFile = (path) => {
@@ -134,7 +134,7 @@ export function findEngine() {
   const configured = process.env.DSH_BASH_NATIVE_ENGINE
   if (configured !== undefined && configured.length > 0) {
     if (!existsSync(configured)) return null
-    const verdict = readBrushVersion(configured)
+    const verdict = readEngineVersion(configured)
     if (verdict.refused !== null) {
       throw new Error(
         `dsh-bash-native: DSH_BASH_NATIVE_ENGINE names ${configured}, which this contract cannot use: ${verdict.refused}`,
@@ -148,7 +148,7 @@ export function findEngine() {
       process.env,
       process.platform,
       { isFile },
-      (path) => readBrushVersion(path),
+      (path) => readEngineVersion(path),
     ),
   )
 }

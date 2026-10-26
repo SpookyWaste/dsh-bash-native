@@ -25,6 +25,13 @@ export interface EngineProbeResult {
     /** Why a found file was refused, or absent when the candidate was accepted. */
     readonly refused?: string;
 }
+/** The implementation family a verified engine belongs to.
+ *
+ * The two families differ in argv, not in meaning: brush needs the flag that turns its coloured diagnostics
+ * off (`--disable-color`), rubash rejects that flag and never colours. Everything else — activation prefix,
+ * interactive prefix, `-c` semantics — is shared.
+ */
+export type EngineFamily = 'brush' | 'rubash';
 /** The engine the executor drives. */
 export interface ResolvedEngine {
     /** Absolute executable path. */
@@ -33,6 +40,8 @@ export interface ResolvedEngine {
     readonly label: string;
     /** The engine's own `--version` first line, or an empty string when the verifier reported none. */
     readonly version: string;
+    /** Which family the verified binary belongs to; argv construction depends on it. */
+    readonly family: EngineFamily;
     /** Activation argv prefix passed before the command string. */
     readonly args: readonly string[];
     /** Interactive argv prefix, the `shellArgs` equivalent for a PTY composition. */
@@ -63,6 +72,13 @@ export interface ResolveEngineInput {
 export interface EngineVerdict {
     /** The engine's own `--version` first line when it identified itself, else an empty string. */
     readonly version: string;
+    /**
+     * The family the candidate answered as.
+     *
+     * Optional because a verifier that only reports a refusal (every test seam, and the `refused` path in
+     * production) has no family to name; an accepted verdict always carries one.
+     */
+    readonly family?: EngineFamily;
     /** Why this file is not the engine, or null when it is. */
     readonly refused: string | null;
 }

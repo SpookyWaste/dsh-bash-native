@@ -33,7 +33,7 @@ import type { EngineResolution, EngineVerdict, ResolvedEngine } from './resolve.
 import { defaultRcFile, defaultToolsDir, probeToolchain, rcFileContents } from './toolchain.js'
 import type { ToolchainProbe } from './toolchain.js'
 import { preparePackagedToolchain } from './toolchain-artifact.js'
-import { readBrushVersion } from './verify.js'
+import { readEngineVersion } from './verify.js'
 
 /** Concurrency-safe plugin name. */
 export const name = 'bash-native'
@@ -561,7 +561,7 @@ export class BashNativeExecutor extends LocalBashExecutor {
   protected verifyEngine(path: string): EngineVerdict {
     const cached = this.verified.get(path)
     if (cached !== undefined) return cached
-    const verdict = readBrushVersion(path)
+    const verdict = readEngineVersion(path)
     this.verified.set(path, verdict)
     return verdict
   }

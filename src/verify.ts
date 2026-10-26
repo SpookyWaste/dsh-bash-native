@@ -41,6 +41,37 @@ const SIGNATURE_EXPECTED = ['tmp=0', 'builtin']
 const ARG_EXPECTED = 'Q:\\x'
 
 /**
+ * The flag that makes rubash print its persona and every effective identity value.
+ *
+ * It is the family discriminator because it cannot be confused with a GNU bash: bash rejects an unknown
+ * long option, so a real bash answers `bash: --identity: invalid option` and exits 2, while rubash prints
+ * an `identity:` block. Matching the banner is not enough on its own — rubash reports a GNU banner on
+ * purpose (its `--version` is `show_shell_version`), so the name-based check the brush family uses cannot
+ * apply here.
+ */
+const RUBASH_IDENTITY = '--identity'
+
+/** The line `rubash --identity` leads with. */
+const RUBASH_IDENTITY_LINE = /^identity:\s+(?:msys|native)\b/
+
+/**
+ * Behaviours this plugin's contract states, asked in one command.
+ *
+ * Every fact is observable in a bash 5.3 that does what an agent expects, and none of them depends on an
+ * external program: the character count of a two-character UTF-8 value, `kill` as a builtin, the MSYS
+ * persona the engine defaults to, and a real PID behind `$!` for a background job the engine runs itself
+ * (brush's patch only ever gave one for a literal external command).
+ */
+const RUBASH_SIGNATURE = [
+  `v=中文; printf '%s|%s|%s|%s\\n' "$BASH_VERSION" "$(type -t kill)" "\${#v}" "$(uname -s)"`,
+  `sleep 0.05 & printf 'bg=%s\\n' "$!"`,
+  'wait',
+].join('; ')
+
+/** The kernel name a Windows build reports under the default (MSYS-compatible) persona. */
+const MSYS_SYSNAME = /^(?:MSYS|MINGW32|MINGW64|UCRT64|CLANG32|CLANG64|CLANGARM64)_NT-/
+
+/**
  * The argument-side signature command.
  *
  * `Q:` need not exist: nothing here touches the filesystem. A patched engine rewrites the operand to the
@@ -61,18 +92,78 @@ export function argumentSignature(node: string): string {
  * @param node - the Node executable the argument signature runs (`process.execPath` in production).
  * @returns the verdict resolution reads.
  */
-export function readBrushVersion(path: string, run: VersionRun = spawnVersion, node: string = process.execPath): EngineVerdict {
+export function readEngineVersion(path: string, run: VersionRun = spawnVersion, node: string = process.execPath): EngineVerdict {
+  // The identity flag decides the family before anything is claimed about the banner: rubash prints a GNU
+  // bash banner, so the banner alone cannot tell the two families apart, while this flag cannot be answered
+  // by a GNU bash at all.
+  const identity = run(path, [RUBASH_IDENTITY])
+  if (identity.failure === null && RUBASH_IDENTITY_LINE.test(firstLine(identity.line))) {
+    return verifyRubash(path, run, identity.line)
+  }
+  return verifyBrush(path, run, node)
+}
+
+/**
+ * The first non-empty line of a captured run, with carriage returns removed.
+ * @param text - the captured output of one probe.
+ * @returns the trimmed first line, or an empty string.
+ */
+function firstLine(text: string): string {
+  return text.replace(/\r/g, '').split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+}
+
+/**
+ * Verify a candidate that answered the identity flag: a rubash-family engine.
+ * @param path - the candidate executable.
+ * @param run - the spawn seam.
+ * @param identity - the raw output of the identity probe, quoted when the persona line is unreadable.
+ * @returns the verdict, carrying the family so argv construction can drop the brush-only flags.
+ */
+function verifyRubash(path: string, run: VersionRun, identity: string): EngineVerdict {
+  const banner = run(path, ['--version'])
+  if (banner.failure !== null) return { version: '', family: 'rubash', refused: `it is rubash but could not be asked: ${banner.failure}` }
+  const signature = run(path, ['-c', RUBASH_SIGNATURE])
+  if (signature.failure !== null) return { version: '', family: 'rubash', refused: `it is rubash but could not be asked: ${signature.failure}` }
+  const lines = signature.line.replace(/\r/g, '').split('\n').map((part) => part.trim())
+  const facts = (lines[0] ?? '').split('|')
+  const [bashVersion = '', killType = '', charCount = '', sysname = ''] = facts
+  const background = (lines[1] ?? '').replace(/^bg=/, '')
+  const missing: string[] = []
+  if (!bashVersion.startsWith('5.3')) missing.push('a bash 5.3 version')
+  if (killType !== 'builtin') missing.push('`kill` as a builtin')
+  if (charCount !== '2') missing.push('a character count for a UTF-8 value')
+  if (!MSYS_SYSNAME.test(sysname)) missing.push('the MSYS-compatible persona')
+  if (!/^\d+$/.test(background)) missing.push('a PID behind `$!`')
+  const version = firstLine(banner.line) || firstLine(identity)
+  if (missing.length > 0) {
+    return {
+      version: '',
+      family: 'rubash',
+      refused: `it is rubash (${version}) but not the build this contract describes: ${missing.join(', ')} did not hold`,
+    }
+  }
+  return { version, family: 'rubash', refused: null }
+}
+
+/**
+ * Verify a candidate that did not answer the identity flag: the brush family this repository patched.
+ * @param path - the candidate executable.
+ * @param run - the spawn seam.
+ * @param node - the Node executable the argument signature runs.
+ * @returns the verdict, carrying the brush family.
+ */
+function verifyBrush(path: string, run: VersionRun, node: string): EngineVerdict {
   const observed = run(path, ['--version'])
-  if (observed.failure !== null) return { version: '', refused: observed.failure }
+  if (observed.failure !== null) return { version: '', family: 'brush', refused: observed.failure }
   const line = observed.line.trim().split('\n')[0]?.trim() ?? ''
   // brush prints e.g. `brush 0.4.0 (git:08db87a6-modified)`, so the name has to lead the line: a
   // binary whose banner merely mentions brush (a wrapper, or a shell that echoes it) cannot pass.
   if (!/^brush\b/i.test(line)) {
-    return { version: '', refused: line === '' ? 'it reported no version' : `it reports "${line}", which is not brush` }
+    return { version: '', family: 'brush', refused: line === '' ? 'it reported no version' : `it reports "${line}", which is not brush` }
   }
   const missing: string[] = []
   const signature = run(path, ['-c', BUILD_SIGNATURE])
-  if (signature.failure !== null) return { version: '', refused: `it is brush but could not be asked: ${signature.failure}` }
+  if (signature.failure !== null) return { version: '', family: 'brush', refused: `it is brush but could not be asked: ${signature.failure}` }
   const printed = signature.line
     .replace(/\r/g, '')
     .split('\n')
@@ -83,18 +174,27 @@ export function readBrushVersion(path: string, run: VersionRun = spawnVersion, n
     if (tail[index] !== fact) missing.push(fact)
   }
   const argument = run(path, ['-c', argumentSignature(node)])
-  if (argument.failure !== null) return { version: '', refused: `it is brush but could not be asked: ${argument.failure}` }
+  if (argument.failure !== null) return { version: '', family: 'brush', refused: `it is brush but could not be asked: ${argument.failure}` }
   if (argument.line.replace(/\r/g, '').trim() !== ARG_EXPECTED) missing.push(`the argument ${ARG_EXPECTED}`)
   if (missing.length > 0) {
     return {
       version: '',
+      family: 'brush',
       refused:
         `it is brush (${line}) but not the build this contract describes: ${missing.join(' and ')} did not hold ` +
         `(the build needs this repository's patches; see engine.lock.json)`,
     }
   }
-  return { version: line, refused: null }
+  return { version: line, family: 'brush', refused: null }
 }
+
+/**
+ * The pre-rubash name for {@link readEngineVersion}.
+ *
+ * Kept because the harness and the confirmation tests reach for it by name; it now answers for both
+ * families. `TODO` once the brush family retires: fold the two callers onto the new name and drop this.
+ */
+export const readBrushVersion = readEngineVersion
 
 /**
  * The stdio shape a child launched from inside a session can actually use.

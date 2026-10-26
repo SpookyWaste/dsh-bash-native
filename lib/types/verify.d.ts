@@ -38,7 +38,14 @@ export declare function argumentSignature(node: string): string;
  * @param node - the Node executable the argument signature runs (`process.execPath` in production).
  * @returns the verdict resolution reads.
  */
-export declare function readBrushVersion(path: string, run?: VersionRun, node?: string): EngineVerdict;
+export declare function readEngineVersion(path: string, run?: VersionRun, node?: string): EngineVerdict;
+/**
+ * The pre-rubash name for {@link readEngineVersion}.
+ *
+ * Kept because the harness and the confirmation tests reach for it by name; it now answers for both
+ * families. `TODO` once the brush family retires: fold the two callers onto the new name and drop this.
+ */
+export declare const readBrushVersion: typeof readEngineVersion;
 /**
  * The stdio shape a child launched from inside a session can actually use.
  *

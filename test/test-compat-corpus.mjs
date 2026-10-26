@@ -15,6 +15,8 @@
 //   node test-compat-corpus.mjs --update-baseline  record the current result as the baseline
 //   node test-compat-corpus.mjs --with-tools       prepend the local toolchain directory to PATH
 //   node test-compat-corpus.mjs --tools-dir=DIR    score an arbitrary toolchain
+//   node test-compat-corpus.mjs --baseline=FILE    use FILE as the record instead of the shipped one
+//                                                  (an evaluation run does not disturb the ratchet)
 //   DSH_BASH_NATIVE_COMPAT_FULL=1                  print the distance to all-green (a diagnostic, not a gate)
 //
 // Skipped unless an engine is available: `DSH_BASH_NATIVE_ENGINE`, or a `brush` on PATH.
@@ -45,7 +47,9 @@ const toolsDir = toolsDirectory(process.argv, process.env);
 const withTools = process.argv.includes("--with-tools") || process.argv.some((arg) => arg.startsWith("--tools-dir="));
 // The engine alone and the engine plus the toolchain are two different environments with two
 // different records, so each keeps its own baseline.
-const BASELINE_PATH = withTools ? BASELINE_TOOLS_PATH : BASELINE_ENGINE_PATH;
+const baselineFlag = process.argv.find((arg) => arg.startsWith("--baseline="));
+const BASELINE_PATH =
+  baselineFlag === undefined ? (withTools ? BASELINE_TOOLS_PATH : BASELINE_ENGINE_PATH) : baselineFlag.slice("--baseline=".length);
 
 if (toolsDir.length === 0) {
   console.error("no toolchain directory configured (pass --tools-dir=DIR or set DSH_BASH_NATIVE_TOOLS)");

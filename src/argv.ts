@@ -11,20 +11,33 @@
 
 import { ENV_OVERRIDES } from '@deepseek-ai/dsh-bash-local'
 import { delimiter } from 'node:path'
-import type { ResolvedEngine } from './resolve.js'
+import type { EngineFamily, ResolvedEngine } from './resolve.js'
 import { prependPaths } from './toolchain.js'
 
 /**
- * The flag that keeps the engine's own diagnostics plain text.
+ * Per-family flags that keep the engine's own diagnostics plain text.
  *
- * The engine colors part of its own error reporting (`ESC[31merror:ESC[39m …`, measured for `command not
- * found` and parse errors) and nothing else turns that off: measured with `NO_COLOR=1`, `TERM=dumb`,
- * `CLICOLOR=0`, and with stdout and stderr redirected to files, every one of those still produced the SGR
- * sequences, while `--disable-color` removes them in command, script and refusal paths alike.
- * `dsh-tool-bash` hands stdout and a `[stderr]` section to the model verbatim, so without the flag a
- * failure an agent reads can carry escape bytes it has to ignore.
+ * brush colors part of its error reporting (`ESC[31merror:ESC[39m …`, measured for `command not found` and
+ * parse errors) and nothing else turns that off: measured with `NO_COLOR=1`, `TERM=dumb`, `CLICOLOR=0`, and
+ * with stdout and stderr redirected to files, every one of those still produced the SGR sequences, while
+ * `--disable-color` removes them. rubash writes plain text already and rejects the flag
+ * (`bash: --disable-color: invalid option`), so its list is empty.
+ * `dsh-tool-bash` hands stdout and a `[stderr]` section to the model verbatim, so a family that needs the
+ * flag must get it.
  */
-const DISABLE_COLOR = '--disable-color'
+const PLAIN_TEXT_FLAGS: Readonly<Record<EngineFamily, readonly string[]>> = {
+  brush: ['--disable-color'],
+  rubash: [],
+}
+
+/**
+ * The plain-text flags for one engine.
+ * @param engine - the resolved engine.
+ * @returns the flags to place before the activation prefix.
+ */
+function plainTextFlags(engine: ResolvedEngine): readonly string[] {
+  return PLAIN_TEXT_FLAGS[engine.family ?? 'brush']
+}
 
 /** Environment layers for one execution, lowest precedence first. */
 export interface ShellEnvLayers {
@@ -47,7 +60,7 @@ export interface ShellEnvLayers {
  * @returns the exact argv to spawn.
  */
 export function buildCommandArgv(engine: ResolvedEngine, command: string): string[] {
-  return [engine.path, DISABLE_COLOR, ...engine.args, command]
+  return [engine.path, ...plainTextFlags(engine), ...engine.args, command]
 }
 
 /**
@@ -56,7 +69,7 @@ export function buildCommandArgv(engine: ResolvedEngine, command: string): strin
  * @returns the exact argv a PTY backend would spawn.
  */
 export function buildInteractiveArgv(engine: ResolvedEngine): string[] {
-  return [engine.path, DISABLE_COLOR, ...engine.interactiveArgs]
+  return [engine.path, ...plainTextFlags(engine), ...engine.interactiveArgs]
 }
 
 /**
@@ -71,7 +84,7 @@ export function buildInteractiveArgv(engine: ResolvedEngine): string[] {
  * @returns the interactive argv prefix for that engine, without the executable path.
  */
 export function interactiveArgsWithRcFile(engine: ResolvedEngine, rcFile: string): string[] {
-  const args = [DISABLE_COLOR, ...engine.interactiveArgs]
+  const args = [...plainTextFlags(engine), ...engine.interactiveArgs]
   const norc = args.indexOf('--norc')
   if (norc < 0 || rcFile.length === 0) return args
   args.splice(norc, 1, '--rcfile', rcFile)
