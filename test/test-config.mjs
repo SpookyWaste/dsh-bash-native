@@ -20,6 +20,7 @@ function pass(name) {
   assert.deepEqual(config.shellEnvOverrides, {});
   assert.equal(config.verifyArtifacts, "stamped", "verification is stamped unless a deployment says otherwise");
   assert.deepEqual(config.fileCommandsFromPath, ["sed", "rmdir"], "the two measured disagreements default to the toolchain's programs");
+  assert.equal(config.pruneSupersededCaches, true, "an upgrade tidies the caches of the build it replaced");
   assert.equal(config.cwd.get(), undefined, "the inherited cwd stays optional and resolves at resolve() time");
   for (const field of ["timeoutMs", "maxTimeoutMs", "maxOutputBytes", "maxSpillBytes", "graceMs"]) {
     assert.equal(typeof config[field].get(), "number", `${field} resolves to a volatile handle`);

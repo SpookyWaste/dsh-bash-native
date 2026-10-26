@@ -248,6 +248,11 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
       <td>Startup file for a persistent PTY session; empty = <code>%LOCALAPPDATA%\dsh-bash-native\bash-native-rc.sh</code></td>
     </tr>
     <tr>
+      <td><code>pruneSupersededCaches</code></td>
+      <td><code>true</code></td>
+      <td>Removes the caches an earlier build left behind on the first resolution: only a <code>shim/</code> or <code>toolchain/</code> directory whose digest is not the one in use and whose files have no hard-link name outside it. <code>false</code> turns the pass off and leaves the work to <code>bin/clean-state.mjs</code></td>
+    </tr>
+    <tr>
       <td><code>denialSignatureAdditions</code></td>
       <td><code>['os error 5']</code></td>
       <td>Extra denial signatures; the default keeps non-English Windows reporting denials</td>
@@ -348,6 +353,8 @@ node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the supe
 (Those paths are relative to the profile directory: the desktop edition keeps the package under `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\`, not in the global npm tree, so run it from there or spell the absolute path.)
 
 `--tools` also deletes the source-built toolchain, `--dev` also deletes the development leftovers; `verified/` and the rc file are always kept. The script decides only on “is the directory name a 64-character sha256” and “is it the digest this package uses”; anything it cannot classify is left alone, and it refuses to delete when either digest cannot be read.
+
+Automatic cleanup: the **first resolution after an upgrade** removes the cache directories that are both superseded and unshared (typically the previous engine build's `shim/` and the previous package's `toolchain/`). A shared directory frees nothing when deleted, so it is left alone, as are `tools/`, `build/`, `verified/` and the rc file. `pruneSupersededCaches: false` turns the pass off and leaves it to the tool below.
 
 Hard links are counted once per inode; when a file in a directory also has a name outside it (the same binary inside an installed package, for example), the report marks the bytes as `shared`, because deleting the directory would free none of them — the “superseded caches” line therefore states what a deletion really frees.
 

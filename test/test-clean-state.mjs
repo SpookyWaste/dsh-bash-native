@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDigests, formatBytes, inspectState, removable, removeEntries } from "../bin/clean-state.mjs";
+import { currentDigests, formatBytes, inspectState, pruneSuperseded, removable, removeEntries } from "../lib/state.js";
 
 let passed = 0;
 function pass(name) {
@@ -169,6 +169,29 @@ function file(path, bytes) {
   assert.equal(formatBytes(36 * 1024 ** 2), "36 MB");
   assert.equal(formatBytes(1.5 * 1024 ** 3), "1.5 GB");
   pass("sizes render in the unit a reader cares about");
+}
+
+// 7. The automatic pass removes only what it actually frees: superseded and unshared.
+{
+  const state = join(ROOT, "prune");
+  file(join(state, "shim", CURRENT_ENGINE, "bash.exe"), 10);
+  file(join(state, "shim", PREVIOUS_ENGINE, "bash.exe"), 20);
+  const sharedDir = join(state, "toolchain", PREVIOUS_TOOLCHAIN);
+  linkSync(file(join(sharedDir, "bin", "grep.exe"), 30), join(ROOT, "package-copy.exe"));
+  file(join(state, "tools", "bin", "grep.exe"), 40);
+
+  const result = pruneSuperseded({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
+  assert.deepEqual(result.names, [PREVIOUS_ENGINE], "only the superseded, unshared shim directory goes");
+  assert.equal(result.bytes, 20);
+  assert.equal(existsSync(join(state, "shim", PREVIOUS_ENGINE)), false);
+  assert.equal(existsSync(sharedDir), true, "a directory whose bytes another name holds is not worth deleting");
+  assert.equal(existsSync(join(state, "shim", CURRENT_ENGINE)), true, "the current directory is never a candidate");
+  assert.equal(existsSync(join(state, "tools")), true, "a source-built toolchain belongs to the operator, not to this cache pass");
+  assert.equal(pruneSuperseded({ root: state, engine: null, toolchain: CURRENT_TOOLCHAIN }).removed, 0, "an unknown engine digest means nothing is called superseded");
+
+  rmSync(join(ROOT, "package-copy.exe"), { force: true });
+  rmSync(state, { recursive: true, force: true });
+  pass("the automatic pass removes superseded, unshared caches and nothing else");
 }
 
 rmSync(ROOT, { recursive: true, force: true });

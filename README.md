@@ -248,6 +248,11 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td>持久 PTY 会话读的启动文件；空 = <code>%LOCALAPPDATA%\dsh-bash-native\bash-native-rc.sh</code></td>
     </tr>
     <tr>
+      <td><code>pruneSupersededCaches</code></td>
+      <td><code>true</code></td>
+      <td>首次解析时删掉旧构建留下的缓存：只删「digest 不是本包在用的那个」且「目录里的文件在目录外没有硬链接名字」的 <code>shim/</code>、<code>toolchain/</code> 子目录；<code>false</code> 关掉，改用 <code>bin/clean-state.mjs</code> 手动清</td>
+    </tr>
+    <tr>
       <td><code>denialSignatureAdditions</code></td>
       <td><code>['os error 5']</code></td>
       <td>追加的拒绝签名，默认值让非英文 Windows 也标得出拒绝</td>
@@ -348,6 +353,8 @@ node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代
 （上面的路径相对于 profile 目录：桌面版的包在 `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\` 下，不在全局 npm 树里——从别处执行请写绝对路径。）
 
 `--tools` 连自建工具链一起删，`--dev` 连开发残留一起删；`verified/` 与 rc 文件永远保留。脚本只按「目录名是不是 64 位 sha256」和「是不是本包正在用的那个摘要」判断，认不出来的条目不碰；两个摘要都读不到时它拒绝删除。
+
+自动清理：升级后的**首次解析**会删掉「被取代且不与任何已安装包共享」的缓存目录（通常是上一次引擎构建的 `shim/` 与上一版工具链的 `toolchain/`）；共享目录删了也不释放字节，所以不碰，`tools/`、`build/`、`verified/` 与 rc 文件也不碰。`pruneSupersededCaches: false` 关掉它，用下面的工具手动清。
 
 硬链接按 inode 只算一次；一个目录里的文件若在它之外还有名字（例如已安装包里的同一份二进制），报告会标出 `shared`，那部分字节删了也不会释放，所以“被取代的缓存”那一行报的是真正能回收的量。
 

@@ -575,5 +575,48 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   pass("the file-command policy reaches the spawn environment and the PTY startup file");
 }
 
+// 18. The first resolution removes a superseded cache of an earlier build, and a switch turns that off.
+//
+// The pass runs only for the engine this package ships: the fixture engines above resolve through `bashPath`,
+// whose state directory is not this build's to tidy. Each half therefore resolves the packaged artifact with a
+// redirected LOCALAPPDATA, and the pass is keyed by that root (once per process), which is why the two halves
+// use different roots.
+{
+  const stage = (root) => {
+    const local = mkdtempSync(join(tmpdir(), root));
+    const stale = join(local, "dsh-bash-native", "shim", "f".repeat(64));
+    mkdirSync(stale, { recursive: true });
+    writeFileSync(join(stale, "bash.exe"), "an earlier build's name");
+    const tools = join(local, "tools-bin");
+    mkdirSync(tools, { recursive: true });
+    writeFileSync(join(tools, "grep.exe"), "");
+    return { local, stale, tools };
+  };
+
+  const saved = process.env.LOCALAPPDATA;
+  const on = stage("dsh-bash-native-prune-on-");
+  try {
+    process.env.LOCALAPPDATA = on.local;
+    const { executor } = makeExecutor({ bashPath: "", config: { toolsDir: on.tools } });
+    executor.resolve({ command: "echo hi" });
+    assert.equal(existsSync(on.stale), false, "the superseded names directory of an earlier build is gone");
+  } finally {
+    process.env.LOCALAPPDATA = saved;
+    rmSync(on.local, { recursive: true, force: true });
+  }
+
+  const off = stage("dsh-bash-native-prune-off-");
+  try {
+    process.env.LOCALAPPDATA = off.local;
+    const { executor } = makeExecutor({ bashPath: "", config: { toolsDir: off.tools, pruneSupersededCaches: false } });
+    executor.resolve({ command: "echo hi" });
+    assert.equal(existsSync(off.stale), true, "the switch leaves the directory alone");
+  } finally {
+    process.env.LOCALAPPDATA = saved;
+    rmSync(off.local, { recursive: true, force: true });
+  }
+  pass("the first resolution prunes a superseded cache, and the switch turns the pass off");
+}
+
 rmSync(FIXTURE_DIR, { recursive: true, force: true });
 console.log(`\n${passed} 项通过`);

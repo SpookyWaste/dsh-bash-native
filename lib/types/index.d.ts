@@ -97,6 +97,18 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      */
     resolve(request: ShellExecRequest): ShellExecSpec;
     /**
+     * Remove the superseded caches of earlier builds, once per process.
+     *
+     * An upgrade leaves the previous engine's `shim/` directory and the previous package's `toolchain/` cache
+     * behind, and nothing needs them. The pass only touches a directory whose digest is not the one this build
+     * uses **and** whose files have no hard-link name outside it, so an installed package or another live cache
+     * keeps its own bytes (and the pass never claims space it does not free). It runs after the first resolution,
+     * because the engine that actually resolved is what decides which names directory is current — and only for
+     * the engine this package ships: a deployment that pointed `bashPath` somewhere else has a state directory
+     * this build did not lay out.
+     */
+    private pruneStateCaches;
+    /**
      * The directory that answers to `bash` and `sh`, created once per engine build.
      *
      * A shell that a script, a Makefile or a tool can actually call is the difference between "there is a
