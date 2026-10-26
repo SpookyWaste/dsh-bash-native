@@ -1,8 +1,8 @@
 // Points a checkout's registry dependencies at vendored, patched copies of the same version.
 //
 // The rule each patch carries is documented beside it — `patches/uucore/README.md` for the OS error code a
-// refused file effect has to keep, `patches/vendored/uu_tail/README.md` for the last block `tail` reads.
-// The table of crates that get this treatment lives in `scripts/vendored-crates.mjs`; this module owns the
+// refused file effect has to keep.
+// This module owns the uucore override the toolchain build applies; the engine build vendors nothing.
 // machinery and the `uucore` entry, whose copy needs the coreutils monorepo layout described below.
 //
 // A crate from the registry cannot be patched in place — the source cache is shared with every other

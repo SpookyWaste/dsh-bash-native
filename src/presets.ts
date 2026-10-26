@@ -89,10 +89,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 export async function registerPresets(ctx: Context, config: Config, platform: string): Promise<void> {
   if (!isSupportedPlatform(platform)) {
     // The presets advertise a shell this bundle can only serve on Windows: its executor resolves the
-    // Windows brush build it ships and contributes no candidate anywhere else, so registering them would
+    // Windows rubash build it ships and contributes no candidate anywhere else, so registering them would
     // hand every new session a preset whose bash cannot start.
     ctx.logger.warn(
-      `dsh-bash-native: not registering the agent presets: this bundle drives the Windows brush engine and platform '${platform}' is not supported`,
+      `dsh-bash-native: not registering the agent presets: this bundle drives the Windows rubash engine and platform '${platform}' is not supported`,
     )
     return
   }

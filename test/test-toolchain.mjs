@@ -65,8 +65,8 @@ const fsListing = (names) => ({ isFile: () => false, listDirectory: () => names 
   assert.deepEqual(probe.impostors, ["convert"], "an impostor in the listing is not shadowed by a POSIX one");
   assert.deepEqual(
     probe.additional,
-    ["nice", "nohup", "tty"],
-    "a known name, an impostor, a shell builtin and every name the engine already answers are never additions",
+    ["cat", "ls", "nice", "nohup", "tty"],
+    "a known name, an impostor and a name the engine answers as a full builtin are never additions; a utility the toolchain serves is",
   );
   assert.equal(probe.additional.includes("sed"), false, "a known name is not an addition");
   assert.equal(probe.additional.includes("cat"), false, "a name the engine answers with a builtin is not an addition");

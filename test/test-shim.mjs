@@ -9,7 +9,6 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { SHIM_NAMES, SHELL_NAMES, prepareShellNames, shellNamesDirectory } from "../lib/shim.js";
-import { BUILT_IN_UTILITIES } from "../lib/toolchain.js";
 
 let passed = 0;
 function pass(name) {
@@ -78,9 +77,8 @@ const prepare = (fs, options = {}) => prepareShellNames({ engine: ENGINE, sha256
   for (const name of SHIM_NAMES) {
     assert.equal(fs.links.get(join(DIR, `${name}.exe`)), ENGINE, `${name} is a link to the verified engine`);
   }
-  assert.equal(SHIM_NAMES.length, SHELL_NAMES.length + BUILT_IN_UTILITIES.length, "the shell names plus every bundled utility");
-  assert.equal(SHIM_NAMES.length, 77, "two shell names and the 75 utilities the engine bundles");
-  assert.equal(fs.links.has(join(DIR, "rm.exe")), true, "a bundled utility is reachable by name, not only the shell names");
+  assert.deepEqual([...SHIM_NAMES], [...SHELL_NAMES], "only the shell faces are published");
+  assert.equal(fs.links.has(join(DIR, "cat.exe")), false, "a utility name would run a shell under the engine's argv[0] rule");
   pass("every shim name is a hard link to the engine in a digest-named directory");
 }
 

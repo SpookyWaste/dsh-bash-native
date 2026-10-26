@@ -1,17 +1,17 @@
 {
   "version": 1,
-  "note": "The engine this plugin runs bash on. Built from source so a behaviour can be measured and, when necessary, patched; `ref` is pinned to a commit because branch tips move. `artifact` records the build shipped inside this package: `scripts/build-engine.mjs --refresh` replaces it and rewrites the hash, and the executor runs it where the package puts it — a released install sits under `$DSH_HOME/profiles/<profile>/node_modules/…`, outside the tree the sandbox labels and grants writes to, so the artifact is executable as it lies and no second copy exists. The hash is the provenance of the shipped bytes, not a reproducible-build promise: replaying the pin and the patches rebuilds the same code but not the same file (28 bytes of link-time metadata differ — the COFF timestamp and the `.rdata` debug record), so a rebuilt engine is verified behaviourally, by `npm test` and the corpus, never by comparing hashes (section 36 of docs/research.md).",
-  "repo": "https://github.com/reubeno/brush",
-  "ref": "08db87a62345f11a4fc43bf385e318677f641089",
-  "package": "brush-shell",
-  "bin": "brush",
-  "features": [
-    "experimental-bundled-coreutils"
+  "note": "The engine this plugin runs bash on. Built from source at a pinned upstream commit plus this repository patch set, because the contract this plugin states depends on one behaviour upstream does not have: a pattern/script/program word is never rewritten into its Win32 spelling. `ref` is a commit because a tag can be moved; `tag` records the release it was cut from. `artifact` is the build shipped inside this package: `scripts/build-engine.mjs --refresh` replaces it and rewrites the hash. The hash is the provenance of the shipped bytes, not a reproducible-build promise: replaying the pin and the patches rebuilds the same code but not the same file, so a rebuilt engine is verified behaviourally, by `npm test` and the corpus, never by comparing hashes.",
+  "repo": "https://github.com/unixwin/rubash",
+  "tag": "v1.4.3",
+  "ref": "fa64d58dfb9c97d05f2f3d1f9bf3b73e68a2e28e",
+  "bin": "rubash",
+  "patches": [
+    "patches/rubash/0001-data-primary-positions-every-child.patch"
   ],
   "artifact": {
-    "path": "engine/win32-x64/brush.exe",
-    "sha256": "54719768922b5c44a353ba55cf2e0d035d30f0f8042b43e498734eb7d30f34a4",
-    "bytes": 15703040
+    "path": "engine/win32-x64/rubash.exe",
+    "sha256": "091eae8b7f3aad994186ddf98e9541dde992b098f4ff7128cfd927b03bac22cc",
+    "bytes": 10946560
   },
-  "why": "Upstream brush implements $! as current_job().representative_pid(), and the published engine returns an empty value, while the source at this commit is what has to be measured rather than assumed. `experimental-bundled-coreutils` is required for parity with the published engine, which is where the in-process utilities the prompt contract lists come from: built with default features alone, `sleep`, `cat`, `ls` and `uname` are missing entirely and the contract's claim would be false."
+  "why": "rubash is a from-scratch bash 5.3 engine whose own test surface is the GNU upstream suite, so almost everything this repository used to patch (a real PID behind $!, /tmp as an alias, descriptor paths, kill as a builtin, CRLF scripts, select, nameref, read -t) is correct upstream. The one behaviour still missing is the data-primary rule above, which only the WinuxCmd suite gets; patch 0001 extends it to every child class."
 }

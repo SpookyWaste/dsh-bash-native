@@ -175,7 +175,7 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      */
     private packaged;
     /**
-     * Ask one candidate binary whether it is brush, memoized per absolute path.
+     * Ask one candidate binary whether it is the engine, memoized per absolute path.
      *
      * The spawn is one bounded `--version` per candidate per resolution, and resolution itself is cached
      * on configuration and `PATH`, so this runs once per configuration rather than per command. A

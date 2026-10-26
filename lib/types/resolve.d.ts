@@ -1,7 +1,7 @@
 /**
  * Engine resolution for the `dsh-bash-native` executor.
  *
- * This plugin runs exactly one engine: brush (`brush-shell`), the Rust bash implementation that needs
+ * This plugin runs exactly one engine: rubash, the from-scratch Rust bash 5.3 implementation that needs
  * no MSYS runtime and therefore starts under every DSH sandbox tier. A configured absolute path is
  * still verified by asking the binary, so a same-named foreign program — `bash.exe` from Git for
  * Windows, MSYS2 or Cygwin, or the `wsl.exe` trampoline — is refused instead of silently becoming the
@@ -60,7 +60,7 @@ export interface EngineResolution {
 export interface ResolveEngineInput {
     /** Configured absolute engine path; empty means "resolve". */
     readonly bashPath: string;
-    /** Directory holding a packaged engine, probed as `brush.exe` and `bin/brush.exe`. */
+    /** Directory holding a packaged engine, probed as `rubash.exe` and `bin/rubash.exe`. */
     readonly bundledEngineDir: string;
     /**
      * The engine this package ships, already prepared for execution by `./artifact.ts`, or the reason it
@@ -126,8 +126,8 @@ export declare function engineEnvValue(env: EngineEnv, name: string): string | u
  * Resolve the engine by probing every candidate in order.
  *
  * The order is: an explicit `bashPath`, then an explicit `bundledEngineDir`, then the engine this package
- * ships (already prepared outside the workspace by `./artifact.ts`), then `brush` on `PATH`. Every
- * candidate that exists is verified, and a candidate that exists but is not brush is reported as refused
+ * ships (already prepared outside the workspace by `./artifact.ts`), then `rubash` on `PATH`. Every
+ * candidate that exists is verified, and a candidate that exists but is not the engine is reported as refused
  * rather than accepted, so the failure list distinguishes "nothing is installed" from "the thing you
  * pointed at is a different shell".
  * @param input - configured engine sources.

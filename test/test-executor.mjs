@@ -358,8 +358,8 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   assert.equal(
     text,
     [
-      "This session's `bash` tool runs a bash-compatible shell natively on Windows; use bash syntax.",
-      'Use `$VAR` names such as `$TMP`; prefer real Windows paths (`"C:\\..."` quoted, or `C:/...`) over POSIX shorthands.',
+      "This session's `bash` tool is GNU bash 5.3-compatible, running natively on Windows with no MSYS runtime; it reports an MSYS-compatible `uname -s` identity for script compatibility, so use bash syntax.",
+      'Pass paths in POSIX form (`/c/Users/...`, `/tmp/...`): the shell resolves them and hands every command a native spelling. Use `$VAR` names such as `$TMP`.',
     ].join("\n"),
     "the contract is exactly those two sentences",
   );

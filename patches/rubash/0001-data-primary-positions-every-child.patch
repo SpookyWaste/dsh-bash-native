@@ -1,0 +1,115 @@
+diff --git a/src/executor/path.rs b/src/executor/path.rs
+index af2bafb..a937ae1 100644
+--- a/src/executor/path.rs
++++ b/src/executor/path.rs
+@@ -1100,11 +1100,21 @@ pub fn external_command_for_named_program(
+     // verbatim; every other argv word of a POSIX-aware child takes the
+     // native funnel (external_argument_path), exactly like a native
+     // child's argv.
++    // dsh-bash-native patch 0001: the data-primary positions are a property of
++    // the tool's grammar, not of the child's path layer, so EVERY child class
++    // gets them. A native child still receives translated operands
++    // (`grep PATTERN FILE` -> FILE in the native spelling), but its
++    // pattern/script/program text stays verbatim, which is what keeps
++    // `/tmp`- or `/c/`-shaped data from being rewritten before a third-party
++    // suite sees it.
+     #[cfg(windows)]
+-    let data_primary_positions = if posix_aware {
+-        argv_data_primary_positions(command_name, args)
+-    } else {
+-        std::collections::HashSet::new()
++    let data_primary_positions = {
++        // The grammar belongs to the program that runs, so its own file stem identifies it; the command
++        // word is what the caller typed, and on the WinuxCmd dispatch route it is prepended to argv, where
++        // the table's positions still line up. A position either reading calls data is data.
++        let mut positions = argv_data_primary_positions(program.file_stem().and_then(|stem| stem.to_str()), args);
++        positions.extend(argv_data_primary_positions(command_name, args));
++        positions
+     };
+     let native_args = args
+         .iter()
+@@ -1125,8 +1135,11 @@ pub fn external_command_for_named_program(
+             // spellings verbatim and skip this funnel. Every other child
+             // class (native exes, cmd, MSYS/Cygwin tools) is untouched and
+             // still gets the native form.
++            // dsh-bash-native patch 0001: a data-primary word is not a path,
++            // whatever the child class, so the virtual-root funnel must not
++            // rewrite it either.
+             #[cfg(windows)]
+-            if !posix_aware {
++            if !data_primary_positions.contains(&position) {
+                 if let Some(translated) =
+                     translated_virtual_system_root_argument(arg, shell_wrapped, env_vars)
+                 {
+@@ -1138,9 +1151,6 @@ pub fn external_command_for_named_program(
+             } else if posix_aware {
+                 #[cfg(windows)]
+                 {
+-                    if data_primary_positions.contains(&position) {
+-                        return arg.clone();
+-                    }
+                     // A shell-tree spelling (virtual root, /mnt/X, bare "/")
+                     // is resolved by the coreutils' own shell-tree layer, so
+                     // hand it over verbatim.
+@@ -1150,6 +1160,12 @@ pub fn external_command_for_named_program(
+                 }
+                 external_argument_path(arg, env_vars)
+             } else {
++                // dsh-bash-native patch 0001: data-primary words reach a
++                // native child verbatim as well.
++                #[cfg(windows)]
++                if data_primary_positions.contains(&position) {
++                    return arg.clone();
++                }
+                 external_argument_path(arg, env_vars)
+             }
+         })
+@@ -4874,6 +4890,48 @@ mod tests {
+     }
+ 
+     #[cfg(windows)]
++    #[cfg(windows)]
++    #[test]
++    fn data_primary_positions_hold_for_native_children() {
++        // dsh-bash-native 0001: a third-party suite is never `posix_aware`, so
++        // its operands still take the native funnel; the pattern/script/program
++        // positions are grammar properties and must stay verbatim.
++        let root = i164_fixture_root();
++        let env_vars = i164_rooted_env(&root);
++
++        // The shell resolves a command word and hands it here with its name,
++        // which is what the data-primary table is keyed on; the name-less
++        // helper cannot answer for a grammar.
++        // The production route for a simple external command: no command word is handed in, so the
++        // executable's stem has to identify the grammar.
++        let argv_for = |program: &Path, args: &[&str]| {
++            let owned = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
++            let (command, _) = external_command_for_program(program, &owned, &env_vars);
++            command
++                .get_args()
++                .map(|arg| arg.to_string_lossy().into_owned())
++                .collect::<Vec<_>>()
++        };
++
++        let grep = PathBuf::from(r"C:\tools\grep.exe");
++        let argv = argv_for(&grep, &["-F", "/tmp/pat", "/tmp/file.txt"]);
++        assert_eq!(argv[0], "-F");
++        assert_eq!(argv[1], "/tmp/pat", "the grep pattern stays verbatim");
++        assert_ne!(argv[2], "/tmp/file.txt", "the file operand still translates");
++
++        let sed = PathBuf::from(r"C:\tools\sed.exe");
++        let argv = argv_for(&sed, &["-n", "/tmp/x/p", "/tmp/file.txt"]);
++        assert_eq!(argv[1], "/tmp/x/p", "the sed script stays verbatim");
++
++        let awk = PathBuf::from(r"C:\tools\awk.exe");
++        let argv = argv_for(&awk, &["/tmp/x/{print}", "/tmp/file.txt"]);
++        assert_eq!(argv[0], "/tmp/x/{print}", "the awk program stays verbatim");
++
++        // `-e` carries data; `-f` carries a path, so only the former stays verbatim.
++        let argv = argv_for(&grep, &["-f", "/tmp/pats.txt", "/tmp/file.txt"]);
++        assert_ne!(argv[1], "/tmp/pats.txt", "a pattern file is a path and translates");
++    }
++
+     #[test]
+     fn shell_tree_arguments_are_verbatim_for_coreutils_and_translate_for_others() {
+         // niubash#346 ("coreutils own the shell tree") x niubash#164 matrix:

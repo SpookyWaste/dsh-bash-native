@@ -71,10 +71,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Build brush from the pin with this repository's patches
+      - name: Build rubash from the pin with this repository's patches
         # Not `cargo install`: the plugin's verifier refuses an unpatched build, and the baselines were
         # recorded on this one, so an upstream build fails every engine-dependent check by construction.
-        # This script clones the pin, applies `patches/brush/*.patch`, installs the artifact in the
+        # This script clones the pin, applies `patches/rubash/*.patch`, installs the artifact in the
         # checkout and rewrites `engine.lock.json` to the hash it just produced.
         run: node scripts/build-engine.mjs --refresh
       - name: Fetch the upstream preset the drift alarm compares against

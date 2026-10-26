@@ -42,19 +42,21 @@ export declare const TOOLCHAIN_COMMANDS: readonly ['grep', 'sed', 'awk', 'jq', '
  */
 export declare const NOTABLE_ADDITIONS: readonly ['tty', 'nohup', 'nice', 'uptime', 'hostid', 'pathchk', 'locate', 'updatedb'];
 /**
- * Utilities the bundled-coreutils engine build carries as builtins.
+ * Names rubash answers inside the shell process, so the toolchain must not publish a second copy.
  *
- * Measured with `type -t` over the GNU coreutils name set (see `docs/research.md`); the standard bash
- * builtins (`echo`, `printf`, `test`, `true`, `false`, `pwd`) are omitted because every bash has them,
- * and they are named separately in {@link SHELL_BUILTINS}. `type -t` cannot tell a name the engine
- * executes in its own process from one it dispatches to itself, and the bundled set is the second kind:
- * every call re-enters the engine as a `--invoke-bundled <name>` child (see `patches/brush/README.md`,
- * `0004`), which is why the contract states that mechanism instead of calling these utilities in-process.
- *
- * This list is also what keeps a toolchain copy of one of these names out of the contract: the engine
- * already answers it, so advertising it as an addition would claim a capability the toolchain did not add.
+ * `uname` and `arch` are full builtins with no external fallback, and the engine keeps their identity
+ * fields (the MSYS-compatible persona) out of `PATH` on purpose, so a program of the same name would be a
+ * second opinion about which platform this is.
  */
-export declare const BUILT_IN_UTILITIES: string[];
+export declare const ENGINE_BUILTINS: readonly ['arch', 'uname'];
+/**
+ * Names rubash runs in-process only for simple forms and hands to `PATH` otherwise.
+ *
+ * This is the class the toolchain has to publish even though the engine "answers" the name: `xargs
+ * dirname`, `find -exec basename` and a script that execs `sleep` reach a program, never a builtin, and
+ * the engine's own `type` reports them as external commands for exactly that reason.
+ */
+export declare const ENGINE_FALLBACK_NAMES: readonly ['basename', 'dirname', 'sleep'];
 /**
  * Names the engine answers itself, so a program copy of one is never advertised.
  *

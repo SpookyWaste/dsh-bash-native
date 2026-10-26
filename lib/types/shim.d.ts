@@ -27,13 +27,13 @@ import type { FileIdentity } from './artifact.js';
 /** The command names a shell install is expected to answer to, in the order they are created. */
 export declare const SHELL_NAMES: readonly ['bash', 'sh'];
 /**
- * Every name the shim directory answers to: the two shell names, then the utilities the engine bundles.
+ * Every name the shim directory answers to.
  *
- * Publication is what makes a bundled utility reachable from outside the shell. The name points at the
- * engine, and the engine dispatches on its own file name (patch `0016`), so a child process that execs `rm`
- * runs the bundled `rm` rather than a second implementation kept in the toolchain.
+ * Only the shell faces are published: rubash decides `bash`/`sh` from its own invocation name and has no
+ * multi-call utility dispatch, so a hard link named `cat.exe` would run a *shell* called cat. The
+ * utilities a child process can exec live in the toolchain directory instead.
  */
-export declare const SHIM_NAMES: readonly ["bash", "sh", ...string[]];
+export declare const SHIM_NAMES: readonly ["bash", "sh"];
 /** The filesystem operations this module needs, injected so its rules are testable without a binary. */
 export interface ShimIo {
     /** @param path - candidate path. @returns its identity, or null when it is absent or unreadable. */

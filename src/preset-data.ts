@@ -99,13 +99,13 @@ const PRESET_META: Readonly<Record<PresetId, Readonly<{ name: string; descriptio
   'bash-native': {
     name: 'Native Bash (Windows)',
     description:
-      'A native POSIX bash on Windows (the brush engine this bundle ships and verifies; no MSYS runtime) with the harness file sandbox, background jobs, and spill-backed output.',
+      'A native POSIX bash on Windows (the rubash engine this bundle ships and verifies; no MSYS runtime) with the harness file sandbox, background jobs, and spill-backed output.',
     order: 5,
   },
   'bash-native-minimal': {
     name: 'Native Bash (Windows, minimal)',
     description:
-      'The lean Native Bash preset — a persona, an image-only file tool, a compaction group and one persistent bash shell on the brush engine this bundle ships and verifies, with the short environment contract.',
+      'The lean Native Bash preset — a persona, an image-only file tool, a compaction group and one persistent bash shell on the rubash engine this bundle ships and verifies, with the short environment contract.',
     order: 6,
   },
 }

@@ -97,49 +97,9 @@ const summary = [...byLicense.entries()].sort((left, right) => right[1] - left[1
  * vendored copy of brush. The notice therefore has to travel with the artifact the patches produce, which
  * is what this file describes.
  */
-/** The `uu_rmdir` port that lives in the vendored-crate channel rather than `patches/brush/`. */
-const UU_RMDIR_SENTENCE =
-  "The vendored `uu_rmdir` final-dot guard in `patches/vendored/uu_rmdir/` follows its `d48cee7d` too.";
+/** The toolchain patches that carry their own upstream note. */
 
-const OH_MY_PI_NOTICE = [
-  "## Patches ported from oh-my-pi",
-  "",
-  "The binary above is built from the patches in `patches/brush/`, which are part of the source repository",
-  "and not of this package. Several of them come from work first done for",
-  "[`oh-my-pi`](https://github.com/can1357/oh-my-pi)'s own vendored copy of brush: `0002` and `0009` are",
-  "transcribed from it, `0006` and `0007` port its descriptor-path grammar and its `wait` builtin, and",
-  "`0004` and `0019` follow fixes it found. " + UU_RMDIR_SENTENCE,
-  "The per-patch correspondence — which oh-my-pi commit each one follows, and every place this",
-  "repository's version differs — is recorded in `patches/brush/README.md`.",
-  "This package is not affiliated with, or endorsed by, oh-my-pi or its authors.",
-  "",
-  "oh-my-pi is MIT licensed:",
-  "",
-  "    MIT License",
-  "",
-  "    Copyright (c) 2025 Mario Zechner",
-  "    Copyright (c) 2025-2026 Can Bölük",
-  "    Copyright (c) 2026 Stencil Labs, Inc.",
-  "",
-  "    Permission is hereby granted, free of charge, to any person obtaining a copy",
-  "    of this software and associated documentation files (the \"Software\"), to deal",
-  "    in the Software without restriction, including without limitation the rights",
-  "    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell",
-  "    copies of the Software, and to permit persons to whom the Software is",
-  "    furnished to do so, subject to the following conditions:",
-  "",
-  "    The above copyright notice and this permission notice shall be included in all",
-  "    copies or substantial portions of the Software.",
-  "",
-  "    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR",
-  "    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,",
-  "    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE",
-  "    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER",
-  "    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,",
-  "    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE",
-  "    SOFTWARE.",
-  "",
-];
+const OH_MY_PI_NOTICE = [];
 
 const lines = [
   "# Third-party notices for the shipped engine",

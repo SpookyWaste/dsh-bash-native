@@ -150,7 +150,8 @@ const rubashAnswers = (facts = ["5.3.20(1)-release", "builtin", "2", "MSYS_NT-10
   assert.equal("ready" in packaged, true, `the shipped engine is not ready: ${packaged.refused ?? "unknown"}`);
   const verdict = readBrushVersion(packaged.ready);
   assert.equal(verdict.refused, null);
-  assert.match(verdict.version, /^brush\b/i);
+  assert.equal(verdict.family, "rubash");
+  assert.match(verdict.version, /^GNU bash, version 5\.3/);
   pass("the production spawn verifies the shipped artifact end to end");
 }
 

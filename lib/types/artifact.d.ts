@@ -1,7 +1,7 @@
 /**
- * The brush engine this package ships, and the file that runs.
+ * The engine this package ships, and the file that runs.
  *
- * Two facts shape this module. First, the artifact is the product: `engine/win32-x64/brush.exe` is built
+ * Two facts shape this module. First, the artifact is the product: `engine/win32-x64/rubash.exe` is built
  * from the pinned upstream commit with this repository's patches, and `engine.lock.json` records its
  * sha256 and size, so an install never has to compile anything and a drifted or tampered binary is caught
  * before it runs. Second, verifying the artifact means reading it, so the verdict is stamped: a stamp
