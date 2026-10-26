@@ -29,7 +29,7 @@ jobs:
         # (`latest` is a stale placeholder for this package, so `next` is the line this plugin targets).
         run: node scripts/fetch-upstream-preset.mjs --env >> $env:GITHUB_ENV
       # The engine-dependent suites run here rather than skipping: `scripts/engine-harness.mjs` falls back
-      # to the plugin's own resolver, which selects the committed `engine/win32-x64/brush.exe`, so the corpus
+      # to the plugin's own resolver, which selects the committed `engine/win32-x64/rubash.exe`, so the corpus
       # is scored against `corpus/baseline.json` on every push (a candidate that exists but is refused throws
       # instead of skipping). `test-package.mjs` additionally packs this tree, unpacks the tarball and drives
       # the package from there, which is the only gate that catches a `files` mistake. The toolchain baseline
@@ -84,7 +84,7 @@ jobs:
       - name: Engine capability test
         run: npm test
         env:
-          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\brush.exe
+          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\rubash.exe
       - name: Build the POSIX toolchain
         run: >-
           node scripts/build-toolchain.mjs
@@ -96,4 +96,4 @@ jobs:
       - name: Toolchain capability test
         run: node test/test-compat-corpus.mjs --tools-dir="$env:RUNNER_TEMP\tools\bin"
         env:
-          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\brush.exe
+          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\rubash.exe

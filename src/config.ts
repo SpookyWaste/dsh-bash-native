@@ -17,13 +17,14 @@ import type { Config as LocalBashConfig } from '@deepseek-ai/dsh-bash-local'
 /** Engine-selection and composition switches this executor adds to the local bash budgets. */
 export interface BashNativeFields {
   /**
-   * Absolute path to a brush build to run instead of the probed ones; empty means "resolve".
+   * Absolute path to an engine build to run instead of the probed ones; empty means "resolve".
    *
-   * A configured path is not taken at face value: the binary is asked for its version, and anything
-   * that does not answer as brush is refused with the reason (see `./verify.ts`).
+   * A configured path is not taken at face value: the binary is asked to identify itself, and a build
+   * this contract does not describe (an upstream `cargo install`, another shell) is refused with the
+   * reason (see `./verify.ts`).
    */
   bashPath: string
-  /** Directory of a packaged engine, probed as `brush.exe` and then `bin/brush.exe`. */
+  /** Directory of a packaged engine, probed as `rubash.exe` and then `bin/rubash.exe`. */
   bundledEngineDir: string
   /**
    * Whether commands run under `ctx.sandbox`. Disabling this drops the file policy and the

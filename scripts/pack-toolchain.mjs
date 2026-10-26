@@ -176,7 +176,7 @@ const thirdParty = [
   }),
   "",
   "GNU bash is **not** part of this package: it is GPLv3 and is only ever invoked as an external program.",
-  "The engine this bundle ships has its own record in `engine/THIRD-PARTY.md` and `engine/LICENSE.brush`.",
+  "The engine this bundle ships has its own record in `engine/THIRD-PARTY.md` and `engine/LICENSE.rubash`.",
   "",
   `Rebuild and repackage with \`node scripts/build-toolchain.mjs\` followed by \`node scripts/pack-toolchain.mjs\`.`,
   "",
