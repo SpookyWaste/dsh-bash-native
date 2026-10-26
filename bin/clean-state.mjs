@@ -49,9 +49,10 @@ const BUILT_TOOLCHAIN_ENTRY = 'tools'
 
 /**
  * The production filesystem: four reads and one delete, so the classification below is the module's content.
- * `identity` is the hard-link key (`device:inode` on Windows, where Node reports both), which is what makes a
- * hundred applet names count as one binary.
- * @type {{ isDirectory(path: string): boolean, names(path: string): readonly string[] | null, stat(path: string): { bytes: number, file: boolean, identity: string | null } | null, remove(path: string): void }}
+ * `identity` is the hard-link key (`device:inode` on Windows, where Node reports both), and `links` is how
+ * many names that file has in total — the pair is what makes a hundred applet names count as one binary and
+ * what tells a directory whose bytes would survive deletion from one whose bytes would not.
+ * @type {{ isDirectory(path: string): boolean, names(path: string): readonly string[] | null, stat(path: string): { bytes: number, file: boolean, identity: string | null, links: number } | null, remove(path: string): void }}
  */
 export const nodeIo = {
   isDirectory: (path) => {
@@ -71,8 +72,8 @@ export const nodeIo = {
   stat: (path) => {
     try {
       const found = statSync(path)
-      if (!found.isFile()) return { bytes: 0, file: false, identity: null }
-      return { bytes: found.size, file: true, identity: `${found.dev}:${found.ino}` }
+      if (!found.isFile()) return { bytes: 0, file: false, identity: null, links: 0 }
+      return { bytes: found.size, file: true, identity: `${found.dev}:${found.ino}`, links: found.nlink }
     } catch {
       return null
     }
@@ -111,25 +112,59 @@ export function currentDigests(packageRoot) {
 }
 
 /**
- * Sum the bytes one path occupies, counting a file shared through several names once.
- * @param path - a file or directory.
+ * Measure one entry: the bytes it is the first to account for, and the bytes that would survive deletion.
+ *
+ * Two different questions, because a hard link makes them differ. `bytes` is what this entry adds to the
+ * report's total — an inode already counted by an earlier entry adds nothing, which is how the sum matches
+ * `du` rather than the apparent size of the listing. `shared` is the part of `bytes` whose inode has more
+ * names than this entry contains: those other names live outside it (the installed package, a second cache),
+ * so deleting this directory frees none of them.
+ * @param path - the entry's path.
  * @param io - filesystem seam.
- * @param seen - the file identities already counted by this report.
- * @returns its size in bytes.
+ * @param seen - the file identities an earlier entry already accounted for.
+ * @returns the bytes this entry owns and the part of them that deletion would not free.
  */
-function directoryBytes(path, io, seen) {
+function measureEntry(path, io, seen) {
   const found = io.stat(path)
-  if (found === null) return 0
+  if (found === null) return { bytes: 0, shared: 0 }
   if (found.file) {
-    if (found.identity !== null) {
-      if (seen.has(found.identity)) return 0
-      seen.add(found.identity)
-    }
-    return found.bytes
+    if (found.identity !== null && seen.has(found.identity)) return { bytes: 0, shared: 0 }
+    if (found.identity !== null) seen.add(found.identity)
+    return { bytes: found.bytes, shared: found.links > 1 ? found.bytes : 0 }
   }
-  let total = 0
-  for (const name of io.names(path) ?? []) total += directoryBytes(join(path, name), io, seen)
-  return total
+  // A directory is measured in two passes: how often each inode appears inside it, and what that costs.
+  const counts = new Map()
+  countNames(path, io, counts)
+  let bytes = 0
+  let shared = 0
+  for (const [identity, entry] of counts) {
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    bytes += entry.bytes
+    if (entry.links > entry.count) shared += entry.bytes
+  }
+  return { bytes, shared }
+}
+
+/**
+ * Count how many names each inode has inside one directory tree.
+ * @param path - the directory.
+ * @param io - filesystem seam.
+ * @param counts - identity → `{ bytes, links, count }`, accumulated in place.
+ */
+function countNames(path, io, counts) {
+  for (const name of io.names(path) ?? []) {
+    const child = join(path, name)
+    const found = io.stat(child)
+    if (found === null) continue
+    if (!found.file) {
+      countNames(child, io, counts)
+      continue
+    }
+    const known = counts.get(found.identity ?? `${child}`)
+    if (known === undefined) counts.set(found.identity ?? `${child}`, { bytes: found.bytes, links: found.links, count: 1 })
+    else known.count += 1
+  }
 }
 
 /**
@@ -155,11 +190,13 @@ function cacheEntries(root, kind, current, io, seen) {
       continue
     }
     const isCurrent = current !== null && name === current
+    const measured = measureEntry(path, io, seen)
     entries.push({
       kind,
       name,
       path,
-      bytes: directoryBytes(path, io, seen),
+      bytes: measured.bytes,
+      shared: measured.shared,
       current: isCurrent,
       removable: current === null || isCurrent ? null : 'superseded',
     })
@@ -176,10 +213,11 @@ function cacheEntries(root, kind, current, io, seen) {
  * @returns the entry, with `removable` naming the flag that would delete it.
  */
 function topLevelEntry(path, name, io, seen) {
-  const bytes = directoryBytes(path, io, seen)
-  if (DEVELOPMENT_ENTRIES.includes(name)) return { kind: 'dev', name, path, bytes, current: false, removable: 'dev' }
-  if (name === BUILT_TOOLCHAIN_ENTRY) return { kind: 'tools', name, path, bytes, current: false, removable: 'tools' }
-  return { kind: 'other', name, path, bytes, current: false, removable: null }
+  const measured = measureEntry(path, io, seen)
+  const base = { bytes: measured.bytes, shared: measured.shared, current: false }
+  if (DEVELOPMENT_ENTRIES.includes(name)) return { kind: 'dev', name, path, ...base, removable: 'dev' }
+  if (name === BUILT_TOOLCHAIN_ENTRY) return { kind: 'tools', name, path, ...base, removable: 'tools' }
+  return { kind: 'other', name, path, ...base, removable: null }
 }
 
 /**
@@ -198,8 +236,21 @@ export function inspectState({ root, engine, toolchain, io = nodeIo }) {
     entries.push(topLevelEntry(join(root, name), name, io, seen))
   }
   const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
-  const removableBytes = removable(entries, { superseded: true }).reduce((total, entry) => total + entry.bytes, 0)
+  const removableBytes = reclaimable(entries, { superseded: true })
   return { root, present: true, engine, toolchain, entries, bytes, removableBytes }
+}
+
+/**
+ * The bytes one deletion pass would actually free.
+ *
+ * An entry's `shared` bytes have another name outside it, so deleting the entry does not free them; the
+ * subtraction is what keeps the promise the report makes ("rerun with --yes to delete them") honest.
+ * @param entries - the report's entries.
+ * @param options - which classes are allowed: `superseded`, `tools`, `dev`.
+ * @returns the bytes the pass would free.
+ */
+export function reclaimable(entries, options) {
+  return removable(entries, options).reduce((total, entry) => total + Math.max(0, entry.bytes - (entry.shared ?? 0)), 0)
 }
 
 /**
@@ -220,11 +271,12 @@ export function removable(entries, options) {
  * Delete the selected entries.
  * @param entries - entries from {@link removable}.
  * @param io - filesystem seam.
- * @returns how many entries were removed and how many bytes they held.
+ * @returns how many entries were removed and how many bytes that actually freed (a shared file stays alive
+ * through its other name, so the answer can be smaller than the entries' apparent size).
  */
 export function removeEntries(entries, io = nodeIo) {
   for (const entry of entries) io.remove(entry.path)
-  return { removed: entries.length, bytes: entries.reduce((total, entry) => total + entry.bytes, 0) }
+  return { removed: entries.length, bytes: reclaimable(entries, { superseded: true, tools: true, dev: true }) }
 }
 
 /**
@@ -277,7 +329,8 @@ export function formatReport(report) {
     if (entries.length === 0) continue
     lines.push(`  ${kind}: ${description}`)
     for (const entry of entries) {
-      lines.push(`    ${entry.name.slice(0, 20).padEnd(22)}${formatBytes(entry.bytes).padStart(8)}  ${stateLabel(entry)}`)
+      const shared = entry.shared !== undefined && entry.shared > 0 ? ` · ${formatBytes(entry.shared)} shared` : ''
+      lines.push(`    ${entry.name.slice(0, 20).padEnd(22)}${formatBytes(entry.bytes).padStart(8)}  ${stateLabel(entry)}${shared}`)
     }
   }
   lines.push(`${formatBytes(report.removableBytes)} in superseded caches; rerun with --yes to delete them`)

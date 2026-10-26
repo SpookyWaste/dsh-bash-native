@@ -345,6 +345,8 @@ node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the supe
 
 `--tools` also deletes the source-built toolchain, `--dev` also deletes the development leftovers; `verified/` and the rc file are always kept. The script decides only on “is the directory name a 64-character sha256” and “is it the digest this package uses”; anything it cannot classify is left alone, and it refuses to delete when either digest cannot be read.
 
+Hard links are counted once per inode; when a file in a directory also has a name outside it (the same binary inside an installed package, for example), the report marks the bytes as `shared`, because deleting the directory would free none of them — the “superseded caches” line therefore states what a deletion really frees.
+
 ## 📄 License
 
 | What | License | Notice and scan |

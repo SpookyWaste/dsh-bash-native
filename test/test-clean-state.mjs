@@ -106,16 +106,29 @@ function file(path, bytes) {
   rmSync(state, { recursive: true, force: true });
 }
 
-// 3. Hard-linked names are counted once: a shim directory's listing is the engine's size, not its size times
-// the number of names in it.
+// 3. Hard-linked names are counted once, and a link outside the tree is not reclaimable.
 {
   const state = join(ROOT, "links");
   const engine = file(join(state, "shim", PREVIOUS_ENGINE, "bash.exe"), 1000);
   linkSync(engine, join(state, "shim", PREVIOUS_ENGINE, "sh.exe"));
   linkSync(engine, join(state, "shim", PREVIOUS_ENGINE, "cat.exe"));
-  const report = inspectState({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
-  assert.equal(report.entries.find((entry) => entry.kind === "shim").bytes, 1000, "three names, one file, one size");
-  pass("hard-linked names are counted once, the way du counts them");
+  let report = inspectState({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
+  const own = report.entries.find((entry) => entry.kind === "shim");
+  assert.equal(own.bytes, 1000, "three names, one file, one size");
+  assert.equal(own.shared, 0, "every name of the file is in this entry, so deleting it frees the bytes");
+  assert.equal(report.removableBytes, 1000);
+
+  // One more name outside the state tree — an installed package holding the same inode — keeps the file
+  // alive, so the report must stop promising those bytes.
+  const outside = join(ROOT, "outside-link.exe");
+  linkSync(engine, outside);
+  report = inspectState({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
+  const borrowed = report.entries.find((entry) => entry.kind === "shim");
+  assert.equal(borrowed.bytes, 1000);
+  assert.equal(borrowed.shared, 1000, "a name outside the tree keeps the file alive");
+  assert.equal(report.removableBytes, 0, "so the pass frees nothing and does not claim to");
+  rmSync(outside, { force: true });
+  pass("hard-linked names are counted once, and links outside the tree are reported as unreclaimable");
   rmSync(state, { recursive: true, force: true });
 }
 
