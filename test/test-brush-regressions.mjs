@@ -177,6 +177,33 @@ function shell(id, script, files, options = {}) {
   pass("0023/0024/0025: stdio, BASH_SOURCE and the arithmetic command");
 }
 
+// The limitations the brush-era READMEs listed after the patches (`72b6b52:README.md` §"已知限制", and the
+// 0.2.1 note about `exec`): none of them was ever asserted here, and every one of them is now a behaviour a
+// script may rely on.
+{
+  const select = shell("select", "printf '1\\n' | { select x in a b; do echo \"x=$x\"; break; done; }");
+  assert.match(select.stdout, /x=a$/, "select reads its menu choice");
+  const exec = shell("exec-with-command", "exec echo hi; echo after");
+  assert.equal(exec.stdout, "hi", "exec with a command replaces the shell");
+  const ulimit = shell("ulimit", "ulimit -n; echo rc=$?; ulimit -a | head -1");
+  assert.match(ulimit.stdout, /^\d+\nrc=0\n/, "ulimit answers with a real table");
+  const jobs = shell("jobs-substitution", 'sleep 0.3 & p=$(jobs -p); case "$p" in ""|*[!0-9]*) echo empty;; *) echo number;; esac; wait');
+  assert.equal(jobs.stdout, "number", "jobs -p inside a command substitution sees the job table");
+  const multi = shell("kill-multi", '"$BASH" -c "i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done" & "$BASH" -c "i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done" & kill %1 %2; printf "rc=%s\\n" "$?"; true', undefined, { timeout: 15000 });
+  assert.equal(multi.stdout, "rc=0", "kill accepts several job specs");
+  const zero = shell("kill-zero", 'sleep 5 & p=$!; kill -0 "$p"; echo alive=$?; kill "$p"', undefined, { timeout: 15000 });
+  assert.match(zero.stdout, /^alive=0/, "kill -0 reports a live background job");
+  const builtinJob = shell("builtin-background", '{ echo x; } & p=$!; case "$p" in ""|*[!0-9]*) echo empty;; *) echo number;; esac; wait');
+  assert.match(builtinJob.stdout, /^number/, "a builtin background job reports a numeric PID");
+  const data = shell("data-operands", "printf '/tmp/x\\n' > p.txt; grep /tmp/x p.txt; sed -n '/tmp\\/x/p' p.txt; awk '/tmp\\/x/{print}' p.txt");
+  assert.equal(data.stdout, "/tmp/x\n/tmp/x\n/tmp/x", "a /tmp word used as data stays data in grep, sed and awk");
+  const byPath = shell("script-by-path", 'printf "echo hi\\n" > s.sh; ./s.sh; echo rc=$?');
+  assert.equal(byPath.stdout, "hi\nrc=0", "./s.sh runs a script by its path");
+  const processSubstitution = shell("process-substitution", "echo hi > >(cat); sleep 0.2; echo done");
+  assert.match(processSubstitution.stdout, /^hi\ndone$/m, "the write side of >( ) is waited for");
+  pass("the old README's limitations: select, exec, ulimit, jobs, kill, data operands, ./s.sh and >( )");
+}
+
 // 0013/0014 — a compound or function stage that writes one long line while its reader leaves. The brush
 // patches fixed exactly this; rubash 1.4.3 does not, and the outcome depends on where the shell's stdout goes:
 // a file hangs it, a pipe loses the output. Reported, not asserted, so the suite stays a regression gate for

@@ -3,7 +3,7 @@
 Written by `node scripts/emit-linux-oracle.mjs` from `corpus/compat.json`. Do not edit by hand: change the
 corpus and re-run the generator.
 
-Included: 183 of 227 cases (11 of them known gaps).
+Included: 183 of 227 cases (10 of them known gaps).
 
 | Category | Cases |
 |---|---|

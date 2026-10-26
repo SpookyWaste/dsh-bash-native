@@ -1,14 +1,15 @@
 {
-  "generated": "2026-10-26T08:59:42.849Z",
+  "generated": "2026-10-26T14:38:41.851Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "engine-only",
+  "fileCommands": "none",
   "counts": {
     "total": 227,
-    "pass": 118,
+    "pass": 119,
     "fail": 0,
     "skip": 86,
     "collision": 14,
-    "knownGap": 4,
+    "knownGap": 3,
     "platform": 5,
     "silentWrong": 0
   },
@@ -118,7 +119,6 @@
   },
   "knownGaps": {
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"st=127\"",
-    "process-kill-refuses-several-targets": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」: status 1 (want 0), stdout \"rc=0\", stderr \"bash: line 1: kill: %1: no such job\"",
     "process-pipeline-builtin-failure-honors-its-stderr-redirect": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」: status 0 (want 0), stdout \"empty\"",
     "rmdir-refuses-a-final-dot": "docs/research.md「rubash 的已知差异」的「自带工具层：rmdir 的简单形态吞掉错误」: status 0 (want 0), stdout \"rc=0\\ngone\""
   },

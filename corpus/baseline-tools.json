@@ -1,15 +1,15 @@
 {
-  "generated": "2026-10-26T12:12:20.815Z",
+  "generated": "2026-10-26T14:38:52.083Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "<HOME>\\AppData\\Local\\dsh-bash-native\\tools\\bin",
   "fileCommands": "sed,rmdir",
   "counts": {
     "total": 227,
-    "pass": 214,
+    "pass": 215,
     "fail": 0,
     "skip": 0,
     "collision": 0,
-    "knownGap": 5,
+    "knownGap": 4,
     "platform": 8,
     "silentWrong": 0
   },
@@ -19,7 +19,6 @@
     "awk-quoted-wildcard-stays-literal": "docs/research.md「已知引擎差异」的「awk 的带引号通配符：已修，退出码仍与 gawk 不同」: status 0 (want 0), stdout \"rc=1\", stderr \"open *.txt: The filename, directory name, or volume label syntax is incorrect.\"",
     "pipe-closed-reader-builtin-status": "docs/research.md「rubash 的已知差异」的「断管的写端与 PIPESTATUS」: status 0 (want 0), stdout \"x st=0\"",
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"1\\n st=0\"",
-    "process-kill-refuses-several-targets": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」: status 1 (want 0), stdout \"rc=0\", stderr \"bash: line 1: kill: %1: no such job\"",
     "process-pipeline-builtin-failure-honors-its-stderr-redirect": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」: status 0 (want 0), stdout \"empty\""
   },
   "failures": {},
