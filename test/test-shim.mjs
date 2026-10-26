@@ -1,11 +1,12 @@
-// The names this plugin puts on `PATH` — `bash`, `sh`, and the utilities the engine bundles: what they are
-// made of, when they are reused, and what happens when they cannot be made at all.
+// The names this plugin puts on `PATH` — `bash` and `sh`: what they are made of, when they are reused, and
+// what happens when they cannot be made at all.
 //
 // The rule under test is what turns "there is a `bash` tool" into "there is a bash": a script, a Makefile
-// or an npm lifecycle hook calls `bash`, and the name has to resolve to the same verified engine. The
-// bundled names matter for the same reason the other way around: a child process cannot exec a builtin, so
-// `xargs rm` reaches the engine only through a name on `PATH`. Each case runs against an in-memory
-// filesystem, so no 15.7 MB binary is copied to test a link.
+// or an npm lifecycle hook calls `bash`, and the name has to resolve to the same verified engine. Only the
+// shell faces are published: rubash has no multi-call dispatch, so a utility name hard-linked to it would
+// start a shell under that name, and the toolchain's own programs supply the utilities `xargs` and
+// `find -exec` need. Each case runs against an in-memory filesystem, so no 10.9 MB binary is copied to test
+// a link.
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { SHIM_NAMES, SHELL_NAMES, prepareShellNames, shellNamesDirectory } from "../lib/shim.js";
@@ -17,10 +18,10 @@ function pass(name) {
 }
 
 const LOCAL = "C:\\Users\\u\\AppData\\Local";
-const ENGINE = "C:\\Users\\u\\.dsh\\profiles\\web\\node_modules\\dsh-bash-native\\engine\\win32-x64\\brush.exe";
+const ENGINE = "C:\\Users\\u\\.dsh\\profiles\\web\\node_modules\\dsh-bash-native\\engine\\win32-x64\\rubash.exe";
 const DIGEST = "a".repeat(64);
 const DIR = join(LOCAL, "dsh-bash-native", "shim", DIGEST);
-const BYTES = 15_699_456;
+const BYTES = 10_946_560;
 
 /** An in-memory filesystem with hard links: sizes only, because that is all the shim compares. */
 class MemoryFs {
@@ -78,7 +79,7 @@ const prepare = (fs, options = {}) => prepareShellNames({ engine: ENGINE, sha256
     assert.equal(fs.links.get(join(DIR, `${name}.exe`)), ENGINE, `${name} is a link to the verified engine`);
   }
   assert.deepEqual([...SHIM_NAMES], [...SHELL_NAMES], "only the shell faces are published");
-  assert.equal(fs.links.has(join(DIR, "cat.exe")), false, "a utility name would run a shell under the engine's argv[0] rule");
+  assert.equal(fs.links.has(join(DIR, "cat.exe")), false, "a utility name would run a shell, not the utility");
   pass("every shim name is a hard link to the engine in a digest-named directory");
 }
 
@@ -103,7 +104,7 @@ const prepare = (fs, options = {}) => prepareShellNames({ engine: ENGINE, sha256
   assert.equal(fs.linkCalls, SHIM_NAMES.length, "the first link fails on the engine and the rest link to the copy");
   const origins = new Set(SHIM_NAMES.map((name) => fs.origin(join(DIR, `${name}.exe`))));
   assert.deepEqual([...origins], [join(DIR, "bash.exe")], "every name stands for the one copy in the directory");
-  assert.equal(fs.files.get(join(DIR, "rm.exe")), BYTES);
+  assert.equal(fs.files.get(join(DIR, `${SHIM_NAMES[SHIM_NAMES.length - 1]}.exe`)), BYTES);
   pass("a cross-volume engine is copied once and every other name links to that copy");
 }
 
@@ -136,7 +137,7 @@ const prepare = (fs, options = {}) => prepareShellNames({ engine: ENGINE, sha256
   assert.equal(prepare(fs, { env: {} }), "", "no per-user directory means no names");
   assert.equal(shellNamesDirectory({}, DIGEST), null);
   assert.equal(fs.linkCalls, 0);
-  assert.equal(prepare(fs, { engine: "C:\\missing\\brush.exe" }), "", "a missing engine cannot be linked");
+  assert.equal(prepare(fs, { engine: "C:\\missing\\rubash.exe" }), "", "a missing engine cannot be linked");
   assert.equal(fs.linkCalls, 0);
   pass("no per-user directory or no engine means no shell names, and no failure");
 }

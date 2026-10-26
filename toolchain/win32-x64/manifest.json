@@ -4,8 +4,8 @@
   "files": [
     {
       "file": "awk.exe",
-      "sha256": "ce42e2575e611dbc1a47716f77400860e0ee5fb50586de52eaa392340227b253",
-      "bytes": 4909056,
+      "sha256": "db25f76d8d29964ea931cf5703c82a9fea0ce4cce3dd4156fb19a6c2170fccbf",
+      "bytes": 4921856,
       "component": "goawk",
       "version": "v1.32.0",
       "license": "MIT",
@@ -28,8 +28,8 @@
     },
     {
       "file": "coreutils.exe",
-      "sha256": "d559e0e0d7367518862e7f52f6b663a4270f27acddc7d0df9b3cb75abf7f2aca",
-      "bytes": 11599360,
+      "sha256": "832334ad413b3404d3b4038ad54310f6e3875c11f52de4b7051b6810c492bcb5",
+      "bytes": 11610112,
       "component": "coreutils",
       "version": "0.12.0",
       "license": "MIT",
@@ -139,8 +139,8 @@
     },
     {
       "file": "find.exe",
-      "sha256": "86afe44579595659ea3b03f3424f80ac321a085904b68c2aa41b0b316f52e527",
-      "bytes": 2727936,
+      "sha256": "22bd63dc0049e09de6296eaf2fdf7fa8798aa48e7f346ba52fafc92abd678334",
+      "bytes": 2743296,
       "component": "findutils",
       "version": "0.10.0",
       "license": "MIT",
@@ -151,8 +151,8 @@
     },
     {
       "file": "grep.exe",
-      "sha256": "8cb1215fbcc5ed846b8e4e62ba16ce51f4e0c46bd0b6fbe021e4db490821f34d",
-      "bytes": 2062848,
+      "sha256": "f4d972c8534584ac1ea752fe8ee9cfe49fc5eed4887df9c1cea17903cdd0e02f",
+      "bytes": 2074624,
       "component": "grep",
       "version": "0.2.0",
       "license": "MIT",
@@ -163,8 +163,8 @@
     },
     {
       "file": "jq.exe",
-      "sha256": "5482eb0d3e735a8b6133d7f88b13d84c3a2e464dbde079ce1d78ae5b43004e35",
-      "bytes": 5672448,
+      "sha256": "559f4bcbf4ac2b0e6210d1e85e10190a92b834f7cb018c477388754053785d22",
+      "bytes": 5684224,
       "component": "jaq",
       "version": "v3.1.1",
       "license": "MIT",
@@ -175,7 +175,7 @@
     },
     {
       "file": "locate.exe",
-      "sha256": "0a1afade4430c706b7aaeaa2a6769bace37b1823f07081cb70335c176c989045",
+      "sha256": "fe423f43997e35bcebbc8c30070fbc648fb9fc627726f65e1745eaa42fa3f119",
       "bytes": 1342464,
       "component": "findutils",
       "version": "0.10.0",
@@ -199,8 +199,8 @@
     },
     {
       "file": "sed.exe",
-      "sha256": "e971f0b09e88719ed9f7d1a73991b2261996e2dbad26b2a058c3179ecffa1067",
-      "bytes": 2445312,
+      "sha256": "dcb262f9502751d66419c69d6e1ff19a303eb28bc5c088d63a9d73dba5b7624d",
+      "bytes": 2451968,
       "component": "sed",
       "version": "0.3.0",
       "license": "MIT",
@@ -223,7 +223,7 @@
     },
     {
       "file": "updatedb.exe",
-      "sha256": "1478da738bab52c346a00af056fde76e0017d808ded73ce297662b06b3ca9cf6",
+      "sha256": "7196890fed38ebac416b32c794b40431dcdd889fd3ab5576caf49b22e0bd3be0",
       "bytes": 3291648,
       "component": "findutils",
       "version": "0.10.0",
@@ -247,8 +247,8 @@
     },
     {
       "file": "xargs.exe",
-      "sha256": "57ca6041fd610b5c3cc6c30dc657947be5a4cc873a5b9176835108bbd656fce0",
-      "bytes": 1358336,
+      "sha256": "4028e4b36647a7977b90983a8f76c0fe865ede2cf613bb2ce8db11caee24d0a0",
+      "bytes": 1373184,
       "component": "findutils",
       "version": "0.10.0",
       "license": "MIT",

@@ -36,7 +36,7 @@ const PLAIN_TEXT_FLAGS: Readonly<Record<EngineFamily, readonly string[]>> = {
  * @returns the flags to place before the activation prefix.
  */
 function plainTextFlags(engine: ResolvedEngine): readonly string[] {
-  return PLAIN_TEXT_FLAGS[engine.family ?? 'brush']
+  return PLAIN_TEXT_FLAGS[engine.family]
 }
 
 /** Environment layers for one execution, lowest precedence first. */

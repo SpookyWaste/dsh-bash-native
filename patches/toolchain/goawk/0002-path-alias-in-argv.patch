@@ -24,7 +24,7 @@ diff --git a/goawk.go b/goawk.go
 +	// A program that another program starts — the child of `xargs` or `find -exec` — gets its arguments
 +	// from that program rather than from the shell, which is where the engine's own rewrite cannot
 +	// reach. `dsh_path_alias.go` applies the same `/tmp` and `/<letter>` rule to the arguments here.
-+	dshTranslateArguments(os.Args[1:], os.TempDir)
++	dshTranslateArguments(os.Args, os.TempDir)
 +
  	// Parse command line arguments manually rather than using the
  	// "flag" package, so we can support flags with no space between

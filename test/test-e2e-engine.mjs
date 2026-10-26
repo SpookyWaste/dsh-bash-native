@@ -132,13 +132,15 @@ function windowsSpellings(directory) {
   pass("the contract's variable and Windows-path sentence holds on the real engine");
 }
 
-// 6. The `select` limitation the README states: a command containing one fails at parse time, so not one
-// byte of it runs. The corpus owns the other deviations the contract used to list.
+// 6. `select` is a working loop: with no tty the menu goes to stderr and EOF ends the loop, so the
+// command after it still runs.
 {
-  const select = run("echo before; select x in a b; do break; done; echo after");
-  assert.notEqual(select.status, 0, "`select` is still a parse error rather than a working loop");
-  assert.doesNotMatch(select.stdout, /before|after/, "a command containing `select` runs nothing at all");
-  pass("the README's `select` limitation still holds");
+  const select = run("echo before; select x in a b; do echo picked=$x; break; done; echo after");
+  assert.equal(select.status, 0, select.stderr);
+  assert.match(select.stdout, /^before$/m, "the commands before the loop ran");
+  assert.match(select.stdout, /^after$/m, "the commands after the loop ran");
+  assert.match(select.stderr, /1\) a/, "the menu is offered on stderr");
+  pass("`select` is a working loop on this engine");
 }
 
 // 7. `wait` reports the status of the job it waited for: a job's own PID and a job spec both have to
@@ -164,7 +166,7 @@ function windowsSpellings(directory) {
   const direct = createDirectRunner(FIXTURE);
   const command = [
     "$env:DSH_PROBE_BAD = [string][char]0xD800 + 'tail'",
-    `& '${engine.replace(/'/g, "''")}' --disable-color --noprofile --norc -c 'echo alive'`,
+    `& '${engine.replace(/'/g, "''")}' --noprofile --norc -c 'echo alive'`,
     'Write-Output "rc=$LASTEXITCODE"',
   ].join("; ");
   let staged;
@@ -184,9 +186,9 @@ function windowsSpellings(directory) {
   }
 }
 
-// 9. One directory has one spelling. Windows keeps a second, 8.3 name for most directories, so the same
-// place used to leave two `$PWD` values behind: the short one arrived through `%TEMP%` and `/tmp`, the
-// long one through a path a script wrote out in full, and `$TEMP` itself held the short one.
+// 9. `$PWD` is the logical path: the shell keeps the spelling the caller used and does not canonicalize
+// an 8.3 name into the long one. Windows keeps a second, 8.3 name for most directories; both spellings
+// still name one directory, which the marker file proves.
 {
   const nested = join(FIXTURE, "long-path-probe", "child");
   mkdirSync(nested, { recursive: true });
@@ -196,30 +198,25 @@ function windowsSpellings(directory) {
   } else if (spellings.short.toLowerCase() === spellings.long.toLowerCase()) {
     console.log("SKIP  8.3 names are not generated on this volume, so the probe directory has only one spelling");
   } else {
-    const viaShort = run(`cd "${spellings.short}" && printf '%s' "$PWD"`);
-    const viaLong = run(`cd "${spellings.long}" && printf '%s' "$PWD"`);
+    const viaShort = run(`cd "${spellings.short}" && printf '%s' "$PWD" && : > same-dir-marker`);
+    const viaLong = run(`cd "${spellings.long}" && test -f same-dir-marker && printf 'same-dir'`);
     assert.equal(viaShort.status, 0, viaShort.stderr);
     assert.equal(viaLong.status, 0, viaLong.stderr);
-    assert.equal(
-      viaShort.stdout.trim(),
-      viaLong.stdout.trim(),
-      `the two spellings of one directory have to leave the same $PWD; got ${JSON.stringify(viaShort.stdout.trim())} and ${JSON.stringify(viaLong.stdout.trim())}`,
-    );
-    assert.doesNotMatch(viaShort.stdout, /~[0-9]/, `the engine keeps the long spelling: ${JSON.stringify(viaShort.stdout.trim())}`);
+    assert.match(viaShort.stdout, /~[0-9]/, `the spelling the caller used is kept: ${JSON.stringify(viaShort.stdout.trim())}`);
+    assert.doesNotMatch(viaLong.stdout, /~[0-9]/, `and the long spelling is not short-named either: ${JSON.stringify(viaLong.stdout.trim())}`);
+    assert.match(viaLong.stdout, /same-dir/, "both spellings reach the one directory");
 
-    // `$TEMP` is the name `/tmp` resolves through, so the two have to be the same string as well. The
-    // comparison is case-insensitive because Windows paths are: what is under test is the absence of an
-    // 8.3 component, not which case the volume stored.
+    // The caller's environment is passed through as written: no path canonicalization at import.
     const env = { ...process.env, TEMP: spellings.short, TMP: spellings.short };
     delete env.TMPDIR;
     const fromEnv = run(`printf '%s' "$TEMP"`, { env });
     assert.equal(fromEnv.status, 0, fromEnv.stderr);
     assert.equal(
       fromEnv.stdout.trim().toLowerCase(),
-      spellings.long.toLowerCase(),
-      `$TEMP has to arrive in its long form; got ${JSON.stringify(fromEnv.stdout.trim())}`,
+      spellings.short.toLowerCase(),
+      `$TEMP arrives as the caller wrote it; got ${JSON.stringify(fromEnv.stdout.trim())}`,
     );
-    pass("one directory keeps one spelling, in $PWD and in $TEMP");
+    pass("$PWD keeps the spelling the caller used, and $TEMP is passed through as written");
   }
 }
 

@@ -10,7 +10,7 @@ What remains here:
 
 - `0002-path-alias-in-argv.patch` rewrites the argv entry point so a path the shell already translated
   (`/tmp/...`, `/<letter>/...`) is not translated again by a program another program started. 0.3.0 moved
-  parsing behind `parse_args`, so the hook is `parse_args(args.map(dsh_path_alias::translate))` and the
+  parsing behind `parse_args`, so the hook is `parse_args(dsh_path_alias::translate(args))` and the
   shared module is injected at the crate root by `scripts/build-toolchain.mjs`.
 - `0003-word-boundary-escape.patch` is still required: 0.3.0's `delimited_parser.rs` is byte-identical to
   0.2.0's, so a regex `\b` is still decoded to a backspace (0x08) before the regex engine sees it and

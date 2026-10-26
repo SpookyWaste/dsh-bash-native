@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { NOTABLE_ADDITIONS, SHELL_BUILTINS, TOOLCHAIN_COMMANDS, WINDOWS_IMPOSTORS, defaultRcFile, defaultToolsDir, emptyProbe, prependPath, probeToolchain, rcFileContents } from "../lib/toolchain.js";
+import { ENGINE_BUILTINS, NOTABLE_ADDITIONS, SHELL_BUILTINS, TOOLCHAIN_COMMANDS, WINDOWS_IMPOSTORS, defaultRcFile, defaultToolsDir, emptyProbe, prependPath, probeToolchain, rcFileContents } from "../lib/toolchain.js";
 import { SHIM_NAMES } from "../lib/shim.js";
 
 let passed = 0;
@@ -58,7 +58,7 @@ const fsListing = (names) => ({ isFile: () => false, listDirectory: () => names 
   const probe = probeToolchain(
     dir,
     "win32",
-    fsListing(["grep", "find", "timeout", "nohup", "nice", "tty", "kill", "convert", "cat", "ls", "sed", "libstdbuf.dll", "stdout.txt"]),
+    fsListing(["grep", "find", "timeout", "nohup", "nice", "tty", "kill", "convert", "cat", "ls", "uname", "sed", "libstdbuf.dll", "stdout.txt"]),
   );
   assert.deepEqual(probe.provided, ["grep", "sed", "find", "timeout"], "provided keeps the contract's own order");
   assert.deepEqual(probe.shadows, ["find", "timeout"]);
@@ -66,11 +66,12 @@ const fsListing = (names) => ({ isFile: () => false, listDirectory: () => names 
   assert.deepEqual(
     probe.additional,
     ["cat", "ls", "nice", "nohup", "tty"],
-    "a known name, an impostor and a name the engine answers as a full builtin are never additions; a utility the toolchain serves is",
+    "a known name, an impostor and a name the engine answers itself are never additions; a program the toolchain serves is",
   );
   assert.equal(probe.additional.includes("sed"), false, "a known name is not an addition");
-  assert.equal(probe.additional.includes("cat"), false, "a name the engine answers with a builtin is not an addition");
-  assert.equal(probe.additional.includes("ls"), false, "the rule follows the engine's capability list, not a hand-kept trio");
+  assert.equal(probe.additional.includes("cat"), true, "the engine no longer carries cat, so the toolchain's copy is an addition");
+  assert.equal(probe.additional.includes("ls"), true, "the same rule covers every applet the engine stopped bundling");
+  assert.equal(probe.additional.includes("uname"), false, "uname is the engine's own builtin, so a copy here is not advertised");
   assert.equal(probe.additional.includes("kill"), false, "the shadowed kill is not an addition");
   assert.equal(probe.additional.includes("libstdbuf"), false, "a companion library is not a program");
   assert.equal(probe.additional.includes("stdout"), false, "a capture file is not a program");
@@ -87,8 +88,9 @@ const fsListing = (names) => ({ isFile: () => false, listDirectory: () => names 
 }
 
 // 6. The installed toolchain carries every advertised program, holds no name this build cannot run, and
-// carries none of the utilities the engine answers by name: `find -exec`, `xargs` and `timeout` start a file,
-// and for a bundled utility that file is the engine itself. A machine without a toolchain skips.
+// carries none of the names the plugin's shim directory already puts on PATH: `find -exec`, `xargs` and
+// `timeout` start a file, and for a shell face that file is the engine itself. A machine without a
+// toolchain skips.
 {
   const dir = process.env.DSH_BASH_NATIVE_TOOLS ?? defaultToolsDir(process.env, "win32");
   if (dir.length === 0 || !existsSync(dir)) {
@@ -100,15 +102,20 @@ const fsListing = (names) => ({ isFile: () => false, listDirectory: () => names 
       listDirectory: (path) => readdirSync(path, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => entry.name),
     });
     assert.deepEqual(probe.provided, [...TOOLCHAIN_COMMANDS], `missing: ${probe.absent.join(" ")}`);
-    assert.deepEqual(
-      probe.additional,
-      [...NOTABLE_ADDITIONS].sort(),
-      `advertised but not installed: ${probe.additional.filter((name) => !NOTABLE_ADDITIONS.includes(name)).join(" ")}; installed but not advertised: ${NOTABLE_ADDITIONS.filter((name) => !probe.additional.includes(name)).join(" ")}`,
-    );
-    // The engine answers its bundled utilities by name now (patch `0016`, published by the plugin's shim
-    // directory), so the farm must carry none of them: a copy here would be a second implementation of the
-    // same utility to keep in step. The shell builtins are the exception that keeps needing a file, because
-    // no bundled utility stands behind them and `xargs echo` still has to start something.
+    for (const name of NOTABLE_ADDITIONS) {
+      assert.equal(probe.additional.includes(name), true, `${name} is advertised but the probe does not report it as an addition`);
+    }
+    // The applets the engine stopped bundling are the toolchain's programs now, so the probe reports
+    // them as additions rather than as names something else already answers.
+    for (const name of ["cat", "ls", "rm", "basename", "sleep"]) {
+      assert.equal(probe.additional.includes(name), true, `${name} is installed by the toolchain, so it is an addition`);
+    }
+    for (const name of [...ENGINE_BUILTINS, ...SHELL_BUILTINS, ...TOOLCHAIN_COMMANDS, ...WINDOWS_IMPOSTORS]) {
+      assert.equal(probe.additional.includes(name), false, `${name} is answered another way, so it is not an addition`);
+    }
+    // The shim directory publishes the shell faces, so the farm must carry none of them: a second copy of
+    // `bash` would be a second implementation to keep in step. The shell builtins are the opposite case:
+    // no bundled utility stands behind them, and `xargs echo` still has to start something.
     const duplicated = SHIM_NAMES.filter((name) => existsSync(join(dir, `${name}.exe`)));
     assert.deepEqual(duplicated, [], `the farm carries a name the engine answers, so two implementations of it exist: ${duplicated.join(" ")}`);
     for (const name of SHELL_BUILTINS) {
@@ -119,7 +126,7 @@ const fsListing = (names) => ({ isFile: () => false, listDirectory: () => names 
       );
     }
     assert.equal(existsSync(join(dir, "stdbuf.exe")), false, "stdbuf cannot work in this build, so withholding it means it must not be installed either");
-    pass(`the installed toolchain advertises ${advertised.length} programs and carries no utility the engine answers itself`);
+    pass(`the installed toolchain advertises ${advertised.length} programs and carries none of the names the shim publishes`);
   }
 }
 

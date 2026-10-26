@@ -113,9 +113,9 @@ if (composed === null) {
   // rejects that too. What is asserted here is the other half — that this package resolves a real engine
   // to put in that path, so the component is not being handed an empty string in a deployment.
   const enginePath = findEngine();
-  assert.ok(enginePath !== null, "this package resolves a brush engine to hand the component's backend");
-  assert.match(enginePath, /brush\.exe$/i, `the resolved engine is this package's artifact (got ${JSON.stringify(enginePath)})`);
-  pass("this package resolves the brush engine the component hands its backend");
+  assert.ok(enginePath !== null, "this package resolves its engine to hand the component's backend");
+  assert.match(enginePath, /rubash\.exe$/i, `the resolved engine is this package's artifact (got ${JSON.stringify(enginePath)})`);
+  pass("this package resolves the engine the component hands its backend");
 
   // 5. The component claims no prompt section, in any layer. Its tools are the harness's six `terminal_*`
   // names, not a `bash` tool, so the executor's environment sentence would describe a capability the

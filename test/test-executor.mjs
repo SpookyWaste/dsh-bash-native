@@ -17,7 +17,7 @@ function pass(name) {
 }
 
 const FIXTURE_DIR = mkdtempSync(join(tmpdir(), "dsh-bash-native-test-"));
-const ENGINE = join(FIXTURE_DIR, "brush.exe");
+const ENGINE = join(FIXTURE_DIR, "rubash.exe");
 const FOREIGN = join(FIXTURE_DIR, "bash.exe");
 const MISSING = join(FIXTURE_DIR, "missing-engine.exe");
 writeFileSync(ENGINE, "");
@@ -30,9 +30,9 @@ writeFileSync(FOREIGN, "");
  */
 class FixtureExecutor extends BashNativeExecutor {
   verifyEngine(path) {
-    return /brush/i.test(path)
-      ? { version: "brush 0.4.0 (test)", refused: null }
-      : { version: "", refused: 'it reports "GNU bash, version 5.3.15(1)-release", which is not brush' };
+    return /rubash/i.test(path)
+      ? { version: "GNU bash, version 5.3.0(1)-release (test)", family: "rubash", refused: null }
+      : { version: "", refused: 'it reports "GNU bash, version 5.3.15(1)-release", which is not this build' };
   }
 }
 
@@ -128,8 +128,8 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const execution = await executor.execute(spec);
   const spawn = state.spawned[0].spec;
   assert.deepEqual(spawn.argv.slice(0, 2), ["windows-acl-run", "--"]);
-  assert.deepEqual(state.confined[0].argv, [ENGINE, "--disable-color", "-c", "echo hi"]);
-  assert.deepEqual(spawn.argv.slice(2), [ENGINE, "--disable-color", "-c", "echo hi"]);
+  assert.deepEqual(state.confined[0].argv, [ENGINE, "-c", "echo hi"]);
+  assert.deepEqual(spawn.argv.slice(2), [ENGINE, "-c", "echo hi"]);
   assert.equal(spawn.cwd, spec.workdir);
   assert.equal(spawn.env.TERM, "dumb");
   assert.equal(spawn.env.NO_COLOR, "1");
@@ -216,12 +216,12 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const { executor, state } = makeExecutor({ defaultMode: "danger-full-access" });
   const result = await (await executor.execute(executor.resolve({ command: "echo hi" }))).result();
   assert.equal(state.confined.length, 0, "full access never consults the sandbox provider");
-  assert.deepEqual(state.spawned[0].spec.argv, [ENGINE, "--disable-color", "-c", "echo hi"]);
+  assert.deepEqual(state.spawned[0].spec.argv, [ENGINE, "-c", "echo hi"]);
   assert.deepEqual(result.sandbox, { mode: "danger-full-access", denied: false });
   pass("danger-full-access spawns unconfined and reports denied: false");
 }
 
-// 6. An engine that is not brush is refused at resolution, and no tier makes it selectable.
+// 6. A shell that is not this build is refused at resolution, and no tier makes it selectable.
 {
   const refused = makeExecutor({ bashPath: FOREIGN });
   await assert.rejects(
@@ -233,10 +233,10 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   await assert.rejects(
     full.executor.execute(full.executor.resolve({ command: "echo hi" })),
     /dsh-bash-local/,
-    "full access does not make another shell selectable: this executor runs brush only",
+    "full access does not make another shell selectable: this executor runs the pinned rubash build only",
   );
   assert.equal(full.state.spawned.length, 0);
-  pass("an engine that is not brush is refused at resolution under every tier");
+  pass("a shell that is not this build is refused at resolution under every tier");
 }
 
 // 7. Without an engine every call fails with the probed candidates and the remedy.
@@ -302,10 +302,10 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const rcFile = join(rcRoot, "state", "bash-native-rc.sh");
   const tooled = makeExecutor({ config: { toolsDir, rcFile } });
   const args = [...tooled.executor.engineArgs];
-  assert.deepEqual(args.slice(0, 3), ["--disable-color", "--noprofile", "--rcfile"], "--norc is replaced, not supplemented");
+  assert.deepEqual(args.slice(0, 2), ["--noprofile", "--rcfile"], "--norc is replaced, not supplemented");
   assert.equal(args.includes("--norc"), false, "--norc is gone rather than accompanied");
-  assert.equal(args[4], "-i");
-  assert.equal(args[3], rcFile, "the configured startup file is the one passed");
+  assert.equal(args[3], "-i");
+  assert.equal(args[2], rcFile, "the configured startup file is the one passed");
   // The parent directory is created: an install whose engine came from PATH or a bundled directory
   // never created the per-user state directory, and the write used to fail there and drop the toolchain.
   assert.equal(existsSync(rcFile), true, "a missing parent directory is created");
@@ -337,7 +337,7 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   try {
     const derived = makeExecutor({ config: { toolsDir } });
     const derivedFile = join(rcRoot, "dsh-bash-native", "bash-native-rc.sh");
-    assert.equal(derived.executor.engineArgs[3], derivedFile, "the per-user startup file is derived from LOCALAPPDATA");
+    assert.equal(derived.executor.engineArgs[2], derivedFile, "the per-user startup file is derived from LOCALAPPDATA");
     assert.equal(existsSync(derivedFile), true, "the derived startup file is written");
   } finally {
     process.env.LOCALAPPDATA = savedLocalAppData;
@@ -478,7 +478,7 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const saved = process.env.LOCALAPPDATA;
   process.env.LOCALAPPDATA = local;
   try {
-    const artifact = join(packageRoot(), "engine", "win32-x64", "brush.exe");
+    const artifact = join(packageRoot(), "engine", "win32-x64", "rubash.exe");
     const outside = makeExecutor({ bashPath: "", policy: { mode: "workspace-write", workspaceRoot: "D:\\Pi\\dsh_plugins\\ws" } });
     assert.equal(outside.executor.enginePath, artifact, "a package outside the granted tree runs where it lies");
 

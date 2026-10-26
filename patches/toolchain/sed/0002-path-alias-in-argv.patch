@@ -14,7 +14,7 @@ index 524af5d..1004fbe 100644
  #[uucore::main]
  pub fn uumain(args: impl uucore::Args) -> UResult<()> {
 -    let matches = parse_args(args)?;
-+    let matches = parse_args(args.map(dsh_path_alias::translate))?;
++    let matches = parse_args(dsh_path_alias::translate(args))?;
  
      // Don't use arg_required_else_help when declaring command
      // as it exits with code 2 and we use it to check

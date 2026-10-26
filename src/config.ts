@@ -109,7 +109,7 @@ export const Config = Schema.object({
   promptDetail: Schema.union(['full', 'minimal']).default('full'),
   toolsDir: Schema.string().default(''),
   rcFile: Schema.string().default(''),
-  denialSignatureAdditions: Schema.array(Schema.string()).default([]),
+  denialSignatureAdditions: Schema.array(Schema.string()).default(['os error 5']),
   shellEnvOverrides: Schema.dict(Schema.string()).default({}),
   verifyArtifacts: Schema.union(['stamped', 'always']).default('stamped'),
 })

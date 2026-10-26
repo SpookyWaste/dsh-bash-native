@@ -218,6 +218,19 @@ export function createRunner(engine, captureDir) {
 }
 
 /**
+ * The native spelling of a resolved command path, so a POSIX drive mount is classified like the drive it
+ * names: rubash's `command -v` answers `/c/Windows/system32/find.exe`, and a comparison against
+ * `C:\Windows\` has to see that as the Windows program it is.
+ * @param path - a resolved command path, in either separator style.
+ * @returns the lowercased path with `/` as `\` and a leading `/<letter>/` turned into `<letter>:\`.
+ */
+const nativeSpelling = (path) => {
+  const lowered = path.toLowerCase().replace(/\//g, '\\')
+  const mounted = /^\\([a-z])\\(.*)$/.exec(lowered)
+  return mounted === null ? lowered : `${mounted[1]}:\\${mounted[2]}`
+}
+
+/**
  * The Windows directory itself, with the trailing separator so a sibling directory cannot match it.
  *
  * Matching any path segment called `windows` is not enough: a GitHub runner keeps its real Node under
@@ -231,7 +244,7 @@ const WINDOWS_ROOT = `${(process.env.SystemRoot ?? 'C:\\Windows').replace(/[\\/]
  * @param path - a resolved command path, in either separator style.
  * @returns true when the path is inside the Windows directory.
  */
-export const isWindowsProgram = (path) => path.toLowerCase().replace(/\//g, '\\').startsWith(WINDOWS_ROOT)
+export const isWindowsProgram = (path) => nativeSpelling(path).startsWith(WINDOWS_ROOT)
 
 /** Git for Windows ships MSYS builds of the POSIX tools under its own tree (`usr\bin`, `mingw64\bin`). */
 const MSYS_MARKERS = ['\\git\\usr\\bin\\', '\\git\\mingw64\\bin\\', '\\git\\bin\\']
@@ -309,7 +322,9 @@ export function violatesGuards(stdout, expectation) {
  */
 export function probeNeeds(run, needs, options = {}) {
   if (needs.length === 0) return { missing: [], collisions: [], foreign: [] }
-  const script = needs.map((name) => `p=$(command -v ${name} 2>/dev/null); printf '%s\\t%s\\n' ${name} "$p"`).join('; ')
+  // `command -v` can name a path the engine will not be able to run (rubash answers /bin/ls for a name
+  // that is absent), so the resolved path only counts when the file is really there.
+  const script = needs.map((name) => `p=$(command -v ${name} 2>/dev/null); [ -n "$p" ] && [ -e "$p" ] || p=; printf '%s\\t%s\\n' ${name} "$p"`).join('; ')
   const missing = []
   const collisions = []
   const foreign = []

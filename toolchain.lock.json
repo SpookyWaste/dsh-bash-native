@@ -88,10 +88,10 @@
   ],
   "packaged": {
     "path": "toolchain/win32-x64/manifest.json",
-    "sha256": "ba5e4d37833db686db9473b6f73fafd0c4a7efc3c5e0f70f65bb7e566cb8fa2f",
+    "sha256": "2584926df89f7a33f058dbe874f542f77dd637a65d2d9640685ea413b8f798d2",
     "bytes": 5979,
     "files": 14,
     "names": 101,
-    "bytesTotal": 36749312
+    "bytesTotal": 36833280
   }
 }

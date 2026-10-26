@@ -76,7 +76,8 @@ export interface EngineVerdict {
      * The family the candidate answered as.
      *
      * Optional because a verifier that only reports a refusal (every test seam, and the `refused` path in
-     * production) has no family to name; an accepted verdict always carries one.
+     * production) has no family to name; an accepted verdict that omits it is read as `rubash`, the only
+     * family this plugin ships.
      */
     readonly family?: EngineFamily;
     /** Why this file is not the engine, or null when it is. */

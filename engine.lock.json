@@ -6,12 +6,13 @@
   "ref": "fa64d58dfb9c97d05f2f3d1f9bf3b73e68a2e28e",
   "bin": "rubash",
   "patches": [
-    "patches/rubash/0001-data-primary-positions-every-child.patch"
+    "patches/rubash/0001-data-primary-positions-every-child.patch",
+    "patches/rubash/0002-drop-undecodable-environment-entries.patch"
   ],
   "artifact": {
     "path": "engine/win32-x64/rubash.exe",
-    "sha256": "091eae8b7f3aad994186ddf98e9541dde992b098f4ff7128cfd927b03bac22cc",
-    "bytes": 10946560
+    "sha256": "ab1be623d4537c7a14c150046bad412fe161efe991f26d9c8233dba9d2e3337a",
+    "bytes": 10950656
   },
   "why": "rubash is a from-scratch bash 5.3 engine whose own test surface is the GNU upstream suite, so almost everything this repository used to patch (a real PID behind $!, /tmp as an alias, descriptor paths, kill as a builtin, CRLF scripts, select, nameref, read -t) is correct upstream. The one behaviour still missing is the data-primary rule above, which only the WinuxCmd suite gets; patch 0001 extends it to every child class."
 }

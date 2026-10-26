@@ -18,7 +18,7 @@ index 4641811..f99302a 100644
  fn main() {
      let utils = util_map();
 -    let mut args = uucore::args_os();
-+    let mut args = uucore::args_os().map(dsh_path_alias::translate);
++    let mut args = dsh_path_alias::translate(uucore::args_os());
  
      let binary = validation::binary_path(&mut args);
      let binary_as_util = validation::name(&binary).unwrap_or_else(|| {

@@ -64,11 +64,15 @@ try {
     pass("exec in a subshell delegates to the command builtin");
   }
 
-  if (process.platform === "win32") {
-    const result = run(`exec node -e "0"`, { cwd: FIXTURE });
-    assert.notEqual(result.status, 0, "exec with a command fails on Windows instead of pretending");
-    assert.match(result.stderr, /not supported|unimplemented/i, "the refusal names the missing operation");
-    pass("exec with a command is refused on Windows");
+  {
+    // rubash replaces the shell instead of refusing: the command's status is the process's, and nothing
+    // after the `exec` word runs in this shell.
+    const replaced = run('exec node -e "0"; echo after', { cwd: FIXTURE });
+    assert.equal(replaced.status, 0, replaced.stderr);
+    assert.doesNotMatch(replaced.stdout, /after/, "the shell is gone after a successful exec");
+    const status = run('exec node -e "process.exit(7)"; echo after', { cwd: FIXTURE });
+    assert.equal(status.status, 7, "the executed command's status is the shell's own");
+    pass("exec with a command replaces the shell and keeps its status");
   }
 } finally {
   rmSync(FIXTURE, { recursive: true, force: true });

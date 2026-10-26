@@ -33,7 +33,7 @@ index ac643c3..297d813 100644
          let mut cli = Self::default();
          let mut mode = Mode::Files;
 -        let mut args = std::env::args_os();
-+        let mut args = std::env::args_os().map(crate::dsh_path_alias::translate);
++        let mut args = crate::dsh_path_alias::translate(std::env::args_os());
          args.next();
          while let Some(arg) = args.next() {
              match arg.to_str() {
