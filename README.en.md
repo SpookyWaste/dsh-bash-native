@@ -319,6 +319,8 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
   | `ls -R some-dir \| head -c 1` | `1` | — |
   | the engine's own builtins | `141` | finish correctly |
 
+- **`{ …; } | head` hangs when a line is longer than about 100 KB** (rubash 1.4.3; measured: a 60 KB line is fine, a 200 KB line times out): the reader takes part of the line and exits, and the writer never aborts — with the pipeline's output going to a file it hangs, and with a second pipe it **loses the whole output**. Workaround: `{ …; } | cat | head`, or write to a file first. Recorded in `docs/research.md` §72; `test/test-brush-regressions.mjs` prints the current state on every run.
+
 - **A data word on an `xargs` or `find -exec` command line** is translated by the shell first: the `/d/x` in `xargs grep -F /d/x` becomes a Windows spelling before `xargs` runs. Paths coming through stdin are unaffected (the toolchain program translates them itself).
 - **Where the bundled programs cannot reach**: `find.exe` and `timeout.exe` are shadowed, but `find -exec` only starts programs the engine can find; a script that spells `C:\Windows\System32\find.exe` still reaches the Windows search tool.
 
@@ -342,6 +344,8 @@ To clean up explicitly (run it with **DSH stopped**):
 node node_modules/dsh-bash-native/bin/clean-state.mjs          # report only, change nothing
 node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the superseded shim/ and toolchain/ caches
 ```
+
+(Those paths are relative to the profile directory: the desktop edition keeps the package under `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\`, not in the global npm tree, so run it from there or spell the absolute path.)
 
 `--tools` also deletes the source-built toolchain, `--dev` also deletes the development leftovers; `verified/` and the rc file are always kept. The script decides only on “is the directory name a 64-character sha256” and “is it the digest this package uses”; anything it cannot classify is left alone, and it refuses to delete when either digest cannot be read.
 

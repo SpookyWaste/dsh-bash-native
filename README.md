@@ -319,6 +319,8 @@ https://github.com/SpookyWaste/dsh-bash-native
   | `ls -R 某目录 \| head -c 1` | `1` | — |
   | 引擎自己的内建 | `141` | 正确结束 |
 
+- **`{ …; } | head` 在单行超过约 100 KB 时会挂起**（rubash 1.4.3，实测：60 KB 单行正常、200 KB 单行超时）：读端读走一部分就退出，写端不中止；把这条管道的输出接到文件时是挂起，接到另一个管道时则**整段输出丢失**。绕开办法：`{ …; } | cat | head`，或先写到文件再读。记录在 `docs/research.md` §72，`test/test-brush-regressions.mjs` 每次运行都会打印现状。
+
 - **`xargs` / `find -exec` 命令行里的数据词**由 shell 先翻译：`xargs grep -F /d/x` 里的 `/d/x` 在进 `xargs` 之前就会变成 Windows 形态；从 stdin 来的路径不受影响（由工具链程序自己翻译）。
 - **工具链的自带程序覆盖不到的地方**：`find.exe`、`timeout.exe` 已遮蔽，但 `find -exec` 只启动引擎能找到的程序；一个脚本若写死了 `C:\Windows\System32\find.exe`，撞上的仍是 Windows 的搜索工具。
 
@@ -342,6 +344,8 @@ https://github.com/SpookyWaste/dsh-bash-native
 node node_modules/dsh-bash-native/bin/clean-state.mjs          # 只报告，不动文件
 node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代的 shim/ 与 toolchain/ 缓存
 ```
+
+（上面的路径相对于 profile 目录：桌面版的包在 `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\` 下，不在全局 npm 树里——从别处执行请写绝对路径。）
 
 `--tools` 连自建工具链一起删，`--dev` 连开发残留一起删；`verified/` 与 rc 文件永远保留。脚本只按「目录名是不是 64 位 sha256」和「是不是本包正在用的那个摘要」判断，认不出来的条目不碰；两个摘要都读不到时它拒绝删除。
 
