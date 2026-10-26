@@ -122,13 +122,17 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      * A configured `toolsDir` is the operator's decision and is probed as given, even when it holds nothing.
      * Otherwise a toolchain built into the per-user directory wins — someone who built one, possibly from
      * patched sources, keeps it — and the packaged toolchain is the fallback that makes an install work with
-     * nothing installed but the package. The choice is memoized on all three directories, so replacing the
-     * package re-probes.
+     * nothing installed but the package, prepared only when the built directory cannot answer. The choice is
+     * memoized on the directories and the state root, so replacing the package re-probes.
      * @returns the probe the contract and the environment both read.
      */
     private tools;
     /**
      * The packaged toolchain's `bin` directory, prepared once per package placement and `LOCALAPPDATA`.
+     *
+     * Only reached when a configured directory is absent and the per-user build provides nothing: an install
+     * that already has a toolchain of its own would otherwise pay for materializing and verifying this one and
+     * then never put it on `PATH`.
      *
      * A refusal is logged once and then reported as "no packaged toolchain": the probe that follows states
      * which commands are missing, so the contract tells the truth either way rather than claiming a

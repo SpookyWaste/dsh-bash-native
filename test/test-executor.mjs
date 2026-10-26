@@ -2,7 +2,7 @@
 // the confinement it requests, and the sandbox facts it stamps — not cordis' own plumbing.
 // Engine resolution probes the real filesystem, so every case points `bashPath` at a fixture file.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { SANDBOX_UNAVAILABLE } from "@deepseek-ai/dsh-sandbox";
@@ -464,6 +464,31 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
     // The cache is what runs, and the package's own copy is never put on PATH.
     assert.doesNotMatch(first, /toolchain\\win32-x64$/, "the files are not run where they ship");
     pass("an install with nothing built uses the packaged toolchain");
+  } finally {
+    process.env.LOCALAPPDATA = saved;
+    rmSync(local, { recursive: true, force: true });
+  }
+}
+
+// 14b. A toolchain built into the per-user directory means the packaged one is never prepared: the probe
+// would discard it, and preparing it links or copies every shipped program and verifies both sides.
+{
+  const local = mkdtempSync(join(tmpdir(), "dsh-bash-native-built-tools-"));
+  const saved = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = local;
+  try {
+    const built = join(local, "dsh-bash-native", "tools", "bin");
+    mkdirSync(built, { recursive: true });
+    writeFileSync(join(built, "grep.exe"), "");
+    const { executor } = makeExecutor({ config: { toolsDir: "" } });
+    const spec = executor.resolve({ command: "grep x" });
+    assert.equal((spec.env.PATH ?? "").split(delimiter)[0], built, "the built toolchain leads PATH");
+    assert.equal(
+      existsSync(join(local, "dsh-bash-native", "toolchain")),
+      false,
+      "the packaged toolchain was not materialized for a probe that would discard it",
+    );
+    pass("a built toolchain keeps the packaged one from being prepared at all");
   } finally {
     process.env.LOCALAPPDATA = saved;
     rmSync(local, { recursive: true, force: true });
