@@ -14,15 +14,16 @@ set -u
 
 _status=0
 _failures=0
-# Streams and the expectation diff live in the case's own directory under hidden names, so a failure diff
-# reads as "expected vs actual" without depending on the diff implementation's options.
-_stdout_file="$PWD/.oracle-stdout"
-_stderr_file="$PWD/.oracle-stderr"
-_expected_file="$PWD/.oracle-expected"
-_actual_file="$PWD/.oracle-actual"
-_scratch_files=("$_stdout_file" "$_stderr_file" "$_expected_file" "$_actual_file")
+# The case's own directory has to stay clean: a snippet may list it (`grep -r`, `find .`), and a capture
+# file sitting next to the fixtures would be part of that listing. The diff header naming a temporary
+# directory is the price.
+_scratch_dir=$(mktemp -d) || exit 1
+_stdout_file="$_scratch_dir/stdout"
+_stderr_file="$_scratch_dir/stderr"
+_expected_file="$_scratch_dir/expected"
+_actual_file="$_scratch_dir/actual"
 
-_cleanup() { rm -f "${_scratch_files[@]}"; }
+_cleanup() { rm -rf "$_scratch_dir"; }
 trap _cleanup EXIT
 
 fail() { printf '  FAIL: %s\n' "$*" >&2; _failures=$((_failures + 1)); }
@@ -81,7 +82,6 @@ expect_stdout_lines() {
   printf '%s' "${1-}" >"$_expected_file"
   _actual | sed -e '${/^$/d;}' | sort >"$_actual_file"
   sed -e 's/\r$//' -e '${/^$/d;}' "$_expected_file" | sort >"$_expected_file.sorted"
-  _scratch_files+=("$_expected_file.sorted")
   if ! cmp -s "$_actual_file" "$_expected_file.sorted"; then
     fail "stdout lines differ from the expected set"
     diff -u "$_expected_file.sorted" "$_actual_file" | sed -e 's/^/    /' >&2 || true

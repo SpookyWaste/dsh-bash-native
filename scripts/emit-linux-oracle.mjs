@@ -45,7 +45,10 @@ function unportableReason(entry) {
   if ((entry.files ?? []).some((name) => corpus.fixtures[name]?.includes("\r\n")) && /(^|[;&|]\s*)(source|\.)\s/.test(entry.snippet))
     return "sources a CRLF script: Windows strips the carriage returns";
   if (/\bcmd\.exe\b|powershell|%TEMP%|\/c\/|\/d\/|MSYS_/i.test(entry.snippet)) return "names a Windows-only command or path";
+  if (/\.exe\b/.test(entry.snippet)) return "runs a Windows executable the toolchain provides";
+  if (/DSH_BASH_NATIVE_NO_PATHCONV/.test(entry.snippet)) return "tests the Windows path-translation escape hatch";
   if (/\$TEMP\b/.test(entry.snippet)) return "uses the Windows TEMP variable";
+  if (entry.category === "collision") return "a name that only collides with a Windows program";
   return null;
 }
 

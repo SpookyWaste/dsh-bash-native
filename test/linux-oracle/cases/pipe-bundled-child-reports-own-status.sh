@@ -10,5 +10,5 @@ seq 1 200000 2>/dev/null | head -1; echo " st=${PIPESTATUS[0]}"
 CASE_143
 
 expect_status 0
-expect_stdout_equals $'1 st=141\n'
+expect_stdout_equals $'1\n st=141\n'
 finish 'pipe-bundled-child-reports-own-status'

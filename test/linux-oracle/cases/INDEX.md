@@ -3,21 +3,20 @@
 Written by `node scripts/emit-linux-oracle.mjs` from `corpus/compat.json`. Do not edit by hand: change the
 corpus and re-run the generator.
 
-Included: 188 of 227 cases (11 of them known gaps).
+Included: 183 of 227 cases (11 of them known gaps).
 
 | Category | Cases |
 |---|---|
 | `alias` | 9 |
-| `argv-semantics` | 18 |
+| `argv-semantics` | 16 |
 | `awk` | 6 |
-| `collision` | 2 |
 | `coreutils` | 15 |
 | `descriptor` | 16 |
 | `diff` | 4 |
 | `find` | 6 |
 | `grep` | 14 |
 | `jq` | 2 |
-| `process` | 25 |
+| `process` | 24 |
 | `sed` | 13 |
 | `shell` | 5 |
 | `shell-syntax` | 46 |
@@ -27,15 +26,19 @@ Included: 188 of 227 cases (11 of them known gaps).
 
 | Reason | Cases |
 |---|---|
+| a name that only collides with a Windows program | 2 |
 | names a Windows-only command or path | 12 |
 | records a Windows platform shape | 19 |
+| runs a Windows executable the toolchain provides | 2 |
 | sources a CRLF script: Windows strips the carriage returns | 1 |
+| tests the Windows path-translation escape hatch | 2 |
 | the snippet is CRLF text: Windows strips the carriage returns | 6 |
-| uses the Windows TEMP variable | 1 |
 
 | Case | Category | Reason |
 |---|---|---|
 | `process-kill-with-dollar-bang` | process | names a Windows-only command or path |
+| `collision-timeout-runs-command` | collision | a name that only collides with a Windows program |
+| `collision-which-finds-program` | collision | a name that only collides with a Windows program |
 | `builtin-disown-removes-and-leaves-the-process-running` | shell | names a Windows-only command or path |
 | `builtin-wait-f-reports-the-child-status` | shell | names a Windows-only command or path |
 | `platform-uname` | platform-difference | records a Windows platform shape |
@@ -45,7 +48,9 @@ Included: 188 of 227 cases (11 of them known gaps).
 | `platform-tmp-is-writable` | platform-difference | records a Windows platform shape |
 | `platform-tmp-round-trip` | platform-difference | records a Windows platform shape |
 | `platform-tmp-glob-expands` | platform-difference | records a Windows platform shape |
-| `argv-tmp-pattern-stays-verbatim` | argv-semantics | uses the Windows TEMP variable |
+| `argv-tmp-program-path-executes` | argv-semantics | runs a Windows executable the toolchain provides |
+| `argv-tmp-pattern-stays-verbatim` | argv-semantics | tests the Windows path-translation escape hatch |
+| `argv-shim-no-pathconv-disables-rewrite` | argv-semantics | tests the Windows path-translation escape hatch |
 | `wait-pid-status` | process | names a Windows-only command or path |
 | `wait-n-status` | process | names a Windows-only command or path |
 | `wait-job-spec-status` | process | names a Windows-only command or path |
@@ -74,3 +79,4 @@ Included: 188 of 227 cases (11 of them known gaps).
 | `crlf-string-backslash-continuation` | shell-syntax | the snippet is CRLF text: Windows strips the carriage returns |
 | `crlf-string-heredoc-body` | shell-syntax | the snippet is CRLF text: Windows strips the carriage returns |
 | `crlf-file-sourced` | shell-syntax | sources a CRLF script: Windows strips the carriage returns |
+| `process-relative-path-command` | process | runs a Windows executable the toolchain provides |

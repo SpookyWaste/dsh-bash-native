@@ -353,5 +353,12 @@ if (baseline !== null) {
   console.log("note: no corpus/baseline.json yet, so this run only reports");
 }
 
-rmSync(FIXTURE, { recursive: true, force: true });
+// A case may leave a background child whose working directory is under this tree, and Windows refuses to
+// delete a directory that is another process's cwd. The suite's result is what matters, so a refused
+// cleanup is reported and the tree is left for the platform to reap.
+try {
+  rmSync(FIXTURE, { recursive: true, force: true });
+} catch (error) {
+  console.log(`note: the fixture tree could not be removed (${error.code ?? error.message}); it is left in place`);
+}
 console.log(`\n报告已写入 corpus/report.md`);

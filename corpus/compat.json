@@ -2369,7 +2369,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "1 st=141\n"
+          "equals": "1\n st=141\n"
         }
       }
     },
@@ -2377,7 +2377,7 @@
       "id": "fd-redirect-descriptor-paths",
       "category": "descriptor",
       "severity": "must-match",
-      "snippet": "echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1",
+      "snippet": "( echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1 ) | cat",
       "expect": {
         "status": 0,
         "stdout": {
@@ -2387,7 +2387,8 @@
             "d"
           ]
         }
-      }
+      },
+      "note": "The three writes go to a pipe, because `> /dev/stdout` reopens the path: with a regular file for stdout that open truncates it and only the last line would survive (GNU behaviour, measured on RHEL 9)."
     },
     {
       "id": "fd-redirect-dev-stdin-reads",

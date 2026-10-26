@@ -5,7 +5,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 snippet <<'CASE_144'
-echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1
+( echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1 ) | cat
 CASE_144
 
 expect_status 0

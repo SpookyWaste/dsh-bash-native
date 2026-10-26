@@ -34,6 +34,12 @@ bash test/linux-oracle/run.sh --category coreutils
 # and awk, find, xargs, diff, jq, alias, argv-semantics
 ```
 
+## Validated on GNU
+
+Run on an Alibaba Cloud ECS instance (RHEL 9, `GNU bash 5.1.8`, GNU coreutils/findutils/grep/sed/awk, `jq` installed): **183 cases, 165 passed, 11 known-gap confirmed, 7 skipped, 0 failed**. The skips are the cases that spawn `node` (`process-jobs-p-reports-pid` and the external-program argv group); install Node to cover them.
+
+That run is what turned two corpus expectations from assumptions into facts: `pipe-bundled-child-reports-own-status` had lost the newline `head` prints before the status line, and `fd-redirect-descriptor-paths` was measuring `> /dev/stdout` with a regular file for stdout, where that open truncates and only the last line survives. The case now writes through a pipe.
+
 ## Layout
 
 | Path | What it is |
