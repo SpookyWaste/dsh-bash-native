@@ -1,5 +1,7 @@
 # 命令套件评测：uutils（现状）vs winuxcmd（候选）
 
+> ⚠️ 基准更正（2026-10-26，用户指出）：本报告的 GNU 一侧用的是 **Git for Windows**，它本身是打过 MSYS 补丁的移植版，不能当作 GNU 基准。结论（选 uutils + 一笔补丁）不依赖这一点——它由两边的差集与 awk/jq 的缺失论证——但表里的绝对通过数只应读作“相对 Git Bash 的偏差”。真正的 GNU 基准要用 Linux bash 重跑：语料已导出为可直接运行的套件，见 [`test/linux-oracle/`](../test/linux-oracle/README.md)（188 条，`bash test/linux-oracle/run.sh`）。
+
 > 目的：引擎换成 rubash 之后，命令套件由谁服务——沿用本仓库 36 MB 的 uutils 工具链，还是改用 winuxcmd 的 4.16 MB 多调用单文件。判据在本轮开始前定死（§4），本轮只填数字。
 > 引擎：`rubash v1.4.3`（commit `fa64d58`），沙箱外由 `cargo build --release --locked --bin rubash` 构建，10,945,024 字节。
 > 语料：`corpus/compat.json` 227 条（must-match 219、platform-difference 8）。引擎固定为 rubash，只换工具目录。
