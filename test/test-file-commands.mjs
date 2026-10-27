@@ -70,7 +70,7 @@ function scratch(name) {
 // 2. The shell's own variable table carries the policy, which is the only route a PTY startup file has.
 {
   const cwd = scratch("shell-variable");
-  const assignment = run("RUBASH_FILE_COMMANDS_FROM_PATH=all; chmod +x f.sh; echo rc=$?", { cwd, env: baseEnv });
+  const assignment = run("RUBASH_FILE_COMMANDS_FROM_PATH=all; chmod +x f.sh; echo rc=$?", { cwd, env: bareEnv });
   assert.match(assignment.stdout, /rc=127/, "a shell variable, not just an exported one, states the policy");
   pass("the policy is read from the shell's variables, so a startup file can state it");
 }
