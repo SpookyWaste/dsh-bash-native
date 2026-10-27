@@ -122,6 +122,12 @@ const caller = (ctx) => {
 /** The text a tool result renders to the model. */
 const text = (result) => (result?.content ?? []).map((block) => block.text ?? "").join("");
 
+/** Compare a shell's cwd spelling with the host's: `/d/x` and `d:\x` name the same directory. */
+const samePath = (left, right) => {
+  const normalize = (value) => value.replaceAll("\\", "/").toLowerCase().replace(/^([a-z]):/, "/$1");
+  return normalize(left) === normalize(right);
+};
+
 /** A `bash` call with the description the shipped schema requires. */
 const bash = (run, command, extra = {}) => run("bash", { command, description: "spec call", ...extra });
 
@@ -135,7 +141,7 @@ const bash = (run, command, extra = {}) => run("bash", { command, description: "
   await bash(run, "x=1");
   assert.equal(text(await bash(run, 'echo "${x:-unset}"')).trim(), "unset", "each call is a fresh shell");
   const workdir = text(await bash(run, "pwd", { workdir: WORKSPACE })).trim();
-  assert.equal(workdir.toLowerCase(), WORKSPACE.toLowerCase(), "workdir is honored");
+  assert.equal(samePath(workdir, WORKSPACE), true, "workdir is honored");
   pass("the shipped bash tool runs this engine with fresh-shell semantics and a honored workdir");
 }
 

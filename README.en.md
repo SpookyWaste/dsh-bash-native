@@ -316,7 +316,7 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
   | `yes \| head -c 1` | `0` | silent |
   | `cat big \| head -c 1` | `13` | — |
   | `ls -R some-dir \| head -c 1` | `1` | — |
-  | the engine's own builtins | `141` | finish correctly |
+  | the engine's own builtins | `0` | does not report the closed pipe (see `PIPESTATUS[0]` above) |
 
 - **`{ …; } | head` hangs when a line is longer than about 100 KB** (rubash 1.4.3; measured: a 60 KB line is fine, a 200 KB line times out): the reader takes part of the line and exits, and the writer never aborts — with the pipeline's output going to a file it hangs, and with a second pipe it **loses the whole output**. Workaround: `{ …; } | cat | head`, or write to a file first. Recorded in `docs/research.md` §72; `test/test-brush-regressions.mjs` prints the current state on every run.
 - **A program the engine does not know cannot tell data from a path**: a path-shaped data word handed to an unknown **native** program (`node -e '…' '/x/{print}'`) is treated as a path operand and translated to a Win32 spelling — MSYS behaves the same way; what differs is that the shipped tools' scripts, patterns and program words have a fixed data-position table and are never rewritten.

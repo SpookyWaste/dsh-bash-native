@@ -33,6 +33,13 @@ const run = createRunner(engine, FIXTURE);
 const baseEnv = { ...process.env };
 delete baseEnv.RUBASH_FILE_COMMANDS_FROM_PATH;
 const withPolicy = (value) => ({ ...baseEnv, RUBASH_FILE_COMMANDS_FROM_PATH: value });
+// `all` has to reach a PATH that cannot answer the name, and a CI runner carries Git's `usr/bin`, where a real
+// `chmod.exe` lives. The Windows directory holds no such program, so the case states the switch, not the host.
+const bareEnv = {
+  ...baseEnv,
+  PATH: process.env.SystemRoot === undefined ? "" : join(process.env.SystemRoot, "System32"),
+};
+const withBarePolicy = (value) => ({ ...bareEnv, RUBASH_FILE_COMMANDS_FROM_PATH: value });
 
 /** One scratch directory and one executable fixture file inside it. */
 function scratch(name) {
@@ -46,7 +53,7 @@ function scratch(name) {
 // here, and is the one observation that needs no toolchain), while unset and `none` keep the copy.
 {
   const cwd = scratch("table");
-  const all = run("chmod +x f.sh; echo rc=$?", { cwd, env: withPolicy("all") });
+  const all = run("chmod +x f.sh; echo rc=$?", { cwd, env: withBarePolicy("all") });
   assert.match(all.stdout, /rc=127/, "`all` runs the command from PATH, where chmod does not exist on Windows");
   assert.match(all.stderr, /chmod/, "the failure names the command");
   for (const [label, env] of [["unset", baseEnv], ["none", withPolicy("none")], ["0", withPolicy("0")]]) {
@@ -54,7 +61,7 @@ function scratch(name) {
     assert.match(kept.stdout, /rc=0/, `${label} keeps the engine's in-process copy`);
   }
   for (const value of ["on", "1"]) {
-    const program = run("chmod +x f.sh; echo rc=$?", { cwd, env: withPolicy(value) });
+    const program = run("chmod +x f.sh; echo rc=$?", { cwd, env: withBarePolicy(value) });
     assert.match(program.stdout, /rc=127/, `${value} means every file command runs from PATH`);
   }
   pass("`all`/`on`/`1` send a file command to PATH while unset, `none` and `0` keep the in-process copy");

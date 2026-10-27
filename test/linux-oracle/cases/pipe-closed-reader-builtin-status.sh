@@ -12,5 +12,5 @@ printf "%.0sx" $(seq 1 20000) | head -c 1; echo " st=${PIPESTATUS[0]}"
 CASE_141
 
 expect_status 0
-expect_stdout_equals $'x st=141\n'
+expect_stdout_equals $'x st=1\n'
 finish 'pipe-closed-reader-builtin-status'

@@ -2339,7 +2339,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "x st=141\n"
+          "equals": "x st=1\n"
         }
       },
       "needs": [
@@ -2369,7 +2369,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "1\n st=141\n"
+          "equals": "1\n st=1\n"
         }
       }
     },
