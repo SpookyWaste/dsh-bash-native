@@ -73,13 +73,13 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      * Startup file a PTY session should read, written on demand.
      *
      * A persistent session spawns the engine directly, so it inherits the host environment and never
-     * passes through `resolve()`; the file is the only way the toolchain and the `bash`/`sh` names reach it.
-     * It is written only when there is something to prepend — a toolchain that provides commands, the shell
-     * names, or both — and the engine can use a Windows path in `PATH`: `wsl.exe` receives a Windows path it
-     * cannot translate, so it keeps its own startup file. The configured `rcFile` wins over the per-user
-     * default, and the parent directory is created: an install whose engine came from `PATH` or
-     * `bundledEngineDir` never created the per-user state directory, and the write used to fail there and
-     * silently drop the toolchain instead.
+     * passes through `resolve()`; the file is the only way the toolchain, the `bash`/`sh` names and the
+     * file-command policy reach it. It is written only when there is something to state — a toolchain that
+     * provides commands, the shell names, or a command taken from `PATH` — and the engine can use a Windows
+     * path in `PATH`: `wsl.exe` receives a Windows path it cannot translate, so it keeps its own startup
+     * file. The configured `rcFile` wins over the per-user default, and the parent directory is created: an
+     * install whose engine came from `PATH` or `bundledEngineDir` never created the per-user state
+     * directory, and the write used to fail there and silently drop the toolchain instead.
      * @returns the path to pass as `--rcfile`, or an empty string to leave the interactive argv alone.
      */
     private interactiveRcFile;
@@ -89,9 +89,9 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      * Apply this executor's defaults and stamp the per-call file policy.
      *
      * The environment is finalized here rather than at spawn time so that every execution path — plain
-     * or confined — gets the same layering: the model-friendly defaults, the toolchain directory and the
-     * `bash`/`sh` names at the front of `PATH`, the configured overrides, the caller's own entries, and the
-     * managed facts last.
+     * or confined — gets the same layering: the model-friendly defaults, the file commands this run takes
+     * from `PATH`, the toolchain directory and the `bash`/`sh` names at the front of `PATH`, the configured
+     * overrides, the caller's own entries, and the managed facts last.
      * @param request - the caller's request, whose `sandboxPolicy` carries the calling session's resolved mode.
      * @returns the fully-specified spec.
      */
@@ -122,13 +122,17 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      * A configured `toolsDir` is the operator's decision and is probed as given, even when it holds nothing.
      * Otherwise a toolchain built into the per-user directory wins — someone who built one, possibly from
      * patched sources, keeps it — and the packaged toolchain is the fallback that makes an install work with
-     * nothing installed but the package. The choice is memoized on all three directories, so replacing the
-     * package re-probes.
+     * nothing installed but the package, prepared only when the built directory cannot answer. The choice is
+     * memoized on the directories and the state root, so replacing the package re-probes.
      * @returns the probe the contract and the environment both read.
      */
     private tools;
     /**
      * The packaged toolchain's `bin` directory, prepared once per package placement and `LOCALAPPDATA`.
+     *
+     * Only reached when a configured directory is absent and the per-user build provides nothing: an install
+     * that already has a toolchain of its own would otherwise pay for materializing and verifying this one and
+     * then never put it on `PATH`.
      *
      * A refusal is logged once and then reported as "no packaged toolchain": the probe that follows states
      * which commands are missing, so the contract tells the truth either way rather than claiming a
@@ -175,7 +179,7 @@ export declare class BashNativeExecutor extends LocalBashExecutor {
      */
     private packaged;
     /**
-     * Ask one candidate binary whether it is brush, memoized per absolute path.
+     * Ask one candidate binary whether it is the engine, memoized per absolute path.
      *
      * The spawn is one bounded `--version` per candidate per resolution, and resolution itself is cached
      * on configuration and `PATH`, so this runs once per configuration rather than per command. A

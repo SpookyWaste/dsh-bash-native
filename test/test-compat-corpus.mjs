@@ -15,11 +15,16 @@
 //   node test-compat-corpus.mjs --update-baseline  record the current result as the baseline
 //   node test-compat-corpus.mjs --with-tools       prepend the local toolchain directory to PATH
 //   node test-compat-corpus.mjs --tools-dir=DIR    score an arbitrary toolchain
+//   node test-compat-corpus.mjs --baseline=FILE    use FILE as the record instead of the shipped one
+//                                                  (an evaluation run does not disturb the ratchet)
+//   node test-compat-corpus.mjs --file-commands=none|all|sed,rmdir
+//                                                  which file commands run from PATH; omitted, the
+//                                                  plugin's own default is derived from the toolchain
 //   DSH_BASH_NATIVE_COMPAT_FULL=1                  print the distance to all-green (a diagnostic, not a gate)
 //
 // Skipped unless an engine is available: `DSH_BASH_NATIVE_ENGINE`, or a `brush` on PATH.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +39,12 @@ import {
   toolsDirectory,
   violatesGuards,
 } from "../scripts/engine-harness.mjs";
+import {
+  DEFAULT_FILE_COMMANDS_FROM_PATH,
+  FILE_COMMANDS_FROM_PATH_ENV,
+  fileCommandsFromPath,
+  probeToolchain,
+} from "../lib/toolchain.js";
 
 const BASELINE_ENGINE_PATH = new URL("../corpus/baseline.json", import.meta.url);
 const BASELINE_TOOLS_PATH = new URL("../corpus/baseline-tools.json", import.meta.url);
@@ -43,9 +54,46 @@ const UPDATE_BASELINE = process.argv.includes("--update-baseline");
 
 const toolsDir = toolsDirectory(process.argv, process.env);
 const withTools = process.argv.includes("--with-tools") || process.argv.some((arg) => arg.startsWith("--tools-dir="));
+
+/** The filesystem seam the toolchain probe reads through, the same one the executor passes. */
+const toolchainFs = {
+  isFile: (path) => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  },
+  listDirectory: (path) => {
+    try {
+      return readdirSync(path, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name);
+    } catch {
+      return null;
+    }
+  },
+};
+
+// The policy a real session would get for this toolchain: the plugin derives it from the same probe with
+// the same rule, so the baseline describes the shipped shell rather than a test-only preference. An
+// explicit `--file-commands=` (or `DSH_BASH_NATIVE_FILE_COMMANDS`) wins, which is how one corpus is scored
+// in each policy state: `none` is the engine's in-process copies, `all` is every program.
+const toolsProbe = withTools ? probeToolchain(toolsDir, process.platform, toolchainFs) : null;
+const fileCommandsFlag = process.argv.find((arg) => arg.startsWith("--file-commands="));
+const fileCommandsOverride =
+  fileCommandsFlag !== undefined ? fileCommandsFlag.slice("--file-commands=".length) : process.env.DSH_BASH_NATIVE_FILE_COMMANDS;
+const fileCommands =
+  fileCommandsOverride !== undefined && fileCommandsOverride.length > 0
+    ? fileCommandsOverride
+    : toolsProbe === null
+      ? ""
+      : fileCommandsFromPath(toolsProbe, DEFAULT_FILE_COMMANDS_FROM_PATH).join(",");
 // The engine alone and the engine plus the toolchain are two different environments with two
 // different records, so each keeps its own baseline.
-const BASELINE_PATH = withTools ? BASELINE_TOOLS_PATH : BASELINE_ENGINE_PATH;
+const baselineFlag = process.argv.find((arg) => arg.startsWith("--baseline="));
+const BASELINE_PATH =
+  baselineFlag === undefined ? (withTools ? BASELINE_TOOLS_PATH : BASELINE_ENGINE_PATH) : baselineFlag.slice("--baseline=".length);
 
 if (toolsDir.length === 0) {
   console.error("no toolchain directory configured (pass --tools-dir=DIR or set DSH_BASH_NATIVE_TOOLS)");
@@ -74,6 +122,10 @@ const CASE_TIMEOUT_MS = 20000;
 const FIXTURE = mkdtempSync(join(tmpdir(), "dsh-bash-native-corpus-"));
 const run = createRunner(engine, FIXTURE);
 const env = { ...process.env, PATH: pathWithToolchain({ withTools, toolsDir, engine, basePath: process.env.PATH ?? "" }) };
+// The ambient value belongs to whatever shell started this run, not to this run: an engine-only baseline
+// has to describe a shell that never heard of the policy.
+delete env[FILE_COMMANDS_FROM_PATH_ENV];
+if (fileCommands.length > 0) env[FILE_COMMANDS_FROM_PATH_ENV] = fileCommands;
 const normalize = normalizeOutput;
 
 /**
@@ -215,6 +267,7 @@ const current = {
   generated: new Date().toISOString(),
   engine: engineVersion(engine),
   toolchain: withTools && toolsDir.length > 0 ? redactMachinePaths(toolsDir) : "engine-only",
+  fileCommands: fileCommands.length > 0 ? fileCommands : "none",
   counts,
   skips: Object.fromEntries(skips.map((result) => [result.entry.id, result.reason])),
   collisions: Object.fromEntries(collisions.map((result) => [result.entry.id, result.reason])),
@@ -230,6 +283,7 @@ function writeReport(notes) {
     "",
     `Engine: \`${engine}\` (${current.engine || "version unknown"})`,
     `Toolchain: \`${current.toolchain}\``,
+    `File commands from PATH: \`${current.fileCommands}\``,
     `Generated: ${current.generated}`,
     "",
     `Pass ${counts.pass}/${counts.total} · fail ${counts.fail} · known-gap ${counts.knownGap} · collision ${counts.collision} · skip ${counts.skip} · platform-difference ${counts.platform} · **silent-wrong ${counts.silentWrong}**`,
@@ -268,6 +322,7 @@ function writeReport(notes) {
 
 console.log(`engine: ${engine}${current.engine.length > 0 ? ` (${current.engine})` : ""}`);
 console.log(`toolchain: ${current.toolchain}`);
+console.log(`file commands from PATH: ${current.fileCommands}`);
 for (const result of failures) console.log(`FAIL  ${result.silentWrong === true ? "[silent-wrong] " : ""}${result.entry.id}: ${result.detail}`);
 for (const result of knownGaps) console.log(`GAP   ${result.entry.id} (${result.pointer})`);
 for (const result of collisions) console.log(`COLLIDE  ${result.entry.id}: ${result.reason}`);
@@ -349,5 +404,12 @@ if (baseline !== null) {
   console.log("note: no corpus/baseline.json yet, so this run only reports");
 }
 
-rmSync(FIXTURE, { recursive: true, force: true });
+// A case may leave a background child whose working directory is under this tree, and Windows refuses to
+// delete a directory that is another process's cwd. The suite's result is what matters, so a refused
+// cleanup is reported and the tree is left for the platform to reap.
+try {
+  rmSync(FIXTURE, { recursive: true, force: true });
+} catch (error) {
+  console.log(`note: the fixture tree could not be removed (${error.code ?? error.message}); it is left in place`);
+}
 console.log(`\n报告已写入 corpus/report.md`);

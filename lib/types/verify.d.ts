@@ -1,10 +1,13 @@
 /**
  * Asking one candidate binary whether it is the engine this plugin runs.
  *
- * The plugin accepts only brush (`brush-shell`), so a configured `bashPath` cannot be taken at face
- * value: `bash.exe` from Git for Windows, MSYS2 or Cygwin, and `wsl.exe`, are the binaries a user is
- * most likely to point at, and each reports itself differently. One bounded `--version` spawn settles
- * it, and the first line of that output also names the engine in the model-visible contract.
+ * The engine this plugin ships is rubash, so a configured `bashPath` cannot be taken at face value:
+ * `bash.exe` from Git for Windows, MSYS2 or Cygwin, and `wsl.exe`, are the binaries a user is most
+ * likely to point at, and each reports itself differently. `--identity` settles the family first (a GNU
+ * bash cannot answer it), then the build's own signature settles which build this is. The brush family
+ * stays recognisable for deployments that still point at an old build: it is identified, refused when
+ * its patched signature does not hold, and accepted only when it does.
+ * TODO: retire the brush branch once no deployment can name one.
  * @module dsh-bash-native/verify
  */
 import type { EngineVerdict } from './resolve.js';
@@ -38,7 +41,14 @@ export declare function argumentSignature(node: string): string;
  * @param node - the Node executable the argument signature runs (`process.execPath` in production).
  * @returns the verdict resolution reads.
  */
-export declare function readBrushVersion(path: string, run?: VersionRun, node?: string): EngineVerdict;
+export declare function readEngineVersion(path: string, run?: VersionRun, node?: string): EngineVerdict;
+/**
+ * The pre-rubash name for {@link readEngineVersion}.
+ *
+ * Kept because the harness and the confirmation tests reach for it by name; it now answers for both
+ * families. `TODO` once the brush family retires: fold the two callers onto the new name and drop this.
+ */
+export declare const readBrushVersion: typeof readEngineVersion;
 /**
  * The stdio shape a child launched from inside a session can actually use.
  *

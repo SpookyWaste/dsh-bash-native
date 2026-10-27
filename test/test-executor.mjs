@@ -2,7 +2,7 @@
 // the confinement it requests, and the sandbox facts it stamps — not cordis' own plumbing.
 // Engine resolution probes the real filesystem, so every case points `bashPath` at a fixture file.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { SANDBOX_UNAVAILABLE } from "@deepseek-ai/dsh-sandbox";
@@ -17,7 +17,7 @@ function pass(name) {
 }
 
 const FIXTURE_DIR = mkdtempSync(join(tmpdir(), "dsh-bash-native-test-"));
-const ENGINE = join(FIXTURE_DIR, "brush.exe");
+const ENGINE = join(FIXTURE_DIR, "rubash.exe");
 const FOREIGN = join(FIXTURE_DIR, "bash.exe");
 const MISSING = join(FIXTURE_DIR, "missing-engine.exe");
 writeFileSync(ENGINE, "");
@@ -30,13 +30,13 @@ writeFileSync(FOREIGN, "");
  */
 class FixtureExecutor extends BashNativeExecutor {
   verifyEngine(path) {
-    return /brush/i.test(path)
-      ? { version: "brush 0.4.0 (test)", refused: null }
-      : { version: "", refused: 'it reports "GNU bash, version 5.3.15(1)-release", which is not brush' };
+    return /rubash/i.test(path)
+      ? { version: "GNU bash, version 5.3.0(1)-release (test)", family: "rubash", refused: null }
+      : { version: "", refused: 'it reports "GNU bash, version 5.3.15(1)-release", which is not this build' };
   }
 }
 
-const WORKSPACE = "D:\\Pi\\dsh_plugins\\ws";
+const WORKSPACE = "D:\\work\\ws";
 const DENIAL = "access is denied";
 const RUNNER_FATAL = "windows-acl-run:";
 
@@ -128,8 +128,8 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const execution = await executor.execute(spec);
   const spawn = state.spawned[0].spec;
   assert.deepEqual(spawn.argv.slice(0, 2), ["windows-acl-run", "--"]);
-  assert.deepEqual(state.confined[0].argv, [ENGINE, "--disable-color", "-c", "echo hi"]);
-  assert.deepEqual(spawn.argv.slice(2), [ENGINE, "--disable-color", "-c", "echo hi"]);
+  assert.deepEqual(state.confined[0].argv, [ENGINE, "-c", "echo hi"]);
+  assert.deepEqual(spawn.argv.slice(2), [ENGINE, "-c", "echo hi"]);
   assert.equal(spawn.cwd, spec.workdir);
   assert.equal(spawn.env.TERM, "dumb");
   assert.equal(spawn.env.NO_COLOR, "1");
@@ -216,12 +216,12 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const { executor, state } = makeExecutor({ defaultMode: "danger-full-access" });
   const result = await (await executor.execute(executor.resolve({ command: "echo hi" }))).result();
   assert.equal(state.confined.length, 0, "full access never consults the sandbox provider");
-  assert.deepEqual(state.spawned[0].spec.argv, [ENGINE, "--disable-color", "-c", "echo hi"]);
+  assert.deepEqual(state.spawned[0].spec.argv, [ENGINE, "-c", "echo hi"]);
   assert.deepEqual(result.sandbox, { mode: "danger-full-access", denied: false });
   pass("danger-full-access spawns unconfined and reports denied: false");
 }
 
-// 6. An engine that is not brush is refused at resolution, and no tier makes it selectable.
+// 6. A shell that is not this build is refused at resolution, and no tier makes it selectable.
 {
   const refused = makeExecutor({ bashPath: FOREIGN });
   await assert.rejects(
@@ -233,10 +233,10 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   await assert.rejects(
     full.executor.execute(full.executor.resolve({ command: "echo hi" })),
     /dsh-bash-local/,
-    "full access does not make another shell selectable: this executor runs brush only",
+    "full access does not make another shell selectable: this executor runs the pinned rubash build only",
   );
   assert.equal(full.state.spawned.length, 0);
-  pass("an engine that is not brush is refused at resolution under every tier");
+  pass("a shell that is not this build is refused at resolution under every tier");
 }
 
 // 7. Without an engine every call fails with the probed candidates and the remedy.
@@ -302,18 +302,19 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const rcFile = join(rcRoot, "state", "bash-native-rc.sh");
   const tooled = makeExecutor({ config: { toolsDir, rcFile } });
   const args = [...tooled.executor.engineArgs];
-  assert.deepEqual(args.slice(0, 3), ["--disable-color", "--noprofile", "--rcfile"], "--norc is replaced, not supplemented");
+  assert.deepEqual(args.slice(0, 2), ["--noprofile", "--rcfile"], "--norc is replaced, not supplemented");
   assert.equal(args.includes("--norc"), false, "--norc is gone rather than accompanied");
-  assert.equal(args[4], "-i");
-  assert.equal(args[3], rcFile, "the configured startup file is the one passed");
+  assert.equal(args[3], "-i");
+  assert.equal(args[2], rcFile, "the configured startup file is the one passed");
   // The parent directory is created: an install whose engine came from PATH or a bundled directory
   // never created the per-user state directory, and the write used to fail there and drop the toolchain.
   assert.equal(existsSync(rcFile), true, "a missing parent directory is created");
   {
     const contents = readFileSync(rcFile, "utf8");
     assert.match(contents, /^# Generated by dsh-bash-native: /, "the file names its own origin");
-    const exported = /export PATH='([^']*)'";\$PATH"\n$/.exec(contents);
+    const exported = /export PATH='([^']*)'";\$PATH"/.exec(contents);
     assert.notEqual(exported, null, "the file exports a PATH");
+    assert.equal(contents.includes("RUBASH_FILE_COMMANDS_FROM_PATH"), false, "a toolchain without sed or rmdir states no file-command policy");
     const dirs = exported[1].split(";");
     assert.equal(dirs[0], toolsDir, "the toolchain directory leads");
     for (const dir of dirs.slice(1)) {
@@ -337,7 +338,7 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   try {
     const derived = makeExecutor({ config: { toolsDir } });
     const derivedFile = join(rcRoot, "dsh-bash-native", "bash-native-rc.sh");
-    assert.equal(derived.executor.engineArgs[3], derivedFile, "the per-user startup file is derived from LOCALAPPDATA");
+    assert.equal(derived.executor.engineArgs[2], derivedFile, "the per-user startup file is derived from LOCALAPPDATA");
     assert.equal(existsSync(derivedFile), true, "the derived startup file is written");
   } finally {
     process.env.LOCALAPPDATA = savedLocalAppData;
@@ -358,8 +359,8 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   assert.equal(
     text,
     [
-      "This session's `bash` tool runs a bash-compatible shell natively on Windows; use bash syntax.",
-      'Use `$VAR` names such as `$TMP`; prefer real Windows paths (`"C:\\..."` quoted, or `C:/...`) over POSIX shorthands.',
+      "This session's `bash` tool is GNU bash 5.3-compatible, running natively on Windows with no MSYS runtime; it reports an MSYS-compatible `uname -s` identity for script compatibility, so use bash syntax.",
+      'Pass paths in POSIX form (`/c/Users/...`, `/tmp/...`): the shell resolves them and hands every command a native spelling. Use `$VAR` names such as `$TMP`.',
     ].join("\n"),
     "the contract is exactly those two sentences",
   );
@@ -469,6 +470,31 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   }
 }
 
+// 14b. A toolchain built into the per-user directory means the packaged one is never prepared: the probe
+// would discard it, and preparing it links or copies every shipped program and verifies both sides.
+{
+  const local = mkdtempSync(join(tmpdir(), "dsh-bash-native-built-tools-"));
+  const saved = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = local;
+  try {
+    const built = join(local, "dsh-bash-native", "tools", "bin");
+    mkdirSync(built, { recursive: true });
+    writeFileSync(join(built, "grep.exe"), "");
+    const { executor } = makeExecutor({ config: { toolsDir: "" } });
+    const spec = executor.resolve({ command: "grep x" });
+    assert.equal((spec.env.PATH ?? "").split(delimiter)[0], built, "the built toolchain leads PATH");
+    assert.equal(
+      existsSync(join(local, "dsh-bash-native", "toolchain")),
+      false,
+      "the packaged toolchain was not materialized for a probe that would discard it",
+    );
+    pass("a built toolchain keeps the packaged one from being prepared at all");
+  } finally {
+    process.env.LOCALAPPDATA = saved;
+    rmSync(local, { recursive: true, force: true });
+  }
+}
+
 // 15. The engine runs where the package puts it, whatever tree the sandbox grants. This is the release
 // arrangement (`dsh plugin add` lands under `$DSH_HOME/profiles/<profile>/node_modules/…`, outside the
 // granted tree), so there is one behavior to pin: the packaged path is the engine path, and no copy of it
@@ -478,8 +504,8 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
   const saved = process.env.LOCALAPPDATA;
   process.env.LOCALAPPDATA = local;
   try {
-    const artifact = join(packageRoot(), "engine", "win32-x64", "brush.exe");
-    const outside = makeExecutor({ bashPath: "", policy: { mode: "workspace-write", workspaceRoot: "D:\\Pi\\dsh_plugins\\ws" } });
+    const artifact = join(packageRoot(), "engine", "win32-x64", "rubash.exe");
+    const outside = makeExecutor({ bashPath: "", policy: { mode: "workspace-write", workspaceRoot: "D:\\work\\ws" } });
     assert.equal(outside.executor.enginePath, artifact, "a package outside the granted tree runs where it lies");
 
     const inside = makeExecutor({ bashPath: "", policy: { mode: "workspace-write", workspaceRoot: packageRoot() } });
@@ -516,6 +542,37 @@ function makeExecutor({ bashPath = ENGINE, config = {}, ...contextOptions } = {}
     process.env.LOCALAPPDATA = saved;
     rmSync(local, { recursive: true, force: true });
   }
+}
+
+// 17. The file commands the toolchain publishes reach the engine as one environment entry, and the PTY
+// startup file states the same policy — a persistent session never sees `resolve()`'s environment.
+{
+  const toolsDir = mkdtempSync(join(tmpdir(), "dsh-bash-native-file-commands-"));
+  for (const name of ["grep.exe", "rmdir.exe", "sed.exe"]) writeFileSync(join(toolsDir, name), "");
+  const rcRoot = mkdtempSync(join(tmpdir(), "dsh-bash-native-file-commands-rc-"));
+  const rcFile = join(rcRoot, "rc.sh");
+  const tooled = makeExecutor({ config: { toolsDir, rcFile } });
+  const spec = tooled.executor.resolve({ command: "echo hi" });
+  assert.equal(spec.env.RUBASH_FILE_COMMANDS_FROM_PATH, "sed,rmdir", "the two measured disagreements come from the toolchain");
+  void tooled.executor.engineArgs;
+  assert.match(readFileSync(rcFile, "utf8"), /^export RUBASH_FILE_COMMANDS_FROM_PATH='sed,rmdir'$/m, "the PTY startup file states the same policy");
+
+  // Naming nothing emits nothing, so the engine keeps its in-process copies.
+  const none = makeExecutor({ config: { toolsDir, fileCommandsFromPath: [] } });
+  assert.equal(Object.hasOwn(none.executor.resolve({ command: "echo hi" }).env, "RUBASH_FILE_COMMANDS_FROM_PATH"), false);
+
+  // An operator entry still wins over the derived policy.
+  const overridden = makeExecutor({ config: { toolsDir, shellEnvOverrides: { RUBASH_FILE_COMMANDS_FROM_PATH: "all" } } });
+  assert.equal(overridden.executor.resolve({ command: "echo hi" }).env.RUBASH_FILE_COMMANDS_FROM_PATH, "all");
+
+  // A configured toolchain that publishes neither keeps the engine's copies.
+  const empty = mkdtempSync(join(tmpdir(), "dsh-bash-native-file-commands-none-"));
+  writeFileSync(join(empty, "grep.exe"), "");
+  const notProvided = makeExecutor({ config: { toolsDir: empty } });
+  assert.equal(Object.hasOwn(notProvided.executor.resolve({ command: "echo hi" }).env, "RUBASH_FILE_COMMANDS_FROM_PATH"), false);
+
+  for (const dir of [toolsDir, rcRoot, empty]) rmSync(dir, { recursive: true, force: true });
+  pass("the file-command policy reaches the spawn environment and the PTY startup file");
 }
 
 rmSync(FIXTURE_DIR, { recursive: true, force: true });

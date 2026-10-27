@@ -79,17 +79,17 @@ func TestDshTmpKeepsItsMeaningAndParentsCollapse(t *testing.T) {
 func TestDshNoPathConversionDisablesTheRewrite(t *testing.T) {
 	for _, value := range []string{"1", "true", "-"} {
 		t.Setenv("DSH_BASH_NATIVE_NO_PATHCONV", value)
-		arguments := []string{"/tmp/x"}
-		dshTranslateArguments(arguments, dshTestTemp)
-		if arguments[0] != "/tmp/x" {
-			t.Errorf("%q must turn the rewrite off, got %q", value, arguments[0])
+		argv := []string{"ls.exe", "/tmp/x"}
+		dshTranslateArguments(argv, dshTestTemp)
+		if argv[1] != "/tmp/x" {
+			t.Errorf("%q must turn the rewrite off, got %q", value, argv[1])
 		}
 	}
 	t.Setenv("DSH_BASH_NATIVE_NO_PATHCONV", "0")
-	arguments := []string{"/tmp/x"}
-	dshTranslateArguments(arguments, dshTestTemp)
-	if arguments[0] != dshTestTemp()+"x" {
-		t.Errorf(`"0" must not turn the rewrite off, got %q`, arguments[0])
+	argv := []string{"ls.exe", "/tmp/x"}
+	dshTranslateArguments(argv, dshTestTemp)
+	if argv[1] != dshTestTemp()+"x" {
+		t.Errorf(`"0" must not turn the rewrite off, got %q`, argv[1])
 	}
 }
 
@@ -97,13 +97,62 @@ func TestDshTranslateArgumentsRewritesInPlace(t *testing.T) {
 	// An empty value is how the engine reads "not requested": the switch is a non-empty value other
 	// than `0`, so the caller's own environment does not change what a program does with its arguments.
 	t.Setenv("DSH_BASH_NATIVE_NO_PATHCONV", "")
-	arguments := []string{"{print}", "/tmp/x", "a=/tmp/x"}
-	dshTranslateArguments(arguments, dshTestTemp)
-	want := []string{"{print}", dshTestTemp() + "x", "a=/tmp/x"}
+	// awk's first positional is its program, which stays verbatim; the file operand after it translates.
+	argv := []string{"awk.exe", "{print}", "/tmp/x", "a=/tmp/x"}
+	dshTranslateArguments(argv, dshTestTemp)
+	want := []string{"awk.exe", "{print}", dshTestTemp() + "x", "a=/tmp/x"}
 	for index, expected := range want {
-		if arguments[index] != expected {
-			t.Fatalf("argument %d: got %q, want %q (all: %q)", index, arguments[index], expected, arguments)
+		if argv[index] != expected {
+			t.Fatalf("argument %d: got %q, want %q (all: %q)", index, argv[index], expected, argv)
 		}
+	}
+}
+
+// The data positions of the table, spelled out per program so the Go copy can be compared with the table
+// `argv_data_primary_positions` holds in the engine and with the Rust twin.
+func TestDshDataPositionTable(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want map[int]bool
+	}{
+		{"grep pattern positional", []string{"grep.exe", "-F", "/tmp/probe", "f"}, map[int]bool{1: true}},
+		{"grep pattern option", []string{"grep.exe", "-e", "/tmp/probe", "f"}, map[int]bool{1: true}},
+		{"grep -f moves the pattern into an option", []string{"grep.exe", "-f", "/tmp/pat", "f"}, map[int]bool{}},
+		{"sed script", []string{"sed.exe", "-n", "/tmp/probe/p", "f"}, map[int]bool{1: true}},
+		{"awk program", []string{"awk.exe", "/tmp/probe/{print}", "f"}, map[int]bool{0: true}},
+		{"awk program file", []string{"awk.exe", "-f", "/tmp/p.awk", "f"}, map[int]bool{}},
+		{"find start path is not a pattern", []string{"find.exe", "/tmp", "-name", "/tmp/x"}, map[int]bool{2: true}},
+		{"basename is display text", []string{"basename.exe", "/tmp/a/b.txt", ".txt"}, map[int]bool{0: true, 1: true}},
+		{"a tool outside the table", []string{"ls.exe", "/tmp/f"}, map[int]bool{}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := dshDataPositions(testCase.argv[0], testCase.argv[1:])
+			for position := range got {
+				if !testCase.want[position] {
+					t.Errorf("argument %d (%q) must not be masked", position, testCase.argv[position+1])
+				}
+			}
+			for position := range testCase.want {
+				if !got[position] {
+					t.Errorf("argument %d (%q) must be masked", position, testCase.argv[position+1])
+				}
+			}
+		})
+	}
+}
+
+// A chained child the shell never sees keeps its pattern and still resolves its file operand.
+func TestDshChainKeepsDataAndTranslatesPaths(t *testing.T) {
+	t.Setenv("DSH_BASH_NATIVE_NO_PATHCONV", "")
+	argv := []string{"grep.exe", "-F", "/tmp/probe", "/tmp/f"}
+	dshTranslateArguments(argv, dshTestTemp)
+	if argv[2] != "/tmp/probe" {
+		t.Errorf("the pattern must stay verbatim, got %q", argv[2])
+	}
+	if argv[3] != dshTestTemp()+"f" {
+		t.Errorf("the file operand must translate, got %q", argv[3])
 	}
 }
 
@@ -123,9 +172,9 @@ func TestDshDriveMountsAreRewrittenButABareMountIsNot(t *testing.T) {
 	dshTestUnchanged(t, "/")
 	for argument, expected := range map[string]string{
 		"/c/Windows/System32": `C:\Windows\System32`,
-		"--out=/d/Pi":         `--out=D:\Pi`,
+		"--out=/d/work":         `--out=D:\work`,
 		"--out=/d":            `--out=D:\`,
-		"/d/Pi/../Pi/x":       `D:\Pi\x`,
+		"/d/work/../work/x":       `D:\work\x`,
 		"/x/../y/z":           `Y:\z`,
 		"///c/x":              `C:\x`,
 		`\tmp\x`:              dshTestTemp() + "x",

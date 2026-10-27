@@ -14,34 +14,33 @@ function fixture(paths) {
 }
 
 const baseInput = { bashPath: "", bundledEngineDir: "", packaged: null };
-const accept = (path) => ({ version: `brush 0.4.0 (test) ${path}`, refused: null });
-const bashEngine = resolveEngine(baseInput, { PATH: "C:\\tools" }, "win32", fixture(["C:\\tools\\brush.exe"]), accept).engine;
+const accept = (path) => ({ version: `GNU bash, version 5.3.0(1)-release (test) ${path}`, family: "rubash", refused: null });
+const bashEngine = resolveEngine(baseInput, { PATH: "C:\\tools" }, "win32", fixture(["C:\\tools\\rubash.exe"]), accept).engine;
 
-// 1. The command string travels as one verbatim operand after the activation argv and the flag that
-// keeps the engine's own diagnostics free of ANSI escapes.
+// 1. The command string travels as one verbatim operand after the activation argv, and rubash adds no
+// plain-text flag of its own.
 {
   const argv = buildCommandArgv(bashEngine, "ls -la | head -3 && echo \"$?\"");
-  assert.deepEqual(argv, ["C:\\tools\\brush.exe", "--disable-color", "-c", "ls -la | head -3 && echo \"$?\""]);
-  pass("an engine command argv is [engine, --disable-color, -c, command]");
+  assert.deepEqual(argv, ["C:\\tools\\rubash.exe", "-c", "ls -la | head -3 && echo \"$?\""]);
+  pass("an engine command argv is [engine, -c, command]");
 }
 
 // 2. The interactive argv is profile-free and interactive, matching the PTY backend's dialect default.
 {
-  assert.deepEqual(buildInteractiveArgv(bashEngine), ["C:\\tools\\brush.exe", "--disable-color", "--noprofile", "--norc", "-i"]);
+  assert.deepEqual(buildInteractiveArgv(bashEngine), ["C:\\tools\\rubash.exe", "--noprofile", "--norc", "-i"]);
   pass("the interactive argv is profile-free and interactive");
 }
 
-// 2b. The startup-file variant carries the same flag, and an empty path is the plain prefix.
+// 2b. The startup-file variant replaces --norc, and an empty path is the plain prefix.
 {
-  assert.deepEqual(interactiveArgsWithRcFile(bashEngine, ""), ["--disable-color", "--noprofile", "--norc", "-i"]);
+  assert.deepEqual(interactiveArgsWithRcFile(bashEngine, ""), ["--noprofile", "--norc", "-i"]);
   assert.deepEqual(interactiveArgsWithRcFile(bashEngine, "C:\\state\\rc.sh"), [
-    "--disable-color",
     "--noprofile",
     "--rcfile",
     "C:\\state\\rc.sh",
     "-i",
   ]);
-  pass("the startup-file argv replaces --norc and keeps the color flag");
+  pass("the startup-file argv replaces --norc and keeps the interactive prefix");
 }
 
 // 3. Environment layering: defaults first, managed facts last, caller entries in between.
@@ -70,6 +69,18 @@ const bashEngine = resolveEngine(baseInput, { PATH: "C:\\tools" }, "win32", fixt
   const empty = buildShellEnv({ toolsDirs: ["", "C:\\shim"], basePath: "C:\\Windows" });
   assert.equal(empty.PATH, "C:\\shim;C:\\Windows", "an empty entry stands for 'nothing to prepend'");
   pass("prepended directories keep their order and cannot duplicate an entry");
+}
+
+// 3c. Engine policy entries sit above the model-friendly defaults and below the operator's own.
+{
+  const env = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed,rmdir" } });
+  assert.equal(env.RUBASH_FILE_COMMANDS_FROM_PATH, "sed,rmdir");
+  assert.equal(env.TERM, "dumb", "the model-friendly defaults are still there");
+  const overrides = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed" }, overrides: { RUBASH_FILE_COMMANDS_FROM_PATH: "all" } });
+  assert.equal(overrides.RUBASH_FILE_COMMANDS_FROM_PATH, "all", "shellEnvOverrides replaces the derived policy");
+  const request = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed" }, env: { RUBASH_FILE_COMMANDS_FROM_PATH: "none" } });
+  assert.equal(request.RUBASH_FILE_COMMANDS_FROM_PATH, "none", "a request entry outranks the derived policy");
+  pass("engine policy entries sit between the defaults and the operator's own entries");
 }
 
 // 4. Temp variables stay out of the executor's hands: the sandbox runner owns them.

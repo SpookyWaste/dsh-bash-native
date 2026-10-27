@@ -1,39 +1,35 @@
 /**
- * The names this plugin puts on `PATH`: `bash`, `sh`, and the utilities the engine bundles.
+ * The names this plugin puts on `PATH`: `bash` and `sh`.
  *
- * Two things depend on those names resolving. The engine is a bash-compatible shell, so a script, a Makefile,
- * an npm lifecycle hook or any tool that shells out to `bash` should find one: `bash script.sh`, `bash -c …`
- * and `sh -c …` all work once the name resolves, which is the difference between "there is a bash tool" and
- * "there is a bash". And the bundled utilities are shell builtins, which a child process cannot exec: `xargs
- * rm`, `find -exec rm` and any other program that spawns one by name can only find it on `PATH`, so the same
- * directory publishes every bundled name and the engine's own implementation answers those calls — which is
- * why the toolchain ships no second copy of any of them.
+ * A script, a Makefile, an npm lifecycle hook or any tool that shells out to `bash` should find one, and
+ * `bash script.sh`, `bash -c …` and `sh -c …` all work once the name resolves — the difference between "there
+ * is a bash tool" and "there is a bash". Nothing else is published here: the engine's built-in utilities are
+ * in-process commands a child cannot exec, so the programs a child needs come from the toolchain's `bin/`
+ * directory (which is what publishes those command names and carries their own path rules), and the two names
+ * Windows has no applet for (`chmod`, `mkfifo`) stay commands inside the shell only.
  *
- * The engine is not installed under those names — a second 15.7 MB binary would be waste, and `PATH` is not
+ * The engine is not installed under those names — a second 10.9 MB binary would be waste, and `PATH` is not
  * the package's to write — so every name is a hard link to the verified engine in a per-user directory,
  * content-addressed by the engine's own sha256: a new engine build gets a new directory, so a stale name can
  * never point at the previous build, and the directory sits outside the workspace, so a confined session
  * cannot rewrite it. Hard links share one file's bytes, so the whole set occupies what the engine occupies. A
  * volume that cannot link the engine — the development install keeps the package on another drive — costs
  * one copy rather than one per name: the first name made becomes that copy and every later name links to it.
- * A name that cannot be created at all costs only that name.
- *
- * Not covered: running a script *by its own path* (`./s.sh`). Windows has no shebang handling, and the
- * engine hands an unknown file to `CreateProcess` instead of reading its first line, so `./s.sh` reports
- * `%1 is not a valid Win32 application` even with `bash` on `PATH`; call `bash s.sh` or source it.
+ * A name that cannot be created at all costs only that name; `bash` failing before `sh` is the normal state
+ * of a read-only profile, and the caller simply gets no names.
  * @module dsh-bash-native/shim
  */
 import type { FileIdentity } from './artifact.js';
 /** The command names a shell install is expected to answer to, in the order they are created. */
 export declare const SHELL_NAMES: readonly ['bash', 'sh'];
 /**
- * Every name the shim directory answers to: the two shell names, then the utilities the engine bundles.
+ * Every name the shim directory answers to.
  *
- * Publication is what makes a bundled utility reachable from outside the shell. The name points at the
- * engine, and the engine dispatches on its own file name (patch `0016`), so a child process that execs `rm`
- * runs the bundled `rm` rather than a second implementation kept in the toolchain.
+ * Only the shell faces are published: rubash decides `bash`/`sh` from its own invocation name and has no
+ * multi-call utility dispatch, so a hard link named `cat.exe` would run a *shell* called cat. The
+ * utilities a child process can exec live in the toolchain directory instead.
  */
-export declare const SHIM_NAMES: readonly ["bash", "sh", ...string[]];
+export declare const SHIM_NAMES: readonly ["bash", "sh"];
 /** The filesystem operations this module needs, injected so its rules are testable without a binary. */
 export interface ShimIo {
     /** @param path - candidate path. @returns its identity, or null when it is absent or unreadable. */

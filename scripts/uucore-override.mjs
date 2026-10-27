@@ -1,8 +1,8 @@
 // Points a checkout's registry dependencies at vendored, patched copies of the same version.
 //
 // The rule each patch carries is documented beside it — `patches/uucore/README.md` for the OS error code a
-// refused file effect has to keep, `patches/vendored/uu_tail/README.md` for the last block `tail` reads.
-// The table of crates that get this treatment lives in `scripts/vendored-crates.mjs`; this module owns the
+// refused file effect has to keep.
+// This module owns the uucore override the toolchain build applies; the engine build vendors nothing.
 // machinery and the `uucore` entry, whose copy needs the coreutils monorepo layout described below.
 //
 // A crate from the registry cannot be patched in place — the source cache is shared with every other
@@ -235,7 +235,13 @@ export function vendorRegistryCrate({ crate, version, checkout, cacheRoot, repoR
   // may hold CRLF, so the apply must not go through the machine's autocrlf conversion. `--directory`
   // re-roots a monorepo-layout patch's paths at the crate's place inside that tree.
   const directory = crate.patchDirectory === undefined ? [] : [`--directory=${crate.patchDirectory}`];
-  io.run("git", ["-c", "core.autocrlf=false", "apply", ...directory, patchFile], { cwd: vendorRoot });
+  // The copy has to be outside any repository: inside one, `git apply` re-roots the patch at that
+  // repository and reports success without touching the crate. The ceiling stops the upward search at the
+  // copy's parent, which also covers a checkout whose temp directory sits inside it.
+  io.run("git", ["-c", "core.autocrlf=false", "apply", ...directory, patchFile], {
+    cwd: vendorRoot,
+    env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(vendorRoot) },
+  });
   if (!readFileSync(patched, "utf8").includes(crate.guard)) {
     throw new Error(`${vendorDir}: \`git apply\` reported success but ${crate.module} does not carry the guard`);
   }

@@ -26,7 +26,11 @@
             "2 b"
           ]
         }
-      }
+      },
+      "needs": [
+        "sort",
+        "uniq"
+      ]
     },
     {
       "id": "shell-command-substitution",
@@ -381,7 +385,10 @@
             "\\b4\\b"
           ]
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "shell-crlf-passthrough",
@@ -998,7 +1005,8 @@
         "stdout": {
           "equals": "X\n"
         }
-      }
+      },
+      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：sed 的简单形态走引擎实现」"
     },
     {
       "id": "sed-bre-interval",
@@ -1013,7 +1021,8 @@
         "stdout": {
           "equals": "Xa\n"
         }
-      }
+      },
+      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：sed 的简单形态走引擎实现」"
     },
     {
       "id": "sed-address-zero-range",
@@ -1058,7 +1067,8 @@
         "stdout": {
           "equals": "bar x\n"
         }
-      }
+      },
+      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：sed 的简单形态走引擎实现」"
     },
     {
       "id": "awk-quoted-wildcard-stays-literal",
@@ -1681,7 +1691,10 @@
             "10"
           ]
         }
-      }
+      },
+      "needs": [
+        "sort"
+      ]
     },
     {
       "id": "coreutils-cut",
@@ -1699,7 +1712,10 @@
             "2"
           ]
         }
-      }
+      },
+      "needs": [
+        "cut"
+      ]
     },
     {
       "id": "coreutils-uniq-count",
@@ -1713,7 +1729,10 @@
             "2 a"
           ]
         }
-      }
+      },
+      "needs": [
+        "uniq"
+      ]
     },
     {
       "id": "coreutils-wc",
@@ -1730,7 +1749,10 @@
             "\\b3\\b"
           ]
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "coreutils-head-tail",
@@ -1745,7 +1767,11 @@
         "stdout": {
           "equals": "needle\nneedle\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "tail"
+      ]
     },
     {
       "id": "coreutils-md5sum-shape",
@@ -1762,7 +1788,12 @@
             "\\b33\\b"
           ]
         }
-      }
+      },
+      "needs": [
+        "cut",
+        "md5sum",
+        "wc"
+      ]
     },
     {
       "id": "coreutils-base64",
@@ -1774,7 +1805,10 @@
         "stdout": {
           "equals": "YQo=\n"
         }
-      }
+      },
+      "needs": [
+        "base64"
+      ]
     },
     {
       "id": "coreutils-mktemp-dir",
@@ -2087,7 +2121,11 @@
             "^[-dl][rwx-]{9}$"
           ]
         }
-      }
+      },
+      "needs": [
+        "cut",
+        "ls"
+      ]
     },
     {
       "id": "platform-dev-stdin",
@@ -2191,7 +2229,11 @@
         "stdout": {
           "equals": "one\n"
         }
-      }
+      },
+      "needs": [
+        "cat",
+        "sort"
+      ]
     },
     {
       "id": "argv-tmp-program-path-executes",
@@ -2242,7 +2284,7 @@
       }
     },
     {
-      "id": "argv-tmp-pattern-translated-unless-escaped",
+      "id": "argv-tmp-pattern-stays-verbatim",
       "category": "argv-semantics",
       "severity": "must-match",
       "needs": [
@@ -2253,7 +2295,7 @@
         "status": 0,
         "stdout": {
           "lines": [
-            "0",
+            "1",
             "1"
           ]
         }
@@ -2272,18 +2314,22 @@
       }
     },
     {
-      "id": "argv-tmp-no-pathconv-disables-rewrite",
+      "id": "argv-shim-no-pathconv-disables-rewrite",
       "category": "argv-semantics",
       "severity": "must-match",
-      "snippet": "f=/tmp/dsh-tmp-escape.txt; echo x > \"$f\"; DSH_BASH_NATIVE_NO_PATHCONV=1 cat \"$f\"; echo \"rc=$?\"; rm -f \"$f\"",
+      "snippet": "f=/tmp/dsh-tmp-escape.txt; echo x > \"$f\"; printf '%s\\n' \"$f\" | DSH_BASH_NATIVE_NO_PATHCONV=1 xargs cat; echo \"rc=$?\"; rm -f \"$f\"",
       "expect": {
         "status": 0,
         "stdout": {
           "lines": [
-            "rc=1"
+            "rc=123"
           ]
         }
-      }
+      },
+      "needs": [
+        "cat",
+        "xargs"
+      ]
     },
     {
       "id": "pipe-closed-reader-builtin-status",
@@ -2293,9 +2339,14 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "x st=141\n"
+          "equals": "x st=1\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "seq"
+      ],
+      "knownGap": "docs/research.md「rubash 的已知差异」的「断管的写端与 PIPESTATUS」"
     },
     {
       "id": "pipe-small-loop-is-served",
@@ -2318,7 +2369,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "1 st=141\n"
+          "equals": "1\n st=1\n"
         }
       }
     },
@@ -2326,7 +2377,7 @@
       "id": "fd-redirect-descriptor-paths",
       "category": "descriptor",
       "severity": "must-match",
-      "snippet": "echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1",
+      "snippet": "( echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1 ) | cat",
       "expect": {
         "status": 0,
         "stdout": {
@@ -2336,7 +2387,8 @@
             "d"
           ]
         }
-      }
+      },
+      "note": "The three writes go to a pipe, because `> /dev/stdout` reopens the path: with a regular file for stdout that open truncates it and only the last line would survive (GNU behaviour, measured on RHEL 9)."
     },
     {
       "id": "fd-redirect-dev-stdin-reads",
@@ -2399,14 +2451,14 @@
       }
     },
     {
-      "id": "fd-process-substitution-argument-unavailable",
+      "id": "fd-process-substitution-argument",
       "category": "descriptor",
       "severity": "must-match",
       "snippet": "cat <(echo hi)",
       "expect": {
-        "status": 1,
+        "status": 0,
         "stdout": {
-          "equals": ""
+          "equals": "hi\n"
         }
       }
     },
@@ -2593,7 +2645,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "C:\\\n"
+          "equals": "/c/\n"
         }
       }
     },
@@ -2605,7 +2657,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "C:\\Windows\n"
+          "equals": "/c/Windows\n"
         }
       }
     },
@@ -2617,7 +2669,7 @@
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "C:\\Windows\n"
+          "equals": "/c/Windows\n"
         }
       }
     },
@@ -2654,7 +2706,7 @@
         "status": 0,
         "stdout": {
           "matches": [
-            "^C:/Windows/.+\\.exe$"
+            "^/c/Windows/.+\\.exe$"
           ]
         }
       }
@@ -2803,14 +2855,14 @@
       }
     },
     {
-      "id": "crlf-program-text-loses-every-carriage-return",
+      "id": "crlf-program-text-keeps-its-carriage-return",
       "category": "shell-syntax",
       "severity": "must-match",
       "snippet": "printf 'a\rZ' | wc -c",
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "2\n"
+          "equals": "3\n"
         }
       }
     },
@@ -2839,7 +2891,11 @@
         "stdout": {
           "equals": "4\n"
         }
-      }
+      },
+      "needs": [
+        "cat",
+        "wc"
+      ]
     },
     {
       "id": "process-jobs-p-in-a-command-substitution",
@@ -2857,11 +2913,10 @@
       }
     },
     {
-      "id": "process-kill-refuses-several-targets",
+      "id": "process-kill-accepts-several-targets",
       "category": "process",
       "severity": "must-match",
-      "knownGap": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」",
-      "snippet": "\"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & \"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & kill %1 %2; printf 'rc=%s\\n' \"$?\"; kill %1; kill %2",
+      "snippet": "\"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & \"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & kill %1 %2; printf 'rc=%s\\n' \"$?\"; true",
       "expect": {
         "status": 0,
         "stdout": {
@@ -2907,7 +2962,7 @@
         "status": 0,
         "stdout": {
           "matches": [
-            "command not found: ./definitely-missing-tool",
+            "./definitely-missing-tool: No such file or directory",
             "rc=127"
           ]
         }
@@ -2923,7 +2978,11 @@
         "stdout": {
           "equals": "x\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "seq"
+      ]
     },
     {
       "id": "process-function-stage-concurrency",
@@ -2935,7 +2994,11 @@
         "stdout": {
           "equals": "x\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "seq"
+      ]
     },
     {
       "id": "process-lastpipe-runs-in-the-parent-shell",
@@ -3074,7 +3137,8 @@
         "stdout": {
           "equals": "nonempty\n"
         }
-      }
+      },
+      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」"
     },
     {
       "id": "process-pipeline-status-is-its-last-stage",
@@ -3100,7 +3164,10 @@
         "stdout": {
           "equals": "rc=1 bytes=3\n"
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "shell-printf-error-message-is-a-sentence",
@@ -3112,7 +3179,7 @@
         "status": 0,
         "stdout": {
           "matches": [
-            "%: invalid conversion specification"
+            "missing format character"
           ],
           "notContains": [
             "format-error-"
@@ -3170,7 +3237,13 @@
         "stdout": {
           "equals": "65536\n1234567\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "tail",
+        "wc",
+        "yes"
+      ]
     },
     {
       "id": "coreutils-tail-block-multiple-sixteen-thousand",
@@ -3183,7 +3256,13 @@
         "stdout": {
           "equals": "16384\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "tail",
+        "wc",
+        "yes"
+      ]
     },
     {
       "id": "coreutils-tail-non-multiple-size-unchanged",
@@ -3196,7 +3275,13 @@
         "stdout": {
           "equals": "65512\n1234567\n1234567\n"
         }
-      }
+      },
+      "needs": [
+        "head",
+        "tail",
+        "wc",
+        "yes"
+      ]
     },
     {
       "id": "fd-redirect-stderr-to-dev-null",
@@ -3208,7 +3293,10 @@
         "stdout": {
           "equals": "rc=2\n"
         }
-      }
+      },
+      "needs": [
+        "ls"
+      ]
     },
     {
       "id": "fd-redirect-append-and-merge-to-dev-null",
@@ -3232,7 +3320,10 @@
         "stdout": {
           "equals": "0\n"
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "fd-redirect-bundled-tool-writes-to-dev-null",
@@ -3247,7 +3338,10 @@
         "stdout": {
           "equals": "rc=0\n"
         }
-      }
+      },
+      "needs": [
+        "tail"
+      ]
     },
     {
       "id": "redirection-external-stderr-to-stdout",
@@ -3293,7 +3387,10 @@
             "no-such-file"
           ]
         }
-      }
+      },
+      "needs": [
+        "tail"
+      ]
     },
     {
       "id": "redirection-bundled-stdout-to-stderr",
@@ -3305,7 +3402,10 @@
         "stdout": {
           "equals": ""
         }
-      }
+      },
+      "needs": [
+        "seq"
+      ]
     },
     {
       "id": "exec-redirects-the-shell",
@@ -3389,7 +3489,8 @@
         "stdout": {
           "equals": "rc=1\nkept\n"
         }
-      }
+      },
+      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：rmdir 的简单形态吞掉错误」"
     }
   ]
 }

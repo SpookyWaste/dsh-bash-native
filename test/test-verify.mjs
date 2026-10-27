@@ -23,9 +23,22 @@ const UNREWRITTEN = "/q/x";
  */
 const answers = (banner, signature = PATCHED, argument = ARGUMENT, failure = null) => (_path, args) => {
   if (failure !== null) return { line: "", failure };
+  // A GNU bash answers the family discriminator with an invalid-option diagnostic, which is what every
+  // brush candidate in this suite must look like.
+  if (args[0] === "--identity") return { line: "bash: --identity: invalid option\n", failure: null };
   if (args[0] === "--version") return { line: banner, failure: null };
   if (args[1].includes("console.log")) return { line: `${argument}\n`, failure: null };
   return { line: `${signature.join("\n")}\n`, failure: null };
+};
+
+/**
+ * The same seam for a rubash candidate: it answers `--identity`, prints a GNU bash banner, and reports the
+ * four facts plus the background PID the contract depends on.
+ */
+const rubashAnswers = (facts = ["5.3.20(1)-release", "builtin", "2", "MSYS_NT-10.0-26200"]) => (_path, args) => {
+  if (args[0] === "--identity") return { line: "identity:    msys (default; MSYS2-compatible)\n", failure: null };
+  if (args[0] === "--version") return { line: "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)\nbuild: fa64d58 (release)\n", failure: null };
+  return { line: `${facts.join("|")}\nbg=4242\n`, failure: null };
 };
 
 // 1. A brush banner plus every patched behaviour is accepted, and the version is kept.
@@ -137,8 +150,42 @@ const answers = (banner, signature = PATCHED, argument = ARGUMENT, failure = nul
   assert.equal("ready" in packaged, true, `the shipped engine is not ready: ${packaged.refused ?? "unknown"}`);
   const verdict = readBrushVersion(packaged.ready);
   assert.equal(verdict.refused, null);
-  assert.match(verdict.version, /^brush\b/i);
+  assert.equal(verdict.family, "rubash");
+  assert.match(verdict.version, /^GNU bash, version 5\.3/);
   pass("the production spawn verifies the shipped artifact end to end");
+}
+
+// 11. A rubash candidate is recognised by its identity flag and its behaviours, and its family travels
+// with the verdict so argv construction can drop the brush-only colour flag.
+{
+  const verdict = readBrushVersion("C:\\eng\\rubash.exe", rubashAnswers());
+  assert.equal(verdict.refused, null);
+  assert.equal(verdict.family, "rubash");
+  assert.match(verdict.version, /^GNU bash, version 5\.3/);
+  pass("a rubash candidate is accepted and reports its family");
+}
+
+// 12. A rubash whose UTF-8 length counts bytes (rather than characters) is refused, naming that fact.
+{
+  const verdict = readBrushVersion("C:\\eng\\rubash.exe", rubashAnswers(["5.3.20(1)-release", "builtin", "6", "MSYS_NT-10.0-26200"]));
+  assert.equal(verdict.version, "");
+  assert.equal(verdict.family, "rubash");
+  assert.match(verdict.refused, /a character count for a UTF-8 value/);
+  pass("a rubash that counts bytes for a UTF-8 length is refused");
+}
+
+// 13. An engine under a non-MSYS persona, or without a real PID behind `$!`, is refused for that fact.
+{
+  const persona = readBrushVersion("C:\\eng\\rubash.exe", rubashAnswers(["5.3.20(1)-release", "builtin", "2", "Windows_NT"]));
+  assert.match(persona.refused, /the MSYS-compatible persona/);
+  const noPid = (_path, args) =>
+    args[0] === "--identity"
+      ? { line: "identity:    msys (default)\n", failure: null }
+      : args[0] === "--version"
+        ? { line: "GNU bash, version 5.3.20(1)-release\n", failure: null }
+        : { line: "5.3.20(1)-release|builtin|2|MSYS_NT-10.0-26200\nbg=\n", failure: null };
+  assert.match(readBrushVersion("C:\\eng\\rubash.exe", noPid).refused, /a PID behind `\$!`/);
+  pass("a wrong persona and a missing background PID are each refused by name");
 }
 
 console.log(`\n${passed} 项通过`);

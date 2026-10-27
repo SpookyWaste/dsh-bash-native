@@ -1,6 +1,6 @@
 {
   "name": "dsh-bash-native",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "description": "dsh-bash-native: a Windows-native POSIX bash executor for the DSH shell seam, with engine resolution and DSH's three-tier file sandbox honored.",
   "keywords": [
     "dsh",
@@ -8,7 +8,7 @@
     "deepseek-harness",
     "bash",
     "windows",
-    "brush",
+    "rubash",
     "sandbox"
   ],
   "type": "module",
@@ -89,7 +89,9 @@
     "corpus": "node test/test-compat-corpus.mjs",
     "doc-parity": "node test/test-doc-parity.mjs --release",
     "prepack": "tsc -p tsconfig.json",
-    "prepublishOnly": "npm run build && npm run doc-parity && npm test"
+    "prepublishOnly": "npm run build && npm run doc-parity && npm test",
+    "clean-state": "node bin/clean-state.mjs",
+    "bench": "node scripts/bench-engines.mjs"
   },
   "files": [
     "lib",
@@ -102,6 +104,7 @@
     "README.md",
     "README.en.md",
     "LICENSE",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "bin/clean-state.mjs"
   ]
 }

@@ -6,7 +6,7 @@
 
 ### Rust 实现的 Windows 原生 POSIX bash 执行器
 
-**给 DSH 的 shell 提供一个真正原生的 `bash`** —— brush 引擎，不依赖 WSL，也不需要 MSYS 兼容层
+**给 DSH 的 shell 提供一个真正原生的 `bash`** —— rubash 引擎，不依赖 WSL，也不需要 MSYS 兼容层
 
 <br>
 
@@ -17,8 +17,8 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
-[![Powered by brush](https://img.shields.io/badge/powered%20by-brush-dea584)](https://github.com/reubeno/brush)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
 
@@ -29,6 +29,8 @@
 ## 🐟 为什么需要它
 
 > ~~避免肥鱼被 cmd 咬~~，也规避了子系统和 MSYS 兼容层的性能开销
+
+**0.3.1**：引擎由`brush`更换为`rubash`，修复多项已知缺陷，提供更好的原生 POSIX 兼容
 
 <p align="center">
   <img src="img/example0.jpg" width="240">
@@ -54,18 +56,42 @@
       <td>每条命令都要经 Windows/Linux 边界往返一次，延迟对高频短命令尤为不利</td>
     </tr>
     <tr>
-      <td><b>本插件</b><br><sub>brush 引擎 + 工具链</sub></td>
+      <td><b>本插件</b><br><sub>rubash 引擎 + 工具链</sub></td>
       <td>纯 Rust 实现的原生二进制，无模拟层、无 VM</td>
-      <td><code>echo</code>、<code>cat</code>、<code>ls</code>、<code>cp</code> 等由引擎内建、不产生新进程，其余按原生进程启动，没有兼容层或 VM 边界</td>
+      <td><code>grep</code>、<code>sed</code>、<code>awk</code> 等来自随包工具链，其余由引擎在进程内处理，没有兼容层或 VM 边界</td>
     </tr>
   </tbody>
 </table>
+
+### ⚡ 实测：启动与子 shell 的代价
+
+同一台机器（Windows 11 / x64）上的同一组脚本，每项取 5 次最小值，负载只用 shell 内建与一次外部进程，排除工具链差异。
+> 复现：仓库里的 `node scripts/bench-engines.mjs`。
+
+| 工作负载 | rubash（本插件） | Git Bash / MSYS2 |
+|---|---:|---:|
+| `bash -c :`（启动到退出） | 7 ms | 25 ms |
+| `echo hi` | 6 ms | 26 ms |
+| 算术循环 10k 次 | 65 ms | 75 ms |
+| `[ ]` 判定 20k 次 | 167 ms | 181 ms |
+| 命令替换 300 次 | 11 ms | **3052** ms |
+| 子 shell 300 次 | 25 ms | **2497** ms |
+| 外部进程 20 次（`cmd /c exit`） | 192 ms | 560 ms |
+
+差距来自 **fork**：MSYS2 每次命令替换与子 shell 都要 fork 一个兼容层进程（约 8–10 ms），rubash 两样都做在进程内（每次约 0.04 ms），300 次就相差 2–3 秒。
+
+### 🧭 路径不会被“自动替换”
+
+Git Bash / MSYS2 把参数交给**原生**程序时会**猜**哪些像路径并改写（`/flag` → `C:/Program Files/Git/flag`，于是脚本和 agent 被迫记着 `MSYS_NO_PATHCONV=1`）；连数据位也一起改：用 MSYS 调原生 `awk.exe` 跑 `awk '/x/{print}'`，程序位到手是 `X:/{print}`，直接语法错误、进错路径。
+> rubash 不猜：按子进程方言，整条 argv 要么原样交给带 POSIX 层的程序，要么统一翻成 Win32 拼写；随包工具的脚本、模式、程序位永不改写，极大减少了找不到路径的情况。
 
 ---
 
 ## 📦 安装
 
 ### CLI 安装
+
+> 以 `web` profile 为例
 
 ```
 dsh plugin --profile web add dsh-bash-native
@@ -91,7 +117,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-alpha.5）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-rc.3实测）</td>
     </tr>
     <tr>
       <td><b>持久终端组件</b></td>
@@ -104,7 +130,9 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **brush**（Rust 写的 bash 兼容 shell，MIT），本仓库对它打补丁、从源码构建，产物 `engine/win32-x64/brush.exe`（约 15 MB）随包提交。
+引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
+
+> 兼容 **MSYS 的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑也能成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 
 <details>
 <summary><b>🧩 补丁清单（点击展开）</b></summary>
@@ -114,163 +142,44 @@ https://github.com/SpookyWaste/dsh-bash-native
 <table>
   <thead>
     <tr>
-      <th align="center">#</th>
       <th align="left">补丁</th>
       <th align="left">做了什么</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="center">01</td>
-      <td><code>0001-background-job-pid</code></td>
-      <td>让由字面量外部命令组成的后台作业在父进程直接 spawn 并登记，<code>$!</code> 与 <code>jobs -p</code> 有真实 PID。</td>
+      <td><code>0001-data-primary-positions-every-child</code></td>
+      <td>“数据位”的判定从 POSIX-aware 子进程推广到<b>所有</b>子进程：grep/sed/awk 的模式、脚本与程序文本，find 的模式主项，basename/dirname 的位置参数都原样交给程序；文件操作数照常翻成 Windows 形态。</td>
     </tr>
     <tr>
-      <td align="center">02</td>
-      <td><code>0002-unix-tmp-alias</code></td>
-      <td><code>/tmp</code> 成为 shell 自己解析路径时的别名——重定向、<code>cd</code>、<code>test -f</code>，以及通配符展开的根目录。</td>
+      <td><code>0002-drop-undecodable-environment-entries</code></td>
+      <td>启动时丢掉 Win32 能传入、但 Unicode 表示不了的环境项（<code>std::env::vars()</code> 遇到它会 panic）；代价是那一条变量，而不是每条命令都在建 shell 时 abort。</td>
     </tr>
     <tr>
-      <td align="center">03</td>
-      <td><code>0003-err-trap-scope</code></td>
-      <td><code>ERR</code> trap 由设置它的那一层触发，而不是按 <code>set -E</code> 判定。</td>
-    </tr>
-    <tr>
-      <td align="center">04</td>
-      <td><code>0004-external-argv-tmp-alias</code></td>
-      <td>别名改写延伸到 shell 启动的每条命令的<b>参数</b>，并留下 <code>DSH_BASH_NATIVE_NO_PATHCONV=1</code> 逃生开关。</td>
-    </tr>
-    <tr>
-      <td align="center">05</td>
-      <td><code>0005-closed-reader-stage-abort</code></td>
-      <td>读端已经离开时，断了管的复合命令整体中止，而不是像上游那样静默继续。</td>
-    </tr>
-    <tr>
-      <td align="center">06</td>
-      <td><code>0006-descriptor-paths</code></td>
-      <td><code>/dev/fd/N</code>、<code>/dev/stdin</code>、<code>/dev/stdout</code>、<code>/dev/stderr</code> 按 <b>shell 自己的</b>描述符表解析。</td>
-    </tr>
-    <tr>
-      <td align="center">07</td>
-      <td><code>0007-wait-selectors</code></td>
-      <td><code>wait</code> 汇报它等待的那个作业自己的状态，而不是只支持“等全部”与 <code>%spec</code>。</td>
-    </tr>
-    <tr>
-      <td align="center">08</td>
-      <td><code>0008-windows-kill-builtin</code></td>
-      <td><code>kill</code> 成为内建，带作业规格与信号词表，被杀的子进程以 128+n 汇报。</td>
-    </tr>
-    <tr>
-      <td align="center">09</td>
-      <td><code>0009-drive-mount-aliases</code></td>
-      <td>首段是单个字母时按盘符挂载点解析，<code>/c/Windows/System32</code> 等于 <code>C:\Windows\System32</code>。</td>
-    </tr>
-    <tr>
-      <td align="center">10</td>
-      <td><code>0010-missing-builtins</code></td>
-      <td>补上脚本会用的内建（<code>umask</code>、<code>history</code>、<code>disown</code>、<code>wait -f</code> 等），每个都给一个站得住的语义。</td>
-    </tr>
-    <tr>
-      <td align="center">11</td>
-      <td><code>0011-crlf-script-text</code></td>
-      <td>Windows 写出来的脚本按文本读，行尾的 CR 不再进入语法。</td>
-    </tr>
-    <tr>
-      <td align="center">12</td>
-      <td><code>0012-relative-command-paths</code></td>
-      <td>相对路径的命令按 shell 的工作目录解析，<code>./sub/x.exe</code> 因此可跑。</td>
-    </tr>
-    <tr>
-      <td align="center">13</td>
-      <td><code>0013-compound-pipeline-stage-concurrency</code></td>
-      <td>非末段的进程内阶段改跑自己的线程，<code>{ cat big.txt; } | head -1</code> 这类管道不再因输出超过管道缓冲而死锁。</td>
-    </tr>
-    <tr>
-      <td align="center">14</td>
-      <td><code>0014-function-call-stage-concurrency</code></td>
-      <td>同一条规则覆盖“阶段是函数调用”的情形（<code>f() { cat big.txt; }; f | head -1</code>）。</td>
-    </tr>
-    <tr>
-      <td align="center">15</td>
-      <td><code>0015-trailing-slash-requires-directory</code> <sub>0.1.1</sub></td>
-      <td>尾随分隔符只匹配目录，<code>*/</code> 与 <code>*.md/</code> 不再由卷的宽松行为代答。</td>
-    </tr>
-    <tr>
-      <td align="center">16</td>
-      <td><code>0016-bundled-name-dispatch</code> <sub>0.1.1</sub></td>
-      <td>引擎按自己的文件名分派到 bundled 工具（<code>rm.exe</code> 就是 <code>rm</code>），并在这条路上改写 <code>/tmp</code> 参数。</td>
-    </tr>
-    <tr>
-      <td align="center">17</td>
-      <td><code>0017-rm-refuses-a-trailing-separator-on-a-file</code> <sub>0.1.1</sub></td>
-      <td><code>rm</code> 拒绝“尾随分隔符指向非目录”，不再静默删掉那个普通文件。</td>
-    </tr>
-    <tr>
-      <td align="center">18</td>
-      <td><code>0018-host-env-survives-non-unicode</code> <sub>0.1.3 新增</sub></td>
-      <td>宿主环境里有一条解不出的变量时引擎不再启动即崩——此前 <code>--version</code> 仍然退 0，于是它会通过校验、然后让每条命令都在建 shell 时 abort。</td>
-    </tr>
-    <tr>
-      <td align="center">19</td>
-      <td><code>0019-windows-long-path-identity</code> <sub>0.1.3 新增</sub></td>
-      <td>同一个目录只保留一种拼写（长名）。<code>$PWD</code>、<code>$TEMP</code>/<code>$TMPDIR</code> 与 <code>/tmp</code> 指向同一处时给出同一个字符串，不再出现 <code>EXAMPL~1</code> 这类 8.3 短名。</td>
-    </tr>
-    <tr>
-      <td align="center">20</td>
-      <td><code>0020-windows-file-identity</code> <sub>0.1.3 新增</sub></td>
-      <td><code>test -ef</code> 改用真正的文件身份（卷序列号 + 文件索引）比较，不再报 <code>not supported on this platform</code>；硬链接与目录都成立。</td>
-    </tr>
-    <tr>
-      <td align="center">21</td>
-      <td><code>0021-pipeline-builtin-stage-result</code> <sub>0.1.7 新增</sub></td>
-      <td>管道里某个<b>内建</b>阶段的失败是那个阶段自己的结果，不是整条命令的终止：它后面的命令照跑，诊断写进它自己的 stderr（阶段上的 <code>2></code> 拦得住）。</td>
-    </tr>
-    <tr>
-      <td align="center">22</td>
-      <td><code>0022-printf-error-path</code> <sub>0.1.7 新增</sub></td>
-      <td><code>printf</code> 报错前先刷新已经写出的字节（<code>printf 'abc%'</code> 留下 <code>abc</code>），把消息说成人话而不是 <code>format-error-invalid-spec</code>，并让 uucore 为“值转换不了”设的退出码真正生效。</td>
-    </tr>
-    <tr>
-      <td align="center">23</td>
-      <td><code>0023-external-stdio-follows-the-stream</code> <sub>0.2.1 新增</sub></td>
-      <td><code>2>&amp;1</code> 与 <code>&gt;&amp;2</code> 把被复制的那个流交给子进程：外部程序与 bundled 工具都按语义重定向，而不是退回它自己的 fd。</td>
-    </tr>
-    <tr>
-      <td align="center">24</td>
-      <td><code>0024-bash-source-includes-the-outer-script</code> <sub>0.2.1 新增</sub></td>
-      <td>顶层 <code>source</code> 时 <code>BASH_SOURCE</code> 保留整条脚本栈，<code>BASH_SOURCE[1]</code> 是外层脚本。</td>
-    </tr>
-    <tr>
-      <td align="center">25</td>
-      <td><code>0025-arithmetic-command-requires-touching-parens</code> <sub>0.2.1 新增</sub></td>
-      <td><code>((</code> 与 <code>))</code> 只有各自紧邻时才是算术命令；<code>( (cmd) )</code> 这类嵌套子 shell 不再被误当算术而整段失败，行继续写法仍是算术。</td>
-    </tr>
-    <tr>
-      <td align="center">26</td>
-      <td><code>0026-exec-without-a-command-on-windows</code> <sub>0.2.1 新增</sub></td>
-      <td><code>exec</code> 的无参数形式在 Windows 上可用（<code>exec &gt;file 2&gt;&amp;1</code>、<code>exec 3&gt;&amp;1</code>）；带命令的形式因平台没有进程映像替换而明确报未实现。</td>
+      <td><code>0003-file-commands-from-path</code></td>
+      <td>新增 <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>：由 shell 指定哪些「进程内文件命令」改从 <code>PATH</code> 上的程序执行（<code>all</code> / <code>none</code> / 名字列表），并从 shell 自己的变量表读取，所以 <code>--rcfile</code> 也能设置；顺带让内联管道分支不再无视宿主的「关掉进程内副本」开关。</td>
     </tr>
   </tbody>
 </table>
 
 </details>
 
-> 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 15.6 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
+> 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 11 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
 ---
 
 ## 🔧 实现
 
-- **注册 `ctx.shell`**：`ShellExecutor` 的 Service Provider，构建在 `@deepseek-ai/dsh-bash-local` 之上，每条命令交给解析到的 brush 引擎；**引擎与工具链都随包分发**，并在解析时按 lock 与 manifest 校验。
+- **注册 `ctx.shell`**：`ShellExecutor` 的 Service Provider，构建在 `@deepseek-ai/dsh-bash-local` 之上，每条命令交给解析到的 rubash 引擎；**引擎与工具链都随包分发**，并在解析时按 lock 与 manifest 校验。
 - **服从 DSH 的三档文件策略**（`read-only` / `workspace-write` / `danger-full-access`）：受限档位把引擎 argv 交给 `ctx.sandbox`，不限档位直接 spawn 并如实报告档位。
-- **后台作业经 `ctx.jobs` 汇报**，超出内存上限的输出落到 spill 文件、路径随结果返回；`echo`、`cat`、`ls`、`cp`、`rm`、`sort` 等由引擎自带并解析为 builtin，空 `PATH` 也成立。
+- **后台作业经 `ctx.jobs` 汇报**，超出内存上限的输出落到 spill 文件、路径随结果返回；`echo`、`cat`、`sort` 等空 `PATH` 也能跑，因为随包工具链先于宿主 `PATH`。
 - **Web 面**用自带的 agent preset 挂载，**agent 面**用 overlay 显式启用；它不替换宿主层的 `ctx.shell`，因此其他 preset 的 `pwsh` 工具不受影响。
 
 ---
 
 ## 🎛 两个预设<sub>0.2.0：静态挂载改为跟随官方预设替换</sub>
 
-[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册：启动时读**本机安装的**  `presets/{standard,minimal}.patch.yml`，把 shipped 的 shell 面换成插件自己的 realm group；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，宿主层与其他 preset（包括用 `pwsh` 的那些）不受影响。
+[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册：启动时读**本机安装的** `presets/{standard,minimal}.patch.yml`，把 shipped 的 shell 面换成插件自己的 realm group；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，宿主层与其他 preset（包括用 `pwsh` 的那些）不受影响。
 
 <table>
   <thead>
@@ -288,7 +197,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>，order 6</sub></td>
-      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash；上游从 0.2.1-alpha.3 起自带只读图片的文件工具与压缩组</td>
+      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash。</td>
       <td>只要一个 shell 的轻量会话</td>
     </tr>
   </tbody>
@@ -296,7 +205,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## 📟 持久终端组件
 
-插件页面里 `dsh-bash-native` 提供**两个可分别开关的组件**：`dsh-bash-native/presets`（两个预设，默认开）与 `dsh-bash-native/terminal`（提供6个交互式持久终端工具，默认关）。
+插件页面里 `dsh-bash-native` 提供**两个可分别开关的组件**：`dsh-bash-native/presets`（两个预设，默认开）与 `dsh-bash-native/terminal`（提供 6 个交互式持久终端工具，默认关）。
 
 <p align="center">
   <img src="img/example1.jpg" width="50%">
@@ -330,29 +239,14 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td>无引擎时是加载失败，还是每次调用失败（两个预设都设 <code>true</code>）</td>
     </tr>
     <tr>
-      <td><code>promptSection</code></td>
-      <td><code>true</code></td>
-      <td>是否贡献模型可见的环境契约小节</td>
-    </tr>
-    <tr>
-      <td><code>promptDetail</code></td>
-      <td><code>full</code></td>
-      <td>保留的兼容键：契约只剩两句后，两个取值产出同一段文字，设或不设都一样</td>
-    </tr>
-    <tr>
       <td><code>toolsDir</code></td>
       <td><code>''</code></td>
       <td>POSIX 工具链目录；空 = 先看每用户目录里自建的那份（<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>），没有程序就用随包工具链。填了则照用，空目录也算数（不会悄悄换成随包那份）</td>
     </tr>
     <tr>
-      <td><code>bashPath</code></td>
-      <td><code>''</code></td>
-      <td>引擎绝对路径；空 = 按解析顺序找</td>
-    </tr>
-    <tr>
-      <td><code>bundledEngineDir</code></td>
-      <td><code>''</code></td>
-      <td>自带引擎目录，先探 <code>brush.exe</code> 再探 <code>bin/brush.exe</code></td>
+      <td><code>fileCommandsFromPath</code></td>
+      <td><code>['sed','rmdir']</code></td>
+      <td>改从工具链程序执行的引擎内建文件命令（仅限引擎实现的 12 个名字）；工具链没有提供该程序、或工具链目录不在 <code>PATH</code> 上时自动忽略，进程内副本继续生效。见下面的「已知限制」</td>
     </tr>
     <tr>
       <td><code>rcFile</code></td>
@@ -372,7 +266,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     <tr>
       <td><code>verifyArtifacts</code></td>
       <td><code>'stamped'</code></td>
-      <td>校验力度：<code>stamped</code> 只在产物或运行副本的 size/mtime 变化时重新哈希；<code>always</code> 每次解析都哈希（引擎 31 MB、工具链 76 MB）</td>
+      <td>校验力度：<code>stamped</code> 只在产物或运行副本的 size/mtime 变化时重新哈希；<code>always</code> 每次解析都哈希（引擎 11 MB、工具链 37 MB）</td>
     </tr>
   </tbody>
 </table>
@@ -384,33 +278,37 @@ https://github.com/SpookyWaste/dsh-bash-native
 **工具链随包分发，装完即用。**
 
 <details open>
-<summary><b>📚 28 个名字，公布其中 20 个</b></summary>
+<summary><b>📚 101 个名字，公布其中 20 个</b></summary>
 
 <br>
 
 | 类别 | 内容 |
-|---|---|
+|---|---|---|
 | **公布**（20） | `grep`、`sed`、`awk`、`jq`、`find`、`xargs`、`diff`、`cmp`、`which`、`timeout`、`stat`、`ps`，以及 `tty`、`nohup`、`nice`、`uptime`、`hostid`、`pathchk`、`locate`、`updatedb` |
-| **只装不公布**（8） | `arch` 与 shell 内建 `echo`、`printf`、`pwd`、`test`、`true`、`false`、`kill`——留作子进程要用的程序形态 |
+| **只装不公布**（81） | uutils `coreutils` 的 88 个程序（`cat`、`ls`、`rm`、`cp`、`head`、`tail`、`wc`、`sort`、`seq` 等——引擎不再自带这些），以及 shell 内建要用的程序形态 `echo`、`printf`、`pwd`、`test`、`true`、`false`、`kill` |
 
 </details>
 
 <br>
 
-- **遮蔽语义无关的同名 Windows 程序**：如 `find.exe`、`timeout.exe`；但 `convert.exe` 工具链**没有**对应实现，因此仍会命中 Windows 的卷转换工具，**别当 ImageMagick 用**。
-- **支持与引擎相同的 `/tmp` 与盘符别名**（仍然推荐使用 `$TMP`），“程序再启动程序”的链同样成立：`printf '/tmp/f\n' | xargs awk '{print}'`；引擎自带的那些名字在这条路上同样改写（补丁 `0016`），`printf '/tmp/x\n' | xargs rm` 拿到的是真实临时路径而不是字面量。
-- **顺带把 `bash`、`sh` 与引擎自带的 75 个工具名一起放到 `PATH` 上**（工具链目录在前，**名字目录**紧随其后，两者都排在宿主原有 `PATH` 之前）：
+- **支持与引擎相同的 `/tmp` 与盘符别名**，“程序再启动程序”的链同样成立：`printf '/tmp/f\n' | xargs awk '{print}'` 与 `printf '/tmp/x\n' | xargs rm` 都拿到真实路径。
+- **数据位由两边同一张表保护**：开关 <code>-e</code>/<code>-f</code> 的值、grep/sed/awk 的首个位置操作数、find 的 <code>-name</code>/<code>-path</code> 类主项、basename/dirname 的位置参数，都不翻译——引擎启动的子进程与工具链里“程序再启动程序”的那一半用的是同一份清单。
+- **顺带把 `bash` 与 `sh` 放到 `PATH` 上**（工具链目录在前，**名字目录**紧随其后，两者都排在宿主原有 `PATH` 之前）：
 
-  > `src/shim.ts` 在 `%LOCALAPPDATA%\dsh-bash-native\shim\<引擎 sha256>\` 里把这 77 个名字指向已校验引擎——同卷时全是**硬链接**，77 个名字共用引擎那一份字节——引擎再按自己的文件名分派到 bundled 实现（补丁 `0016`）。
-
-  于是 `bash script.sh`、`bash -c …`、`sh -c …` 与调用 `bash` 的 Makefile/npm 钩子都能用。
+  > `src/shim.ts` 在 `%LOCALAPPDATA%\dsh-bash-native\shim\<引擎 sha256>\` 里把这两个名字指向已校验引擎——同卷时是**硬链接**，两个名字共用引擎那一份字节。
 
 ---
 
 ## ⚠️ 已知限制
 
-- **brush 在 Windows 平台仍处于 preview 阶段**，有存在缺陷的可能。
-- **读端提前关闭（断管）时**，bundled 工具与外部程序用的是它们自己的措辞和退出码：
+- **两条与进程内副本无关的平台差异**：
+
+  | 形态 | 实测 |
+  |---|---|
+  | `cd /absent 2>err.txt \| cat` | 诊断既不在 `err.txt` 也不在 shell 的 stderr 上 |
+  | `printf … \| head -c 1` 的 `PIPESTATUS[0]` | 内建写端不报断管，`0` 而不是 `141` |
+
+- **断管（读端提前关闭）时**，工具与外部程序用它们自己的措辞和退出码——这是 Windows 没有 `SIGPIPE` 的后果（每个工具各自决定断管怎么办）：
 
   | 命令 | 写端退出码 | 备注 |
   |---|:---:|---|
@@ -418,26 +316,42 @@ https://github.com/SpookyWaste/dsh-bash-native
   | `yes \| head -c 1` | `0` | 不吭声 |
   | `cat big \| head -c 1` | `13` | — |
   | `ls -R 某目录 \| head -c 1` | `1` | — |
-  | 引擎自己的内建 | `141` | 正确结束 |
+  | 引擎自己的内建 | `0` | 不报断管（见上一条 `PIPESTATUS[0]`） |
 
-  这是 Windows 没有 `SIGPIPE` 的后果（每个工具各自决定断管怎么办）。
+- **`{ …; } | head` 在单行超过约 100 KB 时会挂起**（rubash 1.4.3，实测：60 KB 单行正常、200 KB 单行超时）：读端读走一部分就退出，写端不中止；把这条管道的输出接到文件时是挂起，接到另一个管道时则**整段输出丢失**。绕开办法：`{ …; } | cat | head`，或先写到文件再读。记录在 `docs/research.md` §72，`test/test-brush-regressions.mjs` 每次运行都会打印现状。
+- **不认识的程序分不清数据与路径**：把一个“像路径”的数据词交给引擎不认识的**原生**程序（`node -e '…' '/x/{print}'`），它会被当作路径操作数翻成 Win32 拼写——MSYS 同样如此；区别是随包工具的脚本、模式、程序位有确定的数据位表，永不被改写。
+
 ---
+
+## 🧹 磁盘足迹与清理
+
+运行时状态都在 `%LOCALAPPDATA%\dsh-bash-native` 下，并且**按内容寻址**：每个引擎构建一个 `shim/<引擎 sha256>/`。
+
+| 目录 | 谁写的 | 大小 | 删掉会怎样 |
+|---|---|:---:|---|
+| `shim/<摘要>/` | 每次解析 | 引擎大小（同卷硬链接时约 0） | 下次解析重建 |
+| `toolchain/<摘要>/` | 每次解析 | 约 36 MB（同卷硬链接时约 0） | 下次解析重建 |
+| `verified/` | 每次校验 | 几十 KB | 只会多一次哈希 |
+
+显式清理（**停掉 DSH 之后**运行）：
+> 将<dsh_profile>替换为你的profile路径，例如：`%USERPROFILE%\.dsh\profiles\<profile>`
+
+```sh
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs          # 只报告，不动文件
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代的 shim/ 与 toolchain/ 缓存
+```
 
 ## 📄 许可
 
 | 内容 | 许可 | 声明与扫描 |
 |---|:---:|---|
 | 本插件 | **MIT** | [LICENSE](LICENSE) |
-| brush 引擎 | **MIT** | [engine/LICENSE.brush](engine/LICENSE.brush)、依赖扫描 [engine/THIRD-PARTY.md](engine/THIRD-PARTY.md) |
+| rubash 引擎 | **MIT** | [engine/LICENSE.rubash](engine/LICENSE.rubash)、依赖扫描 [engine/THIRD-PARTY.md](engine/THIRD-PARTY.md) |
 | 随包工具链 | **MIT** | uutils `coreutils`/`findutils`/`grep`/`sed`、`jaq`、`goawk`、仓库内 `posix-extra`；[toolchain/LICENSES/](toolchain/LICENSES/) 与 [toolchain/THIRD-PARTY.md](toolchain/THIRD-PARTY.md) |
 
 ---
 
 ## 🙏 参考与致谢
 
-本插件的引擎补丁里，有一批缺陷是 **[oh-my-pi](https://github.com/can1357/oh-my-pi)** 先诊断出来并修好的。
-它是背景灵感，也是 Windows 原生 bash 方案的先行实现。
-
-oh-my-pi 是 MIT 许可，其声明随引擎产物发布在 [`engine/THIRD-PARTY.md`](engine/THIRD-PARTY.md)。
-
+为 Agent 提供原生 bash 这条路上，**[oh-my-pi](https://github.com/can1357/oh-my-pi)** 是最早的先行实现之一，本插件早期针对 brush 的诊断与修法也受益于它留下的记录。
 <!-- ═══════════════════════════════════════════════════════════════════════ -->

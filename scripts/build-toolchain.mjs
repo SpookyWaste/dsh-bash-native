@@ -33,7 +33,7 @@ import { closeSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, 
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BUILT_IN_UTILITIES, NOTABLE_ADDITIONS, TOOLCHAIN_COMMANDS } from "../lib/toolchain.js";
+import { ENGINE_BUILTINS, NOTABLE_ADDITIONS, TOOLCHAIN_COMMANDS } from "../lib/toolchain.js";
 import { applyUucoreOverride, assertUucoreGuard } from "./uucore-override.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -193,7 +193,7 @@ function syncSource(source) {
 /**
  * Copy the shared alias module into a checkout whose patch declares it.
  *
- * The rule for `/tmp` and `/<letter>` lives in the engine too (`patches/brush/0004-*.patch`,
+ * The rule for `/tmp` and `/<letter>` lives in the engine (it translates every child’s operands),
  * `0009-*.patch`), and none of the three can share code: the engine's copy is inside `brush-core`, which
  * these binaries do not link, and the Go component cannot link the Rust module the others share. The
  * copies are tracked in `patches/toolchain/path-alias/` and the corpus pins both paths, so drift shows
@@ -445,7 +445,7 @@ const WITHHELD = new Set(["stdbuf"]);
  * its own patch; the list is `BUILT_IN_UTILITIES` from `src/toolchain.ts` (compiled to `lib/`), not a second
  * copy of it.
  */
-const SERVED_BY_ENGINE = new Set(BUILT_IN_UTILITIES);
+const SERVED_BY_ENGINE = new Set(ENGINE_BUILTINS);
 
 /**
  * The names the contract advertises: every one of them has to be installed, or the contract is wrong.

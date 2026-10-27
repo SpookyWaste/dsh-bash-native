@@ -14,7 +14,7 @@ index 2d05fda..44d3eca 100644
  #[uucore::main(no_signals)]
  pub fn uumain(args: impl uucore::Args) -> UResult<()> {
 -    let args = expand_num_shorthand(args);
-+    let args = expand_num_shorthand(args.map(dsh_path_alias::translate));
++    let args = expand_num_shorthand(dsh_path_alias::translate(args));
      let matches = uucore::clap_localization::handle_clap_result_with_exit_code(uu_app(), args, 2)?;
  
      let grep_color = std::env::var("GREP_COLOR").unwrap_or_default();

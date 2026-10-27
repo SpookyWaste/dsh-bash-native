@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRunner, findEngine } from "../scripts/engine-harness.mjs";
+import { createRunner, findEngine, pathWithToolchain, toolsDirectory } from "../scripts/engine-harness.mjs";
 
 let passed = 0;
 function pass(name) {
@@ -28,7 +28,17 @@ if (engine === null) {
 console.log(`engine: ${engine}`);
 
 const FIXTURE = mkdtempSync(join(tmpdir(), "dsh-bash-native-stdio-"));
-const run = createRunner(engine, FIXTURE);
+// `tail` and `seq` are the toolchain's programs, so the PATH is composed like the plugin's rather than
+// inherited: a shell that never had `dsh-bash-native` on PATH would otherwise answer them with 127 and the
+// suite would report that as a redirection failure.
+const toolchainPath = pathWithToolchain({
+  withTools: true,
+  toolsDir: toolsDirectory(process.argv, process.env),
+  engine,
+  basePath: process.env.PATH ?? "",
+});
+const rawRun = createRunner(engine, FIXTURE);
+const run = (script, options = {}) => rawRun(script, { ...options, env: { ...process.env, PATH: toolchainPath } });
 
 try {
   {

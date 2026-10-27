@@ -13,17 +13,19 @@
 import Schema from '@deepseek-ai/schemastery'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalBashConfig } from '@deepseek-ai/dsh-bash-local'
+import { DEFAULT_FILE_COMMANDS_FROM_PATH, ENGINE_FILE_COMMANDS } from './toolchain.js'
 
 /** Engine-selection and composition switches this executor adds to the local bash budgets. */
 export interface BashNativeFields {
   /**
-   * Absolute path to a brush build to run instead of the probed ones; empty means "resolve".
+   * Absolute path to an engine build to run instead of the probed ones; empty means "resolve".
    *
-   * A configured path is not taken at face value: the binary is asked for its version, and anything
-   * that does not answer as brush is refused with the reason (see `./verify.ts`).
+   * A configured path is not taken at face value: the binary is asked to identify itself, and a build
+   * this contract does not describe (an upstream `cargo install`, another shell) is refused with the
+   * reason (see `./verify.ts`).
    */
   bashPath: string
-  /** Directory of a packaged engine, probed as `brush.exe` and then `bin/brush.exe`. */
+  /** Directory of a packaged engine, probed as `rubash.exe` and then `bin/rubash.exe`. */
   bundledEngineDir: string
   /**
    * Whether commands run under `ctx.sandbox`. Disabling this drops the file policy and the
@@ -68,6 +70,24 @@ export interface BashNativeFields {
    * a heuristic and not a complete report — the README's limitations state which shapes it misses.
    */
   denialSignatureAdditions: string[]
+  /**
+   * File commands this shell should run from `PATH` instead of the engine's in-process copy.
+   *
+   * The engine answers a simple form of `mkdir`, `touch`, `chmod`, `cp`, `rm`, `rmdir`, `cat`, `sed`,
+   * `mkfifo` and `tty` — plus `/bin/pwd`, `/bin/printf`, `/bin/cat` and `/bin/tty` — inside its own
+   * process, and hands anything more involved to `PATH` (see `ENGINE_FILE_COMMANDS` in `./toolchain.ts`).
+   * That copy is a second implementation of the programs the toolchain publishes, and two of them are
+   * measurably not GNU's: the in-process `sed` has no `\b`, `\{m,n\}` or `\|`, and the in-process `rmdir`
+   * exits 0 for a missing operand and removes the parent directory for `dir/.`. Naming a command here
+   * runs the toolchain's program instead, which is the implementation the corpus expectations describe.
+   *
+   * A name is dropped when the toolchain is not on `PATH` or does not publish that program, so an install
+   * without a toolchain keeps the engine's copy rather than losing the command. The default names only
+   * the two measured disagreements: one process per call is a real cost on `cat`/`rm`/`mkdir` loops, and
+   * `chmod` and `mkfifo` have no toolchain program at all on Windows, so they must stay in-process.
+   * Setting every name is possible and documented in the README's limitations, not supported as a default.
+   */
+  fileCommandsFromPath: string[]
   /** Extra environment entries for every command, layered above the model-friendly defaults. */
   shellEnvOverrides: Record<string, string>
   /**
@@ -110,6 +130,7 @@ export const Config = Schema.object({
   toolsDir: Schema.string().default(''),
   rcFile: Schema.string().default(''),
   denialSignatureAdditions: Schema.array(Schema.string()).default(['os error 5']),
+  fileCommandsFromPath: Schema.array(Schema.union([...ENGINE_FILE_COMMANDS])).default([...DEFAULT_FILE_COMMANDS_FROM_PATH]),
   shellEnvOverrides: Schema.dict(Schema.string()).default({}),
   verifyArtifacts: Schema.union(['stamped', 'always']).default('stamped'),
 })

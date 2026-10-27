@@ -68,117 +68,84 @@ export const NOTABLE_ADDITIONS = [
 ] as const
 
 /**
- * Utilities the bundled-coreutils engine build carries as builtins.
+ * Names rubash answers inside the shell process, so the toolchain must not publish a second copy.
  *
- * Measured with `type -t` over the GNU coreutils name set (see `docs/research.md`); the standard bash
- * builtins (`echo`, `printf`, `test`, `true`, `false`, `pwd`) are omitted because every bash has them,
- * and they are named separately in {@link SHELL_BUILTINS}. `type -t` cannot tell a name the engine
- * executes in its own process from one it dispatches to itself, and the bundled set is the second kind:
- * every call re-enters the engine as a `--invoke-bundled <name>` child (see `patches/brush/README.md`,
- * `0004`), which is why the contract states that mechanism instead of calling these utilities in-process.
- *
- * This list is also what keeps a toolchain copy of one of these names out of the contract: the engine
- * already answers it, so advertising it as an addition would claim a capability the toolchain did not add.
+ * `uname` and `arch` are full builtins with no external fallback, and the engine keeps their identity
+ * fields (the MSYS-compatible persona) out of `PATH` on purpose, so a program of the same name would be a
+ * second opinion about which platform this is.
  */
-export const BUILT_IN_UTILITIES = [
-  'b2sum',
-  'base32',
-  'base64',
-  'basename',
-  'basenc',
-  'cat',
-  'cksum',
-  'comm',
-  'cp',
-  'csplit',
-  'cut',
-  'date',
-  'dd',
-  'df',
-  'dir',
-  'dircolors',
-  'dirname',
-  'du',
-  'env',
-  'expand',
-  'expr',
-  'factor',
-  'fmt',
-  'fold',
-  'head',
-  'hostname',
-  'join',
-  'link',
-  'ln',
-  'ls',
-  'md5sum',
-  'mkdir',
-  'mktemp',
-  'more',
-  'mv',
-  'nl',
-  'nproc',
-  'numfmt',
-  'od',
-  'paste',
-  'pr',
-  'printenv',
-  'ptx',
-  'readlink',
-  'realpath',
-  'rm',
-  'rmdir',
-  'seq',
-  'sha1sum',
-  'sha224sum',
-  'sha256sum',
-  'sha384sum',
-  'sha512sum',
-  'shred',
-  'shuf',
-  'sleep',
-  'sort',
-  'split',
-  'sum',
-  'sync',
-  'tac',
-  'tail',
-  'tee',
-  'touch',
-  'tr',
-  'truncate',
-  'tsort',
-  'uname',
-  'unexpand',
-  'uniq',
-  'unlink',
-  'vdir',
-  'wc',
-  'whoami',
-  'yes',
-]
+export const ENGINE_BUILTINS = ['arch', 'uname'] as const
 
+/**
+ * Names rubash runs in-process only for simple forms and hands to `PATH` otherwise.
+ *
+ * This is the class the toolchain has to publish even though the engine "answers" the name: `xargs
+ * dirname`, `find -exec basename` and a script that execs `sleep` reach a program, never a builtin, and
+ * the engine's own `type` reports them as external commands for exactly that reason.
+ */
+export const ENGINE_FALLBACK_NAMES = ['basename', 'dirname', 'sleep'] as const
 
 /**
  * Names the engine answers itself, so a program copy of one is never advertised.
  *
  * `find -exec`, `xargs` and `timeout` start a *program*, and a builtin has no executable for them to start:
- * `xargs rm` and `find . -exec rm {} \;` need a real `rm` on `PATH` even though `rm` works at the prompt. That
- * used to be the farm's job — it installed a copy of every name the engine answers, as hard links to one
- * multi-call binary. It is the plugin's shim directory now: every bundled name is a hard link to the engine,
- * and the engine dispatches on its own file name (patch `0016`), so one implementation answers both the
- * prompt and a child process while `scripts/build-toolchain.mjs` keeps these names out of the farm.
- * {@link SHADOWED_IN_DIRECTORY} still bars them from the contract's own lists, because an operator's
- * `toolsDir` may legitimately hold copies of them. The corpus's `xargs-rm` and `find-exec-rm` cases are the
- * gate that the program form really resolves.
+ * `xargs rm` and `find . -exec rm {} \;` need a real `rm` on `PATH` even though `rm` works at the prompt. The
+ * toolchain publishes a program for every one of these names, so the program form resolves while the prompt
+ * still gets the engine's builtin. {@link SHADOWED_IN_DIRECTORY} keeps them out of the contract's own lists,
+ * because an operator's `toolsDir` may legitimately hold copies of them. The corpus's `xargs-rm` and
+ * `find-exec-rm` cases are the gate that the program form really resolves.
  */
 export const SHELL_BUILTINS = ['echo', 'printf', 'pwd', 'test', 'true', 'false', 'kill'] as const
+
+/**
+ * Commands rubash answers with an in-process copy, in its own words "the external file builtins".
+ *
+ * For a simple form the engine implements `mkdir`, `touch`, `chmod`, `cp`, `rm`, `rmdir`, `cat`, `sed`,
+ * `mkfifo` and `tty` itself, plus the absolute spellings `/bin/pwd`, `/bin/printf`, `/bin/cat` and
+ * `/bin/tty`; anything more involved it hands to `PATH`. That layer is a second implementation of commands
+ * this toolchain also publishes, and the two do not agree everywhere — see
+ * {@link DEFAULT_FILE_COMMANDS_FROM_PATH}. Naming a command in {@link fileCommandsFromPath} runs the
+ * toolchain's program instead. This list mirrors `patches/rubash/0003` and the engine's own `matches!`.
+ */
+export const ENGINE_FILE_COMMANDS = [
+  'cat',
+  'chmod',
+  'cp',
+  'mkdir',
+  'mkfifo',
+  'printf',
+  'pwd',
+  'rm',
+  'rmdir',
+  'sed',
+  'touch',
+  'tty',
+] as const
+
+/**
+ * The commands whose in-process copy is measurably not GNU's, and so default to the toolchain's program.
+ *
+ * `sed`: the in-process copy is a hand-rolled matcher for `s/pat/rep/` and `Nd` only — `\b`, `\{m,n\}` and
+ * `\|` do not work, while the toolchain's sed (with this repository's patch) implements them. `rmdir`: the
+ * in-process copy ignores every `remove_dir` error and then reports success, so a missing operand exits 0 and
+ * `dir/.` removes the parent.
+ *
+ * The rest of the layer stays in-process on purpose. `chmod` and `mkfifo` have no toolchain program at all on
+ * Windows — uutils publishes neither applet — so sending them to `PATH` turns `chmod +x` into "command not
+ * found". `cat`, `rm`, `mkdir`, `touch`, `cp`, `tty`, `pwd` and `printf` agree with GNU in the corpus and are
+ * hot enough that one process per call costs more than the copy saves. A deployment that wants every program
+ * can still pass `all` through `shellEnvOverrides`.
+ */
+export const DEFAULT_FILE_COMMANDS_FROM_PATH = ['sed', 'rmdir'] as const
+
+/** The engine variable that carries {@link DEFAULT_FILE_COMMANDS_FROM_PATH} to the shell. */
+export const FILE_COMMANDS_FROM_PATH_ENV = 'RUBASH_FILE_COMMANDS_FROM_PATH'
 
 /** Applets whose meaning the engine already covers another way, so a copy is installed but never named. */
 const REDUNDANT_PROGRAMS = ['arch'] as const
 
 /** Names in the directory that must never be advertised, beyond the Windows impostors. */
-const SHADOWED_IN_DIRECTORY = [...SHELL_BUILTINS, ...REDUNDANT_PROGRAMS, ...BUILT_IN_UTILITIES] as const
+const SHADOWED_IN_DIRECTORY = [...SHELL_BUILTINS, ...REDUNDANT_PROGRAMS, ...ENGINE_BUILTINS] as const
 
 /** POSIX names Windows also answers to with unrelated semantics. */
 export const WINDOWS_IMPOSTORS = ['find', 'timeout', 'convert'] as const
@@ -327,6 +294,28 @@ export function prependPaths(dirs: readonly string[], basePath: string, delimite
 }
 
 /**
+ * The commands one run should take from `PATH` instead of the engine's in-process copy.
+ *
+ * A name survives only when the toolchain directory will actually lead `PATH` — the same `provided`
+ * condition the executor uses to decide the prepend — and the probe found that program, either among the
+ * declared names or in `additional` (where `rmdir` and the other published applets live). Everything else
+ * keeps the engine's copy: a machine without a toolchain behaves exactly as it did before this switch
+ * existed, and a toolchain missing one program costs only that program.
+ * @param probe - the toolchain probe for this resolution.
+ * @param requested - the configured commands, already validated against {@link ENGINE_FILE_COMMANDS}.
+ * @returns the commands to hand the engine, in the configured order, without duplicates.
+ */
+export function fileCommandsFromPath(probe: ToolchainProbe, requested: readonly string[]): readonly string[] {
+  if (probe.provided.length === 0) return []
+  const available = new Set<string>([...probe.provided, ...probe.additional])
+  const names: string[] = []
+  for (const name of requested) {
+    if (available.has(name) && !names.includes(name)) names.push(name)
+  }
+  return names
+}
+
+/**
  * Where the interactive startup file lives, next to the per-user state rather than inside the
  * toolchain directory so a user-configured `toolsDir` is never written to.
  * @param env - the environment to read `LOCALAPPDATA` from.
@@ -343,20 +332,28 @@ export function defaultRcFile(env: Record<string, string | undefined>, toolsDir:
 }
 
 /**
- * The startup file's contents, which is only the `PATH` prepend.
+ * The startup file's contents, which is only the environment a PTY session could not otherwise inherit.
  *
- * A PTY session spawns the engine directly and therefore never passes through the executor's
- * `resolve()`, so without this file the persistent shell would see no toolchain and `find`, `grep`
- * and `timeout` would silently be the Windows programs again — and no `bash`/`sh` name either. The whole
- * prefix is single-quoted so a path containing `$`, a quote or a backslash cannot be interpreted, and the
- * inherited `PATH` is double-quoted so it expands; adjacent quoted strings concatenate, which is what puts
- * the platform's separator between them.
+ * A PTY session spawns the engine directly and therefore never passes through the executor's `resolve()`, so
+ * without this file the persistent shell would see no toolchain and `find`, `grep` and `timeout` would
+ * silently be the Windows programs again — and no `bash`/`sh` name either. The whole `PATH` prefix is
+ * single-quoted so a path containing `$`, a quote or a backslash cannot be interpreted, and the inherited
+ * `PATH` is double-quoted so it expands; adjacent quoted strings concatenate, which is what puts the
+ * platform's separator between them. The file-command policy is exported for the same reason: the engine
+ * reads it from the shell's own variables, so a session that never sees this executor's spawn environment
+ * still learns which commands come from the toolchain.
  * @param dirs - the directories to prepend, in priority order; empty entries are ignored.
  * @param delimiter - the platform's `PATH` separator.
+ * @param fileCommands - the commands whose programs should answer instead of the engine's in-process copies.
  * @returns the file's text, ending with exactly one newline.
  */
-export function rcFileContents(dirs: readonly string[], delimiter: string): string {
+export function rcFileContents(dirs: readonly string[], delimiter: string, fileCommands: readonly string[] = []): string {
+  const lines = ['# Generated by dsh-bash-native: the POSIX toolchain leads PATH and answers the file commands named here.']
   const prefix = dirs.filter((dir) => dir.length > 0).join(delimiter)
-  const quoted = `'${prefix.replaceAll("'", `'\\''`)}'`
-  return `# Generated by dsh-bash-native: put the POSIX toolchain ahead of the same-named Windows programs.\nexport PATH=${quoted}"${delimiter}$PATH"\n`
+  if (prefix.length > 0) {
+    const quoted = `'${prefix.replaceAll("'", `'\\''`)}'`
+    lines.push(`export PATH=${quoted}"${delimiter}$PATH"`)
+  }
+  if (fileCommands.length > 0) lines.push(`export ${FILE_COMMANDS_FROM_PATH_ENV}='${fileCommands.join(',')}'`)
+  return `${lines.join('\n')}\n`
 }

@@ -1,14 +1,15 @@
 {
-  "generated": "2026-10-20T06:39:43.960Z",
-  "engine": "brush 0.4.0 (git:08db87a6-modified)",
-  "toolchain": "<WORKSPACE>/.scratch/tools/bin",
+  "generated": "2026-10-27T03:22:46.010Z",
+  "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
+  "toolchain": "<HOME>\\AppData\\Local\\dsh-bash-native\\tools\\bin",
+  "fileCommands": "sed,rmdir",
   "counts": {
     "total": 227,
-    "pass": 214,
+    "pass": 215,
     "fail": 0,
     "skip": 0,
     "collision": 0,
-    "knownGap": 5,
+    "knownGap": 4,
     "platform": 8,
     "silentWrong": 0
   },
@@ -16,16 +17,15 @@
   "collisions": {},
   "knownGaps": {
     "awk-quoted-wildcard-stays-literal": "docs/research.md「已知引擎差异」的「awk 的带引号通配符：已修，退出码仍与 gawk 不同」: status 0 (want 0), stdout \"rc=1\", stderr \"open *.txt: The filename, directory name, or volume label syntax is incorrect.\"",
-    "process-dollar-bang-builtin-background": "docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」: status 0 (want 0), stdout \"bad\"",
+    "pipe-closed-reader-builtin-status": "docs/research.md「rubash 的已知差异」的「断管的写端与 PIPESTATUS」: status 0 (want 0), stdout \"x st=0\"",
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"1\\n st=0\"",
-    "process-jobs-p-in-a-command-substitution": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」: status 0 (want 0), stdout \"direct=[21388] substitution=[]\"",
-    "process-kill-refuses-several-targets": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「kill 一次只接受一个目标」: status 0 (want 0), stdout \"rc=2\", stderr \"kill: too many jobs or processes specified\""
+    "process-pipeline-builtin-failure-honors-its-stderr-redirect": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」: status 0 (want 0), stdout \"empty\""
   },
   "failures": {},
   "platform": {
     "platform-uname": {
       "status": 0,
-      "stdout": "Windows_NT\n"
+      "stdout": "MSYS_NT-10.0-26200\n"
     },
     "platform-ls-long": {
       "status": 0,
@@ -33,23 +33,23 @@
     },
     "platform-dev-stdin": {
       "status": 0,
-      "stdout": "brush.exe: /dev/stdin: 系统找不到指定的路径。\n"
+      "stdout": "needle\n"
     },
     "platform-tmp-location": {
       "status": 0,
-      "stdout": "<HOME>\\AppData\\Local\\Temp\\dsh-MkVHvL\n"
+      "stdout": "/tmp\n"
     },
     "platform-root-is-drive": {
       "status": 0,
-      "stdout": "C:\\\n"
+      "stdout": "/\n"
     },
     "platform-drive-mount-hits-a-script-operand": {
       "status": 0,
-      "stdout": "sed.exe: <script argument 1>:1:1: error: invalid command code `X'\n"
+      "stdout": ""
     },
     "platform-drive-mount-hits-awk-program-text": {
       "status": 0,
-      "stdout": "<cmdline>:1:2: expected , instead of :\n"
+      "stdout": "x\n"
     },
     "platform-od-bytes": {
       "status": 0,

@@ -29,7 +29,7 @@ jobs:
         # (`latest` is a stale placeholder for this package, so `next` is the line this plugin targets).
         run: node scripts/fetch-upstream-preset.mjs --env >> $env:GITHUB_ENV
       # The engine-dependent suites run here rather than skipping: `scripts/engine-harness.mjs` falls back
-      # to the plugin's own resolver, which selects the committed `engine/win32-x64/brush.exe`, so the corpus
+      # to the plugin's own resolver, which selects the committed `engine/win32-x64/rubash.exe`, so the corpus
       # is scored against `corpus/baseline.json` on every push (a candidate that exists but is refused throws
       # instead of skipping). `test-package.mjs` additionally packs this tree, unpacks the tarball and drives
       # the package from there, which is the only gate that catches a `files` mistake. The toolchain baseline
@@ -58,6 +58,17 @@ jobs:
           "::error::--- last 15 lines ---"
           $lines | Select-Object -Last 15 | ForEach-Object { "::error::$_" }
 
+  oracle:
+    # The Linux half of the corpus. GNU bash and the GNU tools are the reference the Windows suites
+    # score against, so an expectation that drifted from GNU has to fail somewhere before it can
+    # excuse a Windows deviation. No Node and no build: the suite is plain bash and the runner has
+    # every program it asks for.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Corpus on GNU bash
+        run: bash test/linux-oracle/run.sh
+
   engine:
     # Build the engine and the toolchain from source, then check this plugin's capability claims
     # against both. Manual only: the builds download the whole crate graph and the toolchain sources.
@@ -71,10 +82,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Build brush from the pin with this repository's patches
+      - name: Build rubash from the pin with this repository's patches
         # Not `cargo install`: the plugin's verifier refuses an unpatched build, and the baselines were
         # recorded on this one, so an upstream build fails every engine-dependent check by construction.
-        # This script clones the pin, applies `patches/brush/*.patch`, installs the artifact in the
+        # This script clones the pin, applies `patches/rubash/*.patch`, installs the artifact in the
         # checkout and rewrites `engine.lock.json` to the hash it just produced.
         run: node scripts/build-engine.mjs --refresh
       - name: Fetch the upstream preset the drift alarm compares against
@@ -84,7 +95,7 @@ jobs:
       - name: Engine capability test
         run: npm test
         env:
-          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\brush.exe
+          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\rubash.exe
       - name: Build the POSIX toolchain
         run: >-
           node scripts/build-toolchain.mjs
@@ -96,4 +107,4 @@ jobs:
       - name: Toolchain capability test
         run: node test/test-compat-corpus.mjs --tools-dir="$env:RUNNER_TEMP\tools\bin"
         env:
-          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\brush.exe
+          DSH_BASH_NATIVE_ENGINE: ${{ github.workspace }}\engine\win32-x64\rubash.exe

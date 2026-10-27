@@ -14,8 +14,9 @@ import { delimiter, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveEngine } from '../lib/resolve.js'
 import { packageRoot, preparePackagedEngine } from '../lib/artifact.js'
-import { captureStdio, readBrushVersion } from '../lib/verify.js'
+import { captureStdio, readEngineVersion } from '../lib/verify.js'
 import { prepareShellNames } from '../lib/shim.js'
+import { preparePackagedToolchain } from '../lib/toolchain-artifact.js'
 
 const isFile = (path) => {
   try {
@@ -39,7 +40,11 @@ export function toolsDirectory(argv, env) {
   if (flag !== undefined) return flag.slice('--tools-dir='.length)
   if (env.DSH_BASH_NATIVE_TOOLS !== undefined && env.DSH_BASH_NATIVE_TOOLS.length > 0) return env.DSH_BASH_NATIVE_TOOLS
   const local = env.LOCALAPPDATA
-  return local === undefined || local.length === 0 ? '' : join(local, 'dsh-bash-native', 'tools', 'bin')
+  if (local === undefined || local.length === 0) return ''
+  const built = join(local, 'dsh-bash-native', 'tools', 'bin')
+  // A source build wins when it exists; a checkout that never ran `npm run toolchain` falls back to the copy
+  // the package ships, which is the same order the plugin resolves in.
+  return existsSync(join(built, 'tail.exe')) ? built : packagedToolchainDirectory()
 }
 
 /**
@@ -80,6 +85,29 @@ function prepareShim(engine) {
     // caller already treats a missing directory as "not provided".
     return ''
   }
+}
+
+/** The packaged toolchain's `bin`, materialized at most once per process; empty when it cannot be prepared. */
+let packagedTools
+
+/**
+ * The packaged toolchain, materialized outside the package, for a checkout that has no built copy.
+ *
+ * The plugin prefers a toolchain built from source over the packaged one, and a checkout that never ran
+ * `npm run toolchain` has no built copy — so a suite asking for utilities would otherwise report `command not
+ * found` for every one of them as an engine failure. This mirrors the plugin's own order.
+ * @returns the materialized `bin` directory, or an empty string when neither is available.
+ */
+function packagedToolchainDirectory() {
+  if (packagedTools === undefined) {
+    try {
+      const prepared = preparePackagedToolchain({ packageRoot: packageRoot(), env: process.env })
+      packagedTools = 'ready' in prepared ? prepared.ready : ''
+    } catch {
+      packagedTools = ''
+    }
+  }
+  return packagedTools
 }
 
 /**
@@ -134,7 +162,7 @@ export function findEngine() {
   const configured = process.env.DSH_BASH_NATIVE_ENGINE
   if (configured !== undefined && configured.length > 0) {
     if (!existsSync(configured)) return null
-    const verdict = readBrushVersion(configured)
+    const verdict = readEngineVersion(configured)
     if (verdict.refused !== null) {
       throw new Error(
         `dsh-bash-native: DSH_BASH_NATIVE_ENGINE names ${configured}, which this contract cannot use: ${verdict.refused}`,
@@ -148,7 +176,7 @@ export function findEngine() {
       process.env,
       process.platform,
       { isFile },
-      (path) => readBrushVersion(path),
+      (path) => readEngineVersion(path),
     ),
   )
 }
@@ -218,6 +246,19 @@ export function createRunner(engine, captureDir) {
 }
 
 /**
+ * The native spelling of a resolved command path, so a POSIX drive mount is classified like the drive it
+ * names: rubash's `command -v` answers `/c/Windows/system32/find.exe`, and a comparison against
+ * `C:\Windows\` has to see that as the Windows program it is.
+ * @param path - a resolved command path, in either separator style.
+ * @returns the lowercased path with `/` as `\` and a leading `/<letter>/` turned into `<letter>:\`.
+ */
+const nativeSpelling = (path) => {
+  const lowered = path.toLowerCase().replace(/\//g, '\\')
+  const mounted = /^\\([a-z])\\(.*)$/.exec(lowered)
+  return mounted === null ? lowered : `${mounted[1]}:\\${mounted[2]}`
+}
+
+/**
  * The Windows directory itself, with the trailing separator so a sibling directory cannot match it.
  *
  * Matching any path segment called `windows` is not enough: a GitHub runner keeps its real Node under
@@ -231,7 +272,7 @@ const WINDOWS_ROOT = `${(process.env.SystemRoot ?? 'C:\\Windows').replace(/[\\/]
  * @param path - a resolved command path, in either separator style.
  * @returns true when the path is inside the Windows directory.
  */
-export const isWindowsProgram = (path) => path.toLowerCase().replace(/\//g, '\\').startsWith(WINDOWS_ROOT)
+export const isWindowsProgram = (path) => nativeSpelling(path).startsWith(WINDOWS_ROOT)
 
 /** Git for Windows ships MSYS builds of the POSIX tools under its own tree (`usr\bin`, `mingw64\bin`). */
 const MSYS_MARKERS = ['\\git\\usr\\bin\\', '\\git\\mingw64\\bin\\', '\\git\\bin\\']
@@ -309,7 +350,17 @@ export function violatesGuards(stdout, expectation) {
  */
 export function probeNeeds(run, needs, options = {}) {
   if (needs.length === 0) return { missing: [], collisions: [], foreign: [] }
-  const script = needs.map((name) => `p=$(command -v ${name} 2>/dev/null); printf '%s\\t%s\\n' ${name} "$p"`).join('; ')
+  // `command -v` alone cannot answer this: rubash answers `/bin/ls` for a name whose program is absent (a
+  // display namespace its own upstream suite needs), and that path only resolves when some directory the
+  // shell treats as a `/bin` root is on PATH — a stale one from an older build makes the answer look real
+  // when it is the wrong program. `type -a` lists every hit in PATH order, so the first one the filesystem
+  // really holds is the program the shell would run, which is what this probe is about.
+  const script = needs
+    .map(
+      (name) =>
+        `p=$(type -a ${name} 2>/dev/null | while read -r line; do c=\${line#* is }; if [ -e "$c" ]; then printf '%s\\n' "$c"; break; fi; done); printf '%s\\t%s\\n' ${name} "$p"`,
+    )
+    .join('; ')
   const missing = []
   const collisions = []
   const foreign = []

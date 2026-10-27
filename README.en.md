@@ -4,21 +4,21 @@
 
 # 🐚 dsh-bash-native
 
-### A Windows-native POSIX bash executor, written in Rust
+### A native POSIX bash on Windows, written in Rust
 
-**A genuinely native `bash` for DSH's shell** — the brush engine, with no WSL and no MSYS compatibility layer
+**Give DSH's shell a genuinely native `bash`** — the rubash engine, with no WSL and no MSYS compatibility layer
 
 <br>
 
-`Three-tier file policy` · `Background jobs` · `Persistent terminal`
+`Follows the three-tier file policy` · `Background jobs` · `Persistent terminals`
 
 <br>
 
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
-[![Powered by brush](https://img.shields.io/badge/powered%20by%20brush-dea584)](https://github.com/reubeno/brush)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
 
@@ -26,9 +26,11 @@
 
 ---
 
-## 🐟 Why this exists
+## 🐟 Why it exists
 
-> ~~So the fat fish stops getting bitten by cmd~~, and to avoid the cost of a subsystem or an MSYS compatibility layer
+> ~~So the fat fish stops getting bitten by cmd~~, and without the performance cost of a subsystem or an MSYS layer
+
+**0.3.1**: the engine moved from `brush` to `rubash`, fixing a list of known defects and offering better native POSIX compatibility
 
 <p align="center">
   <img src="img/example0.jpg" width="240">
@@ -39,27 +41,49 @@
     <tr>
       <th align="left">Approach</th>
       <th align="left">Where the command runs</th>
-      <th align="left">What each command costs</th>
+      <th align="left">Cost per command</th>
     </tr>
   </thead>
   <tbody>
     <tr>
       <td><b>Git for Windows</b></td>
-      <td>A ported bash on the MSYS2 compatibility layer, with POSIX semantics emulated at runtime</td>
-      <td>Every subshell or external command makes that layer fork a whole MSYS2 process (suspending threads, starting a process, moving memory through a pipe), so the cost grows linearly with how often subshells start</td>
+      <td>A bash ported onto the MSYS2 layer; POSIX semantics are emulated by the runtime</td>
+      <td>Every subshell or external command forks a whole MSYS2 process (suspend threads, spawn a process, shovel memory through a pipe), and the cost grows with how often subshells start</td>
     </tr>
     <tr>
       <td><b>WSL</b></td>
-      <td>The command runs inside a distribution in a Linux VM</td>
-      <td>Every command crosses the Windows/Linux boundary twice, which hurts short, frequent commands most</td>
+      <td>The command runs in a Linux distribution inside a VM</td>
+      <td>Every command crosses the Windows/Linux boundary twice; the latency hurts most on many short commands</td>
     </tr>
     <tr>
-      <td><b>This plugin</b><br><sub>brush engine + toolchain</sub></td>
-      <td>A native binary written in Rust, with no emulation layer and no VM</td>
-      <td><code>echo</code>, <code>cat</code>, <code>ls</code>, <code>cp</code> and friends are built into the engine and start no process at all; the rest start as native processes, with no compatibility layer and no VM boundary</td>
+      <td><b>This plugin</b><br><sub>rubash engine + toolchain</sub></td>
+      <td>Native binaries written in Rust, with no emulation layer and no VM</td>
+      <td><code>grep</code>, <code>sed</code>, <code>awk</code> and friends come from the bundled toolchain; the rest runs in the engine's own process, with no compatibility layer or VM boundary</td>
     </tr>
   </tbody>
 </table>
+
+### ⚡ Measured: the cost of a startup and a subshell
+
+The same scripts on the same machine (Windows 11 / x64), minimum of five runs each, using only shell builtins and one external spawn so the toolchains do not enter the comparison.
+> Reproduce with `node scripts/bench-engines.mjs` from the repository.
+
+| Workload | rubash (this plugin) | Git Bash / MSYS2 |
+|---|---:|---:|
+| `bash -c :` (start to exit) | 7 ms | 25 ms |
+| `echo hi` | 6 ms | 26 ms |
+| arith loop 10k | 65 ms | 75 ms |
+| `[ ]` 20k | 167 ms | 181 ms |
+| command sub 300 | 11 ms | **3052** ms |
+| subshell 300 | 25 ms | **2497** ms |
+| external spawn 20 (`cmd /c exit`) | 192 ms | 560 ms |
+
+The gap comes from **fork**: every command substitution and subshell under MSYS2 forks an emulation-layer process (about 8–10 ms), while rubash keeps both in-process (about 0.04 ms each), which is two to three seconds over 300 runs.
+
+### 🧭 Paths are not silently rewritten
+
+Git Bash / MSYS2 **guesses** which arguments look like paths when it hands them to a **native** program and rewrites them (`/flag` becomes `C:/Program Files/Git/flag`, so scripts and agents have to remember `MSYS_NO_PATHCONV=1`); data words are rewritten too: run `awk '/x/{print}'` through MSYS against a native `awk.exe` and the program word arrives as `X:/{print}`, a syntax error and the wrong path.
+> rubash does not guess: per child dialect, a whole argv is either passed verbatim to a program that owns a POSIX layer or uniformly translated to Win32 spellings, and the scripts, patterns and program words of the shipped tools are never rewritten, which removes most of the wrong-path cases.
 
 ---
 
@@ -67,21 +91,23 @@
 
 ### From the CLI
 
+> Take the `web` profile as an example
+
 ```
 dsh plugin --profile web add dsh-bash-native
 ```
 
 ### From the dsh web or desktop app
 
-> **dsh plugin page** → **Add plugin** in the top right → paste the plugin name `dsh-bash-native` or the repository URL:
+> **dsh plugins page** → **Add plugin** (top right) → enter the name `dsh-bash-native` or the repository URL:
 
 ```
 https://github.com/SpookyWaste/dsh-bash-native
 ```
 
-After restarting, set **Native Bash (Windows)** as the default preset under **Settings → General** (or switch to it inside a session).
+After a restart, set **Native Bash (Windows)** as the default preset under **Settings → General** (or switch to it inside a session).
 
-> The persistent terminal component is **off by default**; switch it on in the plugin manager. See [the persistent terminal component](#the-persistent-terminal-component).
+> The persistent-terminal component is **off by default**; turn it on in the plugin manager. See [the persistent-terminal component](#-persistent-terminal-component).
 
 <table>
   <tbody>
@@ -91,11 +117,11 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 through 0.2.1-alpha.5)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.1-rc.3 tested)</td>
     </tr>
     <tr>
-      <td><b>Persistent terminal component</b></td>
-      <td>Requires DSH <code>&gt;=0.2.1-alpha.1</code> to enable</td>
+      <td><b>Persistent-terminal component</b></td>
+      <td>Needs DSH <code>&gt;=0.2.1-alpha.1</code> to be enabled</td>
     </tr>
   </tbody>
 </table>
@@ -104,7 +130,9 @@ After restarting, set **Native Bash (Windows)** as the default preset under **Se
 
 ## ⚙️ Engine
 
-The engine is **brush** (a bash-compatible shell written in Rust, MIT). This repository patches it and builds it from source, and the result — `engine/win32-x64/brush.exe`, about 15 MB — is committed with the package.
+The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies three patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
+
+> Compatible with the **MSYS `uname -s` identity** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
 <details>
 <summary><b>🧩 Patch list (click to expand)</b></summary>
@@ -114,163 +142,44 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
 <table>
   <thead>
     <tr>
-      <th align="center">#</th>
       <th align="left">Patch</th>
       <th align="left">What it does</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="center">01</td>
-      <td><code>0001-background-job-pid</code></td>
-      <td>A background job made of literal external commands is spawned and registered by the parent, so <code>$!</code> and <code>jobs -p</code> report a real PID.</td>
+      <td><code>0001-data-primary-positions-every-child</code></td>
+      <td>Extends the <b>data-position</b> rule from POSIX-aware children to <b>every</b> child: a grep/sed/awk pattern, script or program, find's pattern primaries, and basename/dirname's positional text reach the program verbatim, while file operands are still translated to their Windows spelling.</td>
     </tr>
     <tr>
-      <td align="center">02</td>
-      <td><code>0002-unix-tmp-alias</code></td>
-      <td><code>/tmp</code> becomes an alias wherever the shell resolves a path itself — redirections, <code>cd</code>, <code>test -f</code>, and the root of a glob expansion.</td>
+      <td><code>0002-drop-undecodable-environment-entries</code></td>
+      <td>Drops environment entries Windows can hand a process but Unicode cannot represent (<code>std::env::vars()</code> panics on one) before anything reads the environment, so the cost is that one variable instead of every command aborting.</td>
     </tr>
     <tr>
-      <td align="center">03</td>
-      <td><code>0003-err-trap-scope</code></td>
-      <td>The <code>ERR</code> trap fires in the scope that set it, rather than being decided by <code>set -E</code>.</td>
-    </tr>
-    <tr>
-      <td align="center">04</td>
-      <td><code>0004-external-argv-tmp-alias</code></td>
-      <td>The alias rewrite reaches the <b>arguments</b> of every command the shell starts, and leaves <code>DSH_BASH_NATIVE_NO_PATHCONV=1</code> as the escape hatch.</td>
-    </tr>
-    <tr>
-      <td align="center">05</td>
-      <td><code>0005-closed-reader-stage-abort</code></td>
-      <td>When the reader has already left, a broken-pipe compound command aborts as a whole instead of continuing silently the way upstream does.</td>
-    </tr>
-    <tr>
-      <td align="center">06</td>
-      <td><code>0006-descriptor-paths</code></td>
-      <td><code>/dev/fd/N</code>, <code>/dev/stdin</code>, <code>/dev/stdout</code> and <code>/dev/stderr</code> resolve against the <b>shell's own</b> descriptor table.</td>
-    </tr>
-    <tr>
-      <td align="center">07</td>
-      <td><code>0007-wait-selectors</code></td>
-      <td><code>wait</code> reports the status of the job it waited for, instead of only supporting “wait for all” and <code>%spec</code>.</td>
-    </tr>
-    <tr>
-      <td align="center">08</td>
-      <td><code>0008-windows-kill-builtin</code></td>
-      <td><code>kill</code> becomes a builtin with job specs and a signal vocabulary, and a killed child reports 128+n.</td>
-    </tr>
-    <tr>
-      <td align="center">09</td>
-      <td><code>0009-drive-mount-aliases</code></td>
-      <td>A first component that is a single letter resolves as a drive mount, so <code>/c/Windows/System32</code> is <code>C:\Windows\System32</code>.</td>
-    </tr>
-    <tr>
-      <td align="center">10</td>
-      <td><code>0010-missing-builtins</code></td>
-      <td>Adds the builtins a script reaches for (<code>umask</code>, <code>history</code>, <code>disown</code>, <code>wait -f</code> and others), each with a meaning it can defend.</td>
-    </tr>
-    <tr>
-      <td align="center">11</td>
-      <td><code>0011-crlf-script-text</code></td>
-      <td>A script written on Windows is read as text, so a trailing CR no longer enters the grammar.</td>
-    </tr>
-    <tr>
-      <td align="center">12</td>
-      <td><code>0012-relative-command-paths</code></td>
-      <td>A command given as a relative path resolves against the shell's working directory, which is what makes <code>./sub/x.exe</code> run.</td>
-    </tr>
-    <tr>
-      <td align="center">13</td>
-      <td><code>0013-compound-pipeline-stage-concurrency</code></td>
-      <td>An in-process stage that is not the last one moves onto its own thread, so a pipeline like <code>{ cat big.txt; } | head -1</code> no longer deadlocks once its output exceeds the pipe buffer.</td>
-    </tr>
-    <tr>
-      <td align="center">14</td>
-      <td><code>0014-function-call-stage-concurrency</code></td>
-      <td>The same rule covers the case where the stage is a function call (<code>f() { cat big.txt; }; f | head -1</code>).</td>
-    </tr>
-    <tr>
-      <td align="center">15</td>
-      <td><code>0015-trailing-slash-requires-directory</code> <sub>0.1.1</sub></td>
-      <td>A trailing separator matches directories only; <code>*/</code> and <code>*.md/</code> stop being answered by the volume's leniency.</td>
-    </tr>
-    <tr>
-      <td align="center">16</td>
-      <td><code>0016-bundled-name-dispatch</code> <sub>0.1.1</sub></td>
-      <td>The engine dispatches on its own file name to a bundled utility (<code>rm.exe</code> is <code>rm</code>), and rewrites <code>/tmp</code> arguments along that path too.</td>
-    </tr>
-    <tr>
-      <td align="center">17</td>
-      <td><code>0017-rm-refuses-a-trailing-separator-on-a-file</code> <sub>0.1.1</sub></td>
-      <td><code>rm</code> refuses “a trailing separator that points at a non-directory” instead of silently deleting that regular file.</td>
-    </tr>
-    <tr>
-      <td align="center">18</td>
-      <td><code>0018-host-env-survives-non-unicode</code> <sub>new in 0.1.3</sub></td>
-      <td>One undecodable variable in the host environment no longer crashes the engine at startup — <code>--version</code> still exited 0, so it passed verification and then aborted every command while the shell was being built.</td>
-    </tr>
-    <tr>
-      <td align="center">19</td>
-      <td><code>0019-windows-long-path-identity</code> <sub>new in 0.1.3</sub></td>
-      <td>One directory keeps one spelling (the long one). <code>$PWD</code>, <code>$TEMP</code>/<code>$TMPDIR</code> and <code>/tmp</code> give the same string when they name the same place, with no <code>EXAMPL~1</code>-style 8.3 short name left over.</td>
-    </tr>
-    <tr>
-      <td align="center">20</td>
-      <td><code>0020-windows-file-identity</code> <sub>new in 0.1.3</sub></td>
-      <td><code>test -ef</code> compares real file identity (volume serial number + file index) instead of reporting <code>not supported on this platform</code>; hard links and directories both work.</td>
-    </tr>
-    <tr>
-      <td align="center">21</td>
-      <td><code>0021-pipeline-builtin-stage-result</code> <sub>new in 0.1.7</sub></td>
-      <td>A <b>builtin</b> stage that fails in a pipeline is that stage's own result, not the end of the command: what follows still runs, and the diagnostic goes to the stage's stderr, where its <code>2></code> keeps it.</td>
-    </tr>
-    <tr>
-      <td align="center">22</td>
-      <td><code>0022-printf-error-path</code> <sub>new in 0.1.7</sub></td>
-      <td><code>printf</code> flushes the bytes it already wrote before reporting a failure (<code>printf 'abc%'</code> leaves <code>abc</code>), words the message instead of printing <code>format-error-invalid-spec</code>, and lets the exit code uucore sets for a value it cannot convert take effect.</td>
-    </tr>
-    <tr>
-      <td align="center">23</td>
-      <td><code>0023-external-stdio-follows-the-stream</code> <sub>new in 0.2.1</sub></td>
-      <td><code>2>&amp;1</code> and <code>&gt;&amp;2</code> hand the child the stream that was duplicated: external programs and bundled utilities are redirected as the syntax says, instead of falling back to their own descriptor.</td>
-    </tr>
-    <tr>
-      <td align="center">24</td>
-      <td><code>0024-bash-source-includes-the-outer-script</code> <sub>new in 0.2.1</sub></td>
-      <td>At the top level <code>BASH_SOURCE</code> keeps the whole script stack, so <code>BASH_SOURCE[1]</code> is the outer script.</td>
-    </tr>
-    <tr>
-      <td align="center">25</td>
-      <td><code>0025-arithmetic-command-requires-touching-parens</code> <sub>new in 0.2.1</sub></td>
-      <td><code>((</code> and <code>))</code> make an arithmetic command only when each pair touches; a nested subshell such as <code>( (cmd) )</code> no longer aborts the whole command as arithmetic, while a line continuation between the parentheses still counts as arithmetic.</td>
-    </tr>
-    <tr>
-      <td align="center">26</td>
-      <td><code>0026-exec-without-a-command-on-windows</code> <sub>new in 0.2.1</sub></td>
-      <td>The no-argument form of <code>exec</code> works on Windows (<code>exec &gt;file 2&gt;&amp;1</code>, <code>exec 3&gt;&amp;1</code>); the command form reports that it is unimplemented, because this platform has no process-image replacement.</td>
+      <td><code>0003-file-commands-from-path</code></td>
+      <td>Adds <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>: the shell names the in-process file commands that should run from a program on <code>PATH</code> instead (<code>all</code>, <code>none</code>, or a list), read from the shell's own variables so an <code>--rcfile</code> can set it; it also makes the inline pipeline arms honour the host's switch for turning the in-process copies off.</td>
     </tr>
   </tbody>
 </table>
 
 </details>
 
-> 💡 Every resolution verifies the artifact against the **sha256** in the lock, and skips the repeat check by **stamping**: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and an unchanged stamp means those 15.6 MB are never read again (`verifyArtifacts: 'always'` restores hashing every time).
+> 💡 Every resolution verifies the artifact against the **sha256** in the lock, and a **stamp** skips the repeated work: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and while they are unchanged those 11 MB are not read again (`verifyArtifacts: 'always'` restores hashing on every resolution).
 
 ---
 
-## 🔧 How it is built
+## 🔧 Implementation
 
-- **Registers `ctx.shell`**: a Service Provider for `ShellExecutor`, built on `@deepseek-ai/dsh-bash-local`, handing each command to the brush engine it resolved; **both the engine and the toolchain ship with the package** and are verified against the lock and the manifest when they are resolved.
-- **Obeys DSH's three-tier file policy** (`read-only` / `workspace-write` / `danger-full-access`): a confined tier hands the engine argv to `ctx.sandbox`, an unconfined one spawns directly and reports the tier it actually got.
-- **Background jobs are reported through `ctx.jobs`**, and output past the in-memory bound lands in a spill file whose path comes back with the result; `echo`, `cat`, `ls`, `cp`, `rm`, `sort` and friends come from the engine and resolve as builtins, so an empty `PATH` still works.
-- **The web side** mounts it with its own agent preset and **the agent side** enables it with an overlay; it does not replace the host's `ctx.shell`, so another preset's `pwsh` tools are unaffected.
+- **Registers `ctx.shell`**: a `ShellExecutor` Service Provider built on `@deepseek-ai/dsh-bash-local` that hands every command to the resolved rubash engine. **Both the engine and the toolchain ship with the package** and are verified against the lock and the manifest at resolution.
+- **Follows DSH's three-tier file policy** (`read-only` / `workspace-write` / `danger-full-access`): a confined tier hands the engine argv to `ctx.sandbox`, the unconfined tier spawns it directly and reports the tier truthfully.
+- **Background jobs are reported through `ctx.jobs`**, output beyond the memory budget spills to a file whose path comes back with the result, and commands keep working with an empty `PATH` because the bundled toolchain goes in front of the host `PATH`.
+- The **web plumbing** is mounted by the shipped agent presets and the **agent plumbing** is enabled by an explicit overlay; the host's own `ctx.shell` is untouched, so other presets keep their `pwsh` tools.
 
 ---
 
-## 🎛 The two presets<sub>0.2.0: static mounting replaced by following the shipped preset</sub>
+## 🎛 Two presets<sub>0.2.0: static mounting became a replacement of the shipped presets</sub>
 
-[`cordis.patch.yml`](cordis.patch.yml) carries **one registration row** (`dsh-bash-native/presets`); the plugin registers both presets at run time: it reads the `presets/{standard,minimal}.patch.yml` of the **installation this host runs** and replaces the shipped shell surface with this bundle's realm group; each preset still owns an `isolate: { shell: true, terminals: true }` realm, leaving the host layer and every other preset (including the ones using `pwsh`) untouched.
+[`cordis.patch.yml`](cordis.patch.yml) carries **one registrar line** (`dsh-bash-native/presets`), and the plugin registers both presets at runtime: it reads the **locally installed** `presets/{standard,minimal}.patch.yml` and replaces the shell surface with its own realm group. Each realm is `isolate: { shell: true, terminals: true }`, so the host layer and every other preset (including the `pwsh` ones) are untouched.
 
 <table>
   <thead>
@@ -283,32 +192,32 @@ The engine is **brush** (a bash-compatible shell written in Rust, MIT). This rep
   <tbody>
     <tr>
       <td><b>Native Bash (Windows)</b><br><sub>id <code>bash-native</code>, order 5</sub></td>
-      <td>Follows the <code>standard</code> of the harness line this host runs and replaces only its shell surface: a <code>bash</code> that runs every call in a fresh shell, with that line's file, job and delegation tools</td>
+      <td>Reads the local harness line's <code>standard</code> and replaces only the shell surface: every call is a fresh <code>bash</code>, while files, jobs and delegation follow that upstream version</td>
       <td>Everyday use</td>
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Follows that line's <code>minimal</code> and replaces only its shell surface: one persona and one persistent bash, plus the read-only image file tools and compaction group the upstream line ships from 0.2.1-alpha.3 on</td>
-      <td>A lightweight session that only wants a shell</td>
+      <td>Reads that line's <code>minimal</code> and replaces only the shell surface: one persona and one persistent bash.</td>
+      <td>A lean session that only needs a shell</td>
     </tr>
   </tbody>
 </table>
 
-## 📟 The persistent terminal component
+## 📟 Persistent-terminal component
 
-On the Plugins page, `dsh-bash-native` offers **two separately switchable components**: `dsh-bash-native/presets` (the two presets, on by default) and `dsh-bash-native/terminal` (six interactive persistent terminal tools, off by default).
+On the plugins page `dsh-bash-native` offers **two independently switchable components**: `dsh-bash-native/presets` (the two presets, on by default) and `dsh-bash-native/terminal` (six interactive persistent-terminal tools, off by default).
 
 <p align="center">
   <img src="img/example1.jpg" width="50%">
 </p>
 
-That component registers the same tool names as the built-in **Persistent terminals** (`@deepseek-ai/dsh-experimental-terminal-bundle`), so the two cannot~~ and need not~~ be on at the same time. (`tool "terminal_open" is already registered`)
+This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experimental-terminal-bundle) register the same tool names, so they cannot ~~and need not~~ be enabled together. (`tool "terminal_open" is already registered`)
 
 ---
 
 ## 🛠 Configuration
 
-> Beyond the table below, the execution budget is inherited from `@deepseek-ai/dsh-bash-local`: `cwd`, `timeoutMs`, `maxTimeoutMs`, `maxOutputBytes`, `maxSpillBytes`, `graceMs`, whose defaults and caps have their single source in that side's schema.
+> Beyond this table the execution budget is inherited from `@deepseek-ai/dsh-bash-local`: `cwd`, `timeoutMs`, `maxTimeoutMs`, `maxOutputBytes`, `maxSpillBytes`, `graceMs`, whose defaults and caps have a single source of truth in that schema.
 
 <table>
   <thead>
@@ -322,57 +231,42 @@ That component registers the same tool names as the built-in **Persistent termin
     <tr>
       <td><code>confine</code></td>
       <td><code>true</code></td>
-      <td>Whether to obey <code>ctx.sandbox</code>; turning it off gives up the file policy and the denial marking</td>
+      <td>Whether <code>ctx.sandbox</code> is obeyed; turning it off gives up the file policy and the denial marker</td>
     </tr>
     <tr>
       <td><code>requireEngineOnLoad</code></td>
       <td><code>false</code></td>
-      <td>Whether a missing engine fails the load or fails each call (both presets set <code>true</code>)</td>
-    </tr>
-    <tr>
-      <td><code>promptSection</code></td>
-      <td><code>true</code></td>
-      <td>Whether to contribute the model-visible environment contract section</td>
-    </tr>
-    <tr>
-      <td><code>promptDetail</code></td>
-      <td><code>full</code></td>
-      <td>A compatibility key that is kept: now that the contract is two sentences, both values produce the same text, so setting it or not makes no difference</td>
+      <td>Whether a missing engine fails the load or every call (both presets set <code>true</code>)</td>
     </tr>
     <tr>
       <td><code>toolsDir</code></td>
       <td><code>''</code></td>
-      <td>The POSIX toolchain directory; empty = look first at the one built under the per-user directory (<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>), and fall back to the bundled toolchain when it provides no program. A value is used as given, and an empty directory counts as one (it is never quietly swapped for the bundled copy)</td>
+      <td>The POSIX toolchain directory; empty = first the per-user build (<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>), and if it holds no programs the bundled one. A configured directory is used as-is, even when empty (it is never silently swapped for the bundled copy)</td>
     </tr>
     <tr>
-      <td><code>bashPath</code></td>
-      <td><code>''</code></td>
-      <td>Absolute path to the engine; empty = search in resolution order</td>
-    </tr>
-    <tr>
-      <td><code>bundledEngineDir</code></td>
-      <td><code>''</code></td>
-      <td>A bundled engine directory: <code>brush.exe</code> is probed first, then <code>bin/brush.exe</code></td>
+      <td><code>fileCommandsFromPath</code></td>
+      <td><code>['sed','rmdir']</code></td>
+      <td>Engine file commands to run from the toolchain's program instead (only the twelve names the engine implements in-process); a name the toolchain does not publish, or one published on a directory that is not on <code>PATH</code>, is ignored and the in-process copy keeps answering. See “Known limitations” below.</td>
     </tr>
     <tr>
       <td><code>rcFile</code></td>
       <td><code>''</code></td>
-      <td>The startup file a persistent PTY session reads; empty = <code>%LOCALAPPDATA%\dsh-bash-native\bash-native-rc.sh</code></td>
+      <td>Startup file for a persistent PTY session; empty = <code>%LOCALAPPDATA%\dsh-bash-native\bash-native-rc.sh</code></td>
     </tr>
     <tr>
       <td><code>denialSignatureAdditions</code></td>
       <td><code>['os error 5']</code></td>
-      <td>Extra denial signatures; the default is what lets a non-English Windows still be marked as a denial</td>
+      <td>Extra denial signatures; the default keeps non-English Windows reporting denials</td>
     </tr>
     <tr>
       <td><code>shellEnvOverrides</code></td>
       <td><code>{}</code></td>
-      <td>Extra environment variables, layered on top of the model-friendly defaults</td>
+      <td>Extra environment entries, layered above the model-friendly defaults</td>
     </tr>
     <tr>
       <td><code>verifyArtifacts</code></td>
       <td><code>'stamped'</code></td>
-      <td>How hard to verify: <code>stamped</code> rehashes only when the artifact or the running copy changes size or mtime; <code>always</code> hashes on every resolution (engine 31 MB, toolchain 76 MB)</td>
+      <td>Verification strength: <code>stamped</code> re-hashes only when the artifact's or the runtime copy's size/mtime changed; <code>always</code> hashes on every resolution (11 MB engine, 37 MB toolchain)</td>
     </tr>
   </tbody>
 </table>
@@ -381,63 +275,83 @@ That component registers the same tool names as the built-in **Persistent termin
 
 ## 🧰 Toolchain
 
-**The toolchain ships with the package and works as installed.**
+**The toolchain ships with the package and works after install.**
 
 <details open>
-<summary><b>📚 28 names, 20 of them published</b></summary>
+<summary><b>📚 101 names, 20 of them advertised</b></summary>
 
 <br>
 
-| Category | Contents |
-|---|---|
-| **Published** (20) | `grep`, `sed`, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, and `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
-| **Installed but unpublished** (8) | `arch` plus the shell builtins `echo`, `printf`, `pwd`, `test`, `true`, `false`, `kill` — kept as the program form a child process needs |
+| Kind | Contents |
+|---|---|---|
+| **Advertised** (20) | `grep`, `sed`, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, plus `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
+| **Installed, not advertised** (81) | The 88 programs of uutils `coreutils` (`cat`, `ls`, `rm`, `cp`, `head`, `tail`, `wc`, `sort`, `seq`, …: the engine no longer bundles them), plus the program form of the shell builtins `echo`, `printf`, `pwd`, `test`, `true`, `false`, `kill` |
 
 </details>
 
 <br>
 
-- **Shadows the Windows programs of the same name whose semantics are unrelated**: `find.exe`, `timeout.exe` and the like. But there is **no** `convert.exe` in the toolchain, so that name still reaches Windows' volume-conversion tool — **do not use it as ImageMagick**.
-- **Supports the same `/tmp` and drive aliases as the engine** (`$TMP` is still the recommendation), and a program starting another program stays on that path: `printf '/tmp/f\n' | xargs awk '{print}'`. The names the engine carries are rewritten on this path too (patch `0016`), so `printf '/tmp/x\n' | xargs rm` receives the real temporary path rather than the literal.
-- **It also puts `bash`, `sh` and the engine's 75 utility names on `PATH`** (the toolchain directory first, the **name directory** immediately after it, both ahead of the host's own `PATH`):
+- **Understands the same `/tmp` and drive-mount aliases as the engine**, including a program that starts another program: `printf '/tmp/f\n' | xargs awk '{print}'` and `printf '/tmp/x\n' | xargs rm` both reach the real file.
+- **One table protects the data positions on both sides**: the value of `-e`/`-f`, a grep/sed/awk first positional operand, find's `-name`/`-path` primaries and basename/dirname's positionals are never translated — the engine's own funnels and the toolchain side of “a program starts a program” follow the same list.
+- **Also puts `bash` and `sh` on `PATH`** (the toolchain directory first, then the **names directory**, both ahead of the host's `PATH`):
 
-  > `src/shim.ts` points those 77 names at the verified engine inside `%LOCALAPPDATA%\dsh-bash-native\shim\<engine sha256>\` — on one volume they are all **hard links**, so 77 names share the engine's single copy of the bytes — and the engine then dispatches on its own file name to the bundled implementation (patch `0016`). A child process cannot exec a shell builtin, so `xargs rm` and `find . -exec rm {} +` have to find a program by name, and the toolchain no longer publishes those 75 names a second time.
-
-  That is what makes `bash script.sh`, `bash -c …`, `sh -c …` and a Makefile or npm hook that calls `bash` work.
+  > `src/shim.ts` points those two names at the verified engine inside `%LOCALAPPDATA%\dsh-bash-native\shim\<engine sha256>\` — hard links on the same volume, so both names share the engine's bytes.
 
 ---
 
 ## ⚠️ Known limitations
 
-- **brush is still in preview on Windows**, so defects are possible.
-- **When the reader closes early (a broken pipe)**, a bundled utility or an external program uses its own wording and its own exit code:
+- **Two platform differences unrelated to the in-process copies**:
+
+  | Shape | Measured |
+  |---|---|
+  | `cd /absent 2>err.txt \| cat` | the diagnostic lands neither in `err.txt` nor on the shell's stderr |
+  | `PIPESTATUS[0]` of `printf … \| head -c 1` | a builtin writer does not report the closed pipe: `0` instead of `141` |
+
+- **When a reader closes early**, tools and external programs use their own wording and exit status: the consequence of Windows having no `SIGPIPE` (each tool decides for itself):
 
   | Command | Writer exit code | Note |
   |---|:---:|---|
   | `seq 1 200000 \| head -c 1` | `0` | stderr says `write error: Broken pipe` |
-  | `yes \| head -c 1` | `0` | says nothing |
+  | `yes \| head -c 1` | `0` | silent |
   | `cat big \| head -c 1` | `13` | — |
   | `ls -R some-dir \| head -c 1` | `1` | — |
-  | The engine's own builtins | `141` | ends correctly |
+  | the engine's own builtins | `0` | does not report the closed pipe (see `PIPESTATUS[0]` above) |
 
-  This is what having no `SIGPIPE` on Windows costs (each utility decides for itself what to do about a broken pipe).
+- **`{ …; } | head` hangs when a line is longer than about 100 KB** (rubash 1.4.3; measured: a 60 KB line is fine, a 200 KB line times out): the reader takes part of the line and exits, and the writer never aborts — with the pipeline's output going to a file it hangs, and with a second pipe it **loses the whole output**. Workaround: `{ …; } | cat | head`, or write to a file first. Recorded in `docs/research.md` §72; `test/test-brush-regressions.mjs` prints the current state on every run.
+- **A program the engine does not know cannot tell data from a path**: a path-shaped data word handed to an unknown **native** program (`node -e '…' '/x/{print}'`) is treated as a path operand and translated to a Win32 spelling — MSYS behaves the same way; what differs is that the shipped tools' scripts, patterns and program words have a fixed data-position table and are never rewritten.
+
 ---
+
+## 🧹 Disk footprint and cleanup
+
+The runtime state lives under `%LOCALAPPDATA%\dsh-bash-native` and is **content-addressed**: one `shim/<engine sha256>/` per engine build.
+
+| Directory | Written by | Size | If deleted |
+|---|---|:---:|---|
+| `shim/<digest>/` | every resolution | the engine's size (about 0 with a hard link on the same volume) | recreated on the next resolution |
+| `toolchain/<digest>/` | every resolution | about 36 MB (about 0 with hard links on the same volume) | recreated on the next resolution |
+| `verified/` | every verification | tens of KB | one extra hash, nothing else |
+
+To clean up explicitly (run it with **DSH stopped**):
+> Replace `<dsh_profile>` with your profile's path, for example `%USERPROFILE%\.dsh\profiles\<profile>`
+
+```sh
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs          # report only, change nothing
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the superseded shim/ and toolchain/ caches
+```
 
 ## 📄 License
 
 | What | License | Notice and scan |
 |---|:---:|---|
 | This plugin | **MIT** | [LICENSE](LICENSE) |
-| brush engine | **MIT** | [engine/LICENSE.brush](engine/LICENSE.brush), dependency scan [engine/THIRD-PARTY.md](engine/THIRD-PARTY.md) |
-| Bundled toolchain | **MIT** | uutils `coreutils`/`findutils`/`grep`/`sed`, `jaq`, `goawk`, and this repository's `posix-extra`; [toolchain/LICENSES/](toolchain/LICENSES/) and [toolchain/THIRD-PARTY.md](toolchain/THIRD-PARTY.md) |
+| The rubash engine | **MIT** | [engine/LICENSE.rubash](engine/LICENSE.rubash), dependency scan in [engine/THIRD-PARTY.md](engine/THIRD-PARTY.md) |
+| The bundled toolchain | **MIT** | uutils `coreutils`/`findutils`/`grep`/`sed`, `jaq`, `goawk` and the in-repo `posix-extra`; [toolchain/LICENSES/](toolchain/LICENSES/) and [toolchain/THIRD-PARTY.md](toolchain/THIRD-PARTY.md) |
 
 ---
 
 ## 🙏 References and thanks
 
-A number of the defects behind this plugin's engine patches were first diagnosed and fixed by **[oh-my-pi](https://github.com/can1357/oh-my-pi)**.
-It is background inspiration, and the earlier implementation of the native-bash-on-Windows approach.
-
-oh-my-pi is MIT licensed, and its notice ships with the engine artifact in [`engine/THIRD-PARTY.md`](engine/THIRD-PARTY.md).
-
+On the road to a native bash for agents, **[oh-my-pi](https://github.com/can1357/oh-my-pi)** is one of the earliest implementations to blaze it, and this plugin's early brush diagnosis and fixes also benefited from the record it left.
 <!-- ═══════════════════════════════════════════════════════════════════════ -->

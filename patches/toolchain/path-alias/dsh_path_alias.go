@@ -1,19 +1,24 @@
 // The `/tmp` and `/<letter>` aliases, applied inside the toolchain programs themselves.
 //
-// The engine rewrites the command path and every argument it spawns (`patches/brush/0004-*.patch` and
-// `patches/brush/0009-*.patch`), which covers what the shell starts. A program that **another program**
-// starts — the child of `find -exec`, `xargs` or `timeout` — gets its arguments from that program rather
-// than from the shell, so `printf '/tmp/f\n' | xargs awk '{print}'` used to hand `awk` a literal
-// `/tmp/f`, which Windows resolves against the current drive's root. This file is the same rule applied
-// inside the programs, which is how MSYS makes the alias hold for everything it builds.
+// The engine rewrites every argument of the children it spawns (`src/executor/path.rs`,
+// `translated_virtual_system_root_argument` and `external_argument_path`), which covers what the shell
+// starts. A program that **another program** starts — the child of `find -exec`, `xargs` or `timeout` —
+// gets its arguments from the program that starts it rather than from the shell, so
+// `printf '/tmp/f\n' | xargs awk '{print}'` used to hand `awk` a literal `/tmp/f`, which Windows resolves
+// against the current drive's root. This file is the same rule applied inside the programs, which is how
+// MSYS makes the alias hold for everything it builds.
+//
+// Translation stops at the words the program's own grammar reads as data (dshDataPositions): a grep/sed
+// pattern or script, an awk program, find's pattern primaries, basename/dirname's display text. That is
+// the same table the engine applies before it spawns (`argv_data_primary_positions` in
+// `src/executor/path.rs`), and a chain needs it here too: `find . -exec grep -F /tmp/x {} \;` must search
+// for the text `/tmp/x`, not for a Windows path.
 //
 // It is the Go twin of `dsh_path_alias.rs`: `awk` is the one component in the toolchain built from Go
-// source (`goawk`), so it cannot link the Rust module the other components share. The source of truth is
-// the two engine patches: keep this file, its Rust twin, their `normalize_shell_arg`, and the corpus in
-// step. `corpus/compat.json` pins both paths — the engine-spawned cases (`argv-*`) and the program-chain
-// cases (`xargs-*`, `find-exec-*` with an aliased argument, `alias-chain-xargs-awk` for this file) —
-// which is what catches drift between the copies, since neither the engine's implementation nor the Rust
-// module can be linked into this binary.
+// source (`goawk`), so it cannot link the Rust module the other components share. `corpus/compat.json`
+// pins both copies — the engine-spawned cases (`argv-*`) and the program-chain cases (`xargs-*`,
+// `find-exec-*`, `alias-chain-*`) — which is what catches drift between them, since neither the engine's
+// implementation nor the Rust module can be linked into this binary.
 //
 // `scripts/build-toolchain.mjs` copies this file into each component the lock marks `pathAlias`, and the
 // component's patch calls it at its own argument boundary.
@@ -32,20 +37,172 @@ func dshNoPathConversion() bool {
 	return present && value != "" && value != "0"
 }
 
-// dshTranslateArguments rewrites every argument in place, the way the engine rewrites the arguments it
+// dshTranslateArguments rewrites a program's argv in place, the way the engine rewrites the arguments it
 // spawns. A program that later hands its own arguments on (`find -exec`, `xargs`) is the reason the rule
 // is applied here rather than only at the shell boundary.
 //
+// The first element is the program word, already resolved by whoever spawned it, and is never rewritten;
+// the arguments at the positions the program reads as data stay verbatim (dshDataPositions).
+//
 // The temporary directory is a parameter so the rule is testable without the machine's environment.
-func dshTranslateArguments(arguments []string, tempDir func() string) {
-	if dshNoPathConversion() {
+func dshTranslateArguments(argv []string, tempDir func() string) {
+	if dshNoPathConversion() || len(argv) == 0 {
 		return
 	}
-	for index, argument := range arguments {
+	masked := dshDataPositions(argv[0], argv[1:])
+	for position, argument := range argv[1:] {
+		if masked[position] {
+			continue
+		}
 		if converted, ok := dshTranslateArgument(argument, tempDir); ok {
-			arguments[index] = converted
+			argv[position+1] = converted
 		}
 	}
+}
+
+// dshDataPositions is the argv positions of a program's arguments that are data by its own grammar, the
+// table `argv_data_primary_positions` in the engine applies to the children the shell spawns. The mask is
+// a grammar exemption, not a path heuristic: only grep/sed/awk pattern or program text, find's pattern
+// primaries and basename/dirname's display text qualify.
+func dshDataPositions(program string, args []string) map[int]bool {
+	name := strings.ToLower(strings.TrimSuffix(filepath.Base(program), ".exe"))
+	masked := map[int]bool{}
+	switch name {
+	case "grep":
+		dshMaskFirstPositionalData(args, masked,
+			[]string{"-e", "--regexp"},
+			[]string{"-f", "--file"},
+			[]string{"-m", "--max-count", "-A", "--after-context", "-B", "--before-context", "-C", "--context", "-d", "--devices", "-D", "--directories"})
+	case "sed":
+		dshMaskFirstPositionalData(args, masked, []string{"-e", "--expression"}, []string{"-f", "--file"}, nil)
+	case "awk":
+		dshMaskFirstPositionalData(args, masked, nil, []string{"-f", "--file"}, nil)
+	case "find":
+		dshMaskFindPatternPrimaries(args, masked)
+	// basename NAME [SUFFIX]: both positionals are display text.
+	case "basename", "dirname":
+		dshMaskAllPositionals(args, masked)
+	}
+	return masked
+}
+
+// dshMaskAllPositionals marks every non-switch word: for filesystem-blind string tools each positional —
+// name and SUFFIX alike — is data.
+func dshMaskAllPositionals(args []string, masked map[int]bool) {
+	for index, argument := range args {
+		if !(len(argument) > 1 && strings.HasPrefix(argument, "-")) {
+			masked[index] = true
+		}
+	}
+}
+
+// dshMaskFirstPositionalData marks the first positional operand of a pattern/script command as
+// non-translatable.
+//
+// patternOpts consume a separate pattern value (and that value is masked too — `grep -e PAT`), fileOpts
+// consume a separate file operand (a real path — its value translates, and the first positional becomes a
+// file), and valueOpts consume a numeric or action value; an attached `--opt=value` or `-oVALUE` carries
+// the value in the same token and only gates the positional operand.
+func dshMaskFirstPositionalData(args []string, masked map[int]bool, patternOpts, fileOpts, valueOpts []string) {
+	patternShort, hasPatternShort := dshShortOptionChar(patternOpts)
+	fileShort, hasFileShort := dshShortOptionChar(fileOpts)
+
+	patternViaOption := false
+	afterDashdash := false
+	firstPositional := -1
+	for i := 0; i < len(args); {
+		argument := args[i]
+		if !afterDashdash && argument == "--" {
+			afterDashdash = true
+			i++
+			continue
+		}
+		isOption := !afterDashdash && len(argument) > 1 && strings.HasPrefix(argument, "-")
+		if isOption {
+			if dshContains(patternOpts, argument) {
+				patternViaOption = true
+				// The pattern value itself is data (grep -e PAT, sed -e EX).
+				if i+1 < len(args) {
+					masked[i+1] = true
+				}
+				i += 2
+				continue
+			}
+			if dshContains(fileOpts, argument) {
+				// -f script means the pattern/script came via an option, so the first positional is a
+				// real file operand (translates).
+				patternViaOption = true
+				i += 2
+				continue
+			}
+			if dshContains(valueOpts, argument) {
+				i += 2
+				continue
+			}
+			if strings.HasPrefix(argument, "--") {
+				name, _, _ := strings.Cut(argument[2:], "=")
+				long := "--" + name
+				if dshContains(patternOpts, long) || dshContains(fileOpts, long) {
+					patternViaOption = true
+				}
+			} else if len(argument) > 1 {
+				first := argument[1]
+				if (hasPatternShort && first == patternShort) || (hasFileShort && first == fileShort) {
+					patternViaOption = true
+				}
+			}
+		} else if firstPositional < 0 {
+			firstPositional = i
+		}
+		i++
+	}
+
+	if !patternViaOption && firstPositional >= 0 {
+		masked[firstPositional] = true
+	}
+}
+
+// dshMaskFindPatternPrimaries marks find's pattern-primary values (`-name`, `-path`, `-regex`, ...) as
+// non-translatable. Leading non-option operands are starting paths and stay translatable: the start
+// operand is the path position `find` itself cannot resolve in POSIX form.
+func dshMaskFindPatternPrimaries(args []string, masked map[int]bool) {
+	patternPrimaries := []string{"-name", "-path", "-regex", "-iregex", "-ipath", "-lname", "-wholename", "-ilname", "-iwholename"}
+	inExpression := false
+	for i := 0; i < len(args); {
+		argument := args[i]
+		if !inExpression && (strings.HasPrefix(argument, "-") || argument == "!" || argument == "(" || argument == ")") {
+			inExpression = true
+		}
+		if inExpression && dshContains(patternPrimaries, argument) {
+			if i+1 < len(args) {
+				masked[i+1] = true
+			}
+			i += 2
+			continue
+		}
+		i++
+	}
+}
+
+// dshShortOptionChar is the short option letter of a two-character option (`-e`), so an attached cluster
+// (`-ePAT`) is seen as the same option.
+func dshShortOptionChar(options []string) (byte, bool) {
+	for _, option := range options {
+		if len(option) == 2 && option[0] == '-' && ((option[1] >= 'a' && option[1] <= 'z') || (option[1] >= 'A' && option[1] <= 'Z')) {
+			return option[1], true
+		}
+	}
+	return 0, false
+}
+
+// dshContains reports whether the list holds the value.
+func dshContains(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 // dshTranslateArgument rewrites one argument: a `/tmp` path, a `/<letter>` drive mount, or either of
@@ -80,7 +237,7 @@ func dshTranslateTmpPath(argument string, tempDir func() string) (string, bool) 
 	return dshJoin(tempDir(), logical[1:]), true
 }
 
-// dshTranslateMountArgument maps a POSIX drive mount (`/d/Pi`) onto the Windows drive it names, but
+// dshTranslateMountArgument maps a POSIX drive mount (`/d/work`) onto the Windows drive it names, but
 // refuses the bare mount root: a bare `/<letter>` argument is how Windows' own tools spell their
 // switches (`cmd.exe /c`), so the ambiguity is resolved in favour of the switch.
 func dshTranslateMountArgument(argument string) (string, bool) {

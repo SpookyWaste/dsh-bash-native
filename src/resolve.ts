@@ -1,7 +1,7 @@
 /**
  * Engine resolution for the `dsh-bash-native` executor.
  *
- * This plugin runs exactly one engine: brush (`brush-shell`), the Rust bash implementation that needs
+ * This plugin runs exactly one engine: rubash, the from-scratch Rust bash 5.3 implementation that needs
  * no MSYS runtime and therefore starts under every DSH sandbox tier. A configured absolute path is
  * still verified by asking the binary, so a same-named foreign program — `bash.exe` from Git for
  * Windows, MSYS2 or Cygwin, or the `wsl.exe` trampoline — is refused instead of silently becoming the
@@ -51,6 +51,14 @@ export interface EngineProbeResult {
   readonly refused?: string
 }
 
+/** The implementation family a verified engine belongs to.
+ *
+ * The two families differ in argv, not in meaning: brush needs the flag that turns its coloured diagnostics
+ * off (`--disable-color`), rubash rejects that flag and never colours. Everything else — activation prefix,
+ * interactive prefix, `-c` semantics — is shared.
+ */
+export type EngineFamily = 'brush' | 'rubash'
+
 /** The engine the executor drives. */
 export interface ResolvedEngine {
   /** Absolute executable path. */
@@ -59,6 +67,8 @@ export interface ResolvedEngine {
   readonly label: string
   /** The engine's own `--version` first line, or an empty string when the verifier reported none. */
   readonly version: string
+  /** Which family the verified binary belongs to; argv construction depends on it. */
+  readonly family: EngineFamily
   /** Activation argv prefix passed before the command string. */
   readonly args: readonly string[]
   /** Interactive argv prefix, the `shellArgs` equivalent for a PTY composition. */
@@ -79,7 +89,7 @@ export interface EngineResolution {
 export interface ResolveEngineInput {
   /** Configured absolute engine path; empty means "resolve". */
   readonly bashPath: string
-  /** Directory holding a packaged engine, probed as `brush.exe` and `bin/brush.exe`. */
+  /** Directory holding a packaged engine, probed as `rubash.exe` and `bin/rubash.exe`. */
   readonly bundledEngineDir: string
   /**
    * The engine this package ships, already prepared for execution by `./artifact.ts`, or the reason it
@@ -92,6 +102,14 @@ export interface ResolveEngineInput {
 export interface EngineVerdict {
   /** The engine's own `--version` first line when it identified itself, else an empty string. */
   readonly version: string
+  /**
+   * The family the candidate answered as.
+   *
+   * Optional because a verifier that only reports a refusal (every test seam, and the `refused` path in
+   * production) has no family to name; an accepted verdict that omits it is read as `rubash`, the only
+   * family this plugin ships.
+   */
+  readonly family?: EngineFamily
   /** Why this file is not the engine, or null when it is. */
   readonly refused: string | null
 }
@@ -134,11 +152,11 @@ export interface EngineFs {
 export function engineRemedy(platform: NodeJS.Platform): string {
   const install =
     platform === 'win32'
-      ? 'This package ships the brush engine at `engine/win32-x64/brush.exe` and verifies it against `engine.lock.json`; a row above marked `refused` says what went wrong with it. The facts this contract states come from this repository\'s patches, so a `cargo install` build is refused: rebuild the pinned commit with `node scripts/build-engine.mjs --refresh` in a source checkout (Rust, and network on the first run), which replaces the artifact in this package, then reload this plugin so resolution reads it again.'
+      ? 'This package ships the rubash engine at `engine/win32-x64/rubash.exe` and verifies it against `engine.lock.json`; a row above marked `refused` says what went wrong with it. The facts this contract states come from this repository\'s patches, so a `cargo install` build is refused: rebuild the pinned commit with `node scripts/build-engine.mjs --refresh` in a source checkout (Rust, and network on the first run), which replaces the artifact in this package, then reload this plugin so resolution reads it again.'
       : 'The engine this executor drives is the Windows build this repository patches, and one verified fact — the `/q/x` to `Q:\\x` argument rule — exists only in that build, so no candidate resolves on this platform. Run the `bash` on `PATH` with `@deepseek-ai/dsh-bash-local` instead.'
   return [
     install,
-    'This executor runs brush only, and verifies it by asking the binary. It does not drive other shells:',
+    'This executor runs rubash only, and verifies it by asking the binary. It does not drive other shells:',
     '  - Git for Windows, MSYS2 and Cygwin bash need the MSYS runtime\'s named pipes, which the restricted',
     '    token of a confined tier denies, so they die at startup ("couldn\'t create signal pipe, Win32 error 5");',
     '  - `wsl.exe` runs the command inside a Linux VM, where no DSH runner observes or denies its writes.',
@@ -165,8 +183,8 @@ export function engineEnvValue(env: EngineEnv, name: string): string | undefined
  * Resolve the engine by probing every candidate in order.
  *
  * The order is: an explicit `bashPath`, then an explicit `bundledEngineDir`, then the engine this package
- * ships (already prepared outside the workspace by `./artifact.ts`), then `brush` on `PATH`. Every
- * candidate that exists is verified, and a candidate that exists but is not brush is reported as refused
+ * ships (already prepared outside the workspace by `./artifact.ts`), then `rubash` on `PATH`. Every
+ * candidate that exists is verified, and a candidate that exists but is not the engine is reported as refused
  * rather than accepted, so the failure list distinguishes "nothing is installed" from "the thing you
  * pointed at is a different shell".
  * @param input - configured engine sources.
@@ -234,7 +252,15 @@ function accept(
     return { engine: null, probed: [{ label, displayPath: path, found: true, refused: verdict.refused }] }
   }
   return {
-    engine: { path, label, version: verdict.version, args: [...ACTIVATION], interactiveArgs: [...INTERACTIVE] },
+    engine: {
+      path,
+      label,
+      version: verdict.version,
+      // The seam may omit the family on an accepted verdict; the only engine this plugin ships is rubash.
+      family: verdict.family ?? 'rubash',
+      args: [...ACTIVATION],
+      interactiveArgs: [...INTERACTIVE],
+    },
     probed: [{ label, displayPath: path, found: true }],
   }
 }
@@ -245,7 +271,7 @@ function failureHead(probed: readonly EngineProbeResult[]): string {
     const state = probe.refused !== undefined ? `refused: ${probe.refused}` : probe.found ? 'found' : 'missing'
     return `  - ${probe.label}: ${probe.displayPath} -> ${state}`
   })
-  return ['dsh-bash-native: no usable brush engine was found. Probed:', ...rows].join('\n')
+  return ['dsh-bash-native: no usable rubash engine was found. Probed:', ...rows].join('\n')
 }
 
 /** Build the ordered probe list for a platform. */
@@ -255,8 +281,8 @@ function buildProbes(input: ResolveEngineInput, platform: NodeJS.Platform, pathA
   const at = (path: string, label: string): Probe => ({ label, displayPath: path, absolutePath: path, lookupName: null })
   const dir = input.bundledEngineDir.trim()
   if (dir !== '') {
-    probes.push(at(pathApi.join(dir, `brush${suffix}`), 'bundled engine directory'))
-    probes.push(at(pathApi.join(dir, 'bin', `brush${suffix}`), 'bundled engine directory (bin)'))
+    probes.push(at(pathApi.join(dir, `rubash${suffix}`), 'bundled engine directory'))
+    probes.push(at(pathApi.join(dir, 'bin', `rubash${suffix}`), 'bundled engine directory (bin)'))
   }
   if (input.packaged !== null) {
     probes.push(
@@ -265,7 +291,7 @@ function buildProbes(input: ResolveEngineInput, platform: NodeJS.Platform, pathA
         : { label: 'packaged engine', displayPath: 'this package', absolutePath: null, lookupName: null, refused: input.packaged.refused },
     )
   }
-  probes.push({ label: 'brush on PATH', displayPath: 'brush', absolutePath: null, lookupName: 'brush' })
+  probes.push({ label: 'rubash on PATH', displayPath: 'rubash', absolutePath: null, lookupName: 'rubash' })
   return probes
 }
 

@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { PresetRow, PresetSource, ShippedPreset } from './preset-data.js';
 /** The package that ships the preset bodies this bundle follows. */
 export declare const SHIPPED_PRESET_PACKAGE = "@deepseek-ai/dsh-web-app";
-/** The one platform this bundle's engine exists on: the shipped artifact is the Windows brush build. */
+/** The one platform this bundle's engine exists on: the shipped artifact is the Windows rubash build. */
 export declare const SUPPORTED_PLATFORM = "win32";
 /**
  * Whether the presets can serve a host at all.

@@ -16,7 +16,7 @@ index 1d8787e..00de317 100644
      uucore::panic::mute_sigpipe_panic();
  
 -    let args = std::env::args().collect::<Vec<String>>();
-+    let args = std::env::args().map(dsh_path_alias::translate_string).collect::<Vec<String>>();
++    let args: Vec<String> = dsh_path_alias::translate_string(std::env::args()).collect();
      let strs: Vec<&str> = args.iter().map(std::convert::AsRef::as_ref).collect();
      let deps = findutils::find::StandardDependencies::new();
      std::process::exit(findutils::find::find_main(&strs, &deps));
@@ -33,7 +33,7 @@ index 061ac21..89de8f6 100644
 +
  fn main() {
 -    let args = std::env::args().collect::<Vec<String>>();
-+    let args = std::env::args().map(dsh_path_alias::translate_string).collect::<Vec<String>>();
++    let args: Vec<String> = dsh_path_alias::translate_string(std::env::args()).collect();
      std::process::exit(findutils::xargs::xargs_main(
          &args
              .iter()

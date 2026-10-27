@@ -1,7 +1,7 @@
 /**
  * Engine resolution for the `dsh-bash-native` executor.
  *
- * This plugin runs exactly one engine: brush (`brush-shell`), the Rust bash implementation that needs
+ * This plugin runs exactly one engine: rubash, the from-scratch Rust bash 5.3 implementation that needs
  * no MSYS runtime and therefore starts under every DSH sandbox tier. A configured absolute path is
  * still verified by asking the binary, so a same-named foreign program — `bash.exe` from Git for
  * Windows, MSYS2 or Cygwin, or the `wsl.exe` trampoline — is refused instead of silently becoming the
@@ -25,6 +25,13 @@ export interface EngineProbeResult {
     /** Why a found file was refused, or absent when the candidate was accepted. */
     readonly refused?: string;
 }
+/** The implementation family a verified engine belongs to.
+ *
+ * The two families differ in argv, not in meaning: brush needs the flag that turns its coloured diagnostics
+ * off (`--disable-color`), rubash rejects that flag and never colours. Everything else — activation prefix,
+ * interactive prefix, `-c` semantics — is shared.
+ */
+export type EngineFamily = 'brush' | 'rubash';
 /** The engine the executor drives. */
 export interface ResolvedEngine {
     /** Absolute executable path. */
@@ -33,6 +40,8 @@ export interface ResolvedEngine {
     readonly label: string;
     /** The engine's own `--version` first line, or an empty string when the verifier reported none. */
     readonly version: string;
+    /** Which family the verified binary belongs to; argv construction depends on it. */
+    readonly family: EngineFamily;
     /** Activation argv prefix passed before the command string. */
     readonly args: readonly string[];
     /** Interactive argv prefix, the `shellArgs` equivalent for a PTY composition. */
@@ -51,7 +60,7 @@ export interface EngineResolution {
 export interface ResolveEngineInput {
     /** Configured absolute engine path; empty means "resolve". */
     readonly bashPath: string;
-    /** Directory holding a packaged engine, probed as `brush.exe` and `bin/brush.exe`. */
+    /** Directory holding a packaged engine, probed as `rubash.exe` and `bin/rubash.exe`. */
     readonly bundledEngineDir: string;
     /**
      * The engine this package ships, already prepared for execution by `./artifact.ts`, or the reason it
@@ -63,6 +72,14 @@ export interface ResolveEngineInput {
 export interface EngineVerdict {
     /** The engine's own `--version` first line when it identified itself, else an empty string. */
     readonly version: string;
+    /**
+     * The family the candidate answered as.
+     *
+     * Optional because a verifier that only reports a refusal (every test seam, and the `refused` path in
+     * production) has no family to name; an accepted verdict that omits it is read as `rubash`, the only
+     * family this plugin ships.
+     */
+    readonly family?: EngineFamily;
     /** Why this file is not the engine, or null when it is. */
     readonly refused: string | null;
 }
@@ -110,8 +127,8 @@ export declare function engineEnvValue(env: EngineEnv, name: string): string | u
  * Resolve the engine by probing every candidate in order.
  *
  * The order is: an explicit `bashPath`, then an explicit `bundledEngineDir`, then the engine this package
- * ships (already prepared outside the workspace by `./artifact.ts`), then `brush` on `PATH`. Every
- * candidate that exists is verified, and a candidate that exists but is not brush is reported as refused
+ * ships (already prepared outside the workspace by `./artifact.ts`), then `rubash` on `PATH`. Every
+ * candidate that exists is verified, and a candidate that exists but is not the engine is reported as refused
  * rather than accepted, so the failure list distinguishes "nothing is installed" from "the thing you
  * pointed at is a different shell".
  * @param input - configured engine sources.

@@ -13,10 +13,10 @@
 // Everything it creates lives inside `.package-check/` (gitignored, removed in a `finally`) plus one
 // temporary directory for the tarball, so a run leaves the checkout as it found it.
 import assert from "node:assert/strict";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -143,7 +143,7 @@ try {
       "LICENSE",
       "overlays/single-agent-bash-native.yml",
       "engine.lock.json",
-      "engine/win32-x64/brush.exe",
+      "engine/win32-x64/rubash.exe",
       "toolchain/win32-x64/manifest.json",
       "lib/index.js",
       "lib/argv.js",
@@ -251,8 +251,8 @@ try {
   check("a second preparation reuses the names", prepareShellNames({ engine: engine.ready, sha256: engine.sha256, env }) === shimDir);
 
   // 3. The argv the shipped executor builds, and the diagnostics it produces.
-  const argv = buildCommandArgv({ path: engine.ready, label: "packaged", version: "", args: ["-c"], interactiveArgs: [] }, "echo hi");
-  check("the shipped command argv carries --disable-color", argv[1] === "--disable-color" && argv[2] === "-c", JSON.stringify(argv.slice(0, 3)));
+  const argv = buildCommandArgv({ path: engine.ready, label: "packaged", version: "", family: "rubash", args: ["-c"], interactiveArgs: [] }, "echo hi");
+  check("the shipped command argv is [engine, -c, command]", argv[0] === engine.ready && argv[1] === "-c" && argv[2] === "echo hi", JSON.stringify(argv.slice(0, 3)));
 
   // 4. Real commands through the shipped engine with the shipped toolchain on PATH.
   const toolchainDir = "ready" in toolchain ? toolchain.ready : "";
@@ -263,7 +263,7 @@ try {
   writeFileSync(join(cwd, "in.txt"), "aaa\n");
   writeFileSync(join(cwd, "probe.sh"), "echo probe $1\n");
   const shell = (command) =>
-    runCapture(engine.ready, ["--disable-color", "-c", command], { cwd, env: { ...env, PATH: shellPath } });
+    runCapture(engine.ready, ["-c", command], { cwd, env: { ...env, PATH: shellPath } });
   const checkRun = (name, command, want) => {
     const result = shell(command);
     if (result.status === null) return check(name, false, "timed out");
@@ -278,26 +278,19 @@ try {
   checkRun("xargs from the packaged toolchain", "printf \"x\\ny\\n\" | xargs -n1 echo", "x\ny\n");
   checkRun("seq and tr from the bundled utilities", "seq 1 3 | tr \"\\n\" \",\"", "1,2,3,");
   checkRun("stat from the packaged toolchain", "stat -c \"%F\" in.txt", "regular file\n");
-  checkRun("uname from the bundled utilities", "uname -s", "Windows_NT\n");
-  // One implementation, two ways in: the farm no longer publishes a utility the engine already bundles, so a
-  // direct `rm` (the builtin) and one a child process execs by name (through the shim) have to be the same
-  // implementation, and both have to refuse an operand whose trailing separator says "directory".
-  check(
-    "a bundled name in the shim is the engine itself",
-    (() => {
-      try {
-        const link = statSync(join(shimDir, "rm.exe"));
-        const target = statSync(engine.ready);
-        return link.ino === target.ino && link.size === target.size;
-      } catch {
-        return false;
-      }
-    })(),
-    "rm.exe is a hard link to the verified engine",
-  );
+  {
+    const uname = shell("uname -s").stdout.trim();
+    check("uname reports the MSYS-compatible persona", /^MSYS_NT-\d/.test(uname), JSON.stringify(uname));
+  }
+  // One implementation, two ways in: `rm` is the packaged toolchain's program (the engine bundles none), so a
+  // direct call and one a child process execs by name (`xargs`) have to reach the same file.
+  const rmDigest = basename(dirname(toolchainDir));
+  const rmPath = shell("command -v rm").stdout.trim();
+  check("rm resolves to the packaged toolchain", rmPath.toLowerCase().includes(rmDigest.toLowerCase()), rmPath);
   writeFileSync(join(cwd, "rmprobe.txt"), "x\n");
-  checkRun("the builtin rm refuses a trailing separator on a file", "rm -r rmprobe.txt/ 2>/dev/null; test -f rmprobe.txt && echo survived", "survived\n");
-  checkRun("a child process reaches that same rm by name", "printf \"rmprobe.txt/\\n\" | xargs rm -r 2>/dev/null; test -f rmprobe.txt && echo survived", "survived\n");
+  checkRun("rm deletes a file", "rm rmprobe.txt && test -f rmprobe.txt || echo gone", "gone\n");
+  writeFileSync(join(cwd, "rmprobe.txt"), "x\n");
+  checkRun("a child process reaches the same rm by name", "printf \"rmprobe.txt\\n\" | xargs rm && test -f rmprobe.txt || echo gone", "gone\n");
   checkRun("bash from the prepared names", "bash -c \"echo via-bash\"", "via-bash\n");
   checkRun("sh from the prepared names", "sh -c \"echo via-sh\"", "via-sh\n");
   checkRun("a script by name", "sh probe.sh arg1", "probe arg1\n");
@@ -310,7 +303,7 @@ try {
     const result = shell("./definitely-missing-tool 2>&1; echo rc=$?");
     check(
       "a missing relative command keeps the caller's wording",
-      result.stdout.includes("command not found: ./definitely-missing-tool") && result.stdout.includes("rc=127"),
+      result.stdout.includes("./definitely-missing-tool: No such file or directory") && result.stdout.includes("rc=127"),
       JSON.stringify(result.stdout),
     );
     // This diagnostic is one of the colored ones (measured), so it is the shape that proves the flag works.

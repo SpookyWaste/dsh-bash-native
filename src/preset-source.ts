@@ -31,7 +31,7 @@ import type { PresetRow, PresetSource, ShippedPreset } from './preset-data.js'
 /** The package that ships the preset bodies this bundle follows. */
 export const SHIPPED_PRESET_PACKAGE = '@deepseek-ai/dsh-web-app'
 
-/** The one platform this bundle's engine exists on: the shipped artifact is the Windows brush build. */
+/** The one platform this bundle's engine exists on: the shipped artifact is the Windows rubash build. */
 export const SUPPORTED_PLATFORM = 'win32'
 
 /** The row name a shipped preset file declares its composition with. */

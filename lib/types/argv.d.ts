@@ -13,6 +13,13 @@ import type { ResolvedEngine } from './resolve.js';
 export interface ShellEnvLayers {
     /** Executor-configured extra overrides, layered directly above the model-friendly defaults. */
     readonly overrides?: Readonly<Record<string, string>> | undefined;
+    /**
+     * Entries this executor derives from its configuration, such as which file commands come from `PATH`.
+     *
+     * They sit above the model-friendly defaults and below {@link overrides}, so an operator's own
+     * `shellEnvOverrides` can always replace one deliberately.
+     */
+    readonly enginePolicy?: Readonly<Record<string, string>> | undefined;
     /** Ordinary per-call environment from the request. */
     readonly env?: Readonly<Record<string, string>> | undefined;
     /** Managed `DSH_*` facts, which merge last so no ordinary entry can displace one. */

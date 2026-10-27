@@ -6,7 +6,7 @@ and the command names it publishes; `src/toolchain-artifact.ts` verifies those h
 
 | Component | Version | Licence | Source | Files | Names |
 | --- | --- | --- | --- | --- | --- |
-| `coreutils` | 0.12.0 | MIT | https://github.com/uutils/coreutils | `coreutils.exe` | 15 |
+| `coreutils` | 0.12.0 | MIT | https://github.com/uutils/coreutils | `coreutils.exe` | 88 |
 | `findutils` | 0.10.0 | MIT | https://github.com/uutils/findutils | `find.exe`, `locate.exe`, `updatedb.exe`, `xargs.exe` | 4 |
 | `goawk` | v1.32.0 | MIT | https://github.com/benhoyt/goawk | `awk.exe` | 1 |
 | `grep` | 0.2.0 | MIT | https://github.com/uutils/grep | `grep.exe` | 1 |
