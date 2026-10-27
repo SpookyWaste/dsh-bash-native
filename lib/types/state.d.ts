@@ -82,15 +82,6 @@ export interface StateReport {
     readonly bytes: number;
     readonly removableBytes: number;
 }
-/** What one automatic pass did. */
-export interface PruneResult {
-    /** Directories removed. */
-    readonly removed: number;
-    /** Bytes that deletion actually freed, summed over the removed directories. */
-    readonly bytes: number;
-    /** Their names, for the log line. */
-    readonly names: readonly string[];
-}
 /** The production filesystem: four reads and one delete, so the classification above is the module's content. */
 export declare const nodeIo: StateIo;
 /**
@@ -158,29 +149,6 @@ export declare function removeEntries(entries: readonly StateEntry[], io?: State
     removed: number;
     bytes: number;
 };
-/**
- * Remove the superseded cache directories whose bytes deleting actually frees.
- *
- * This is the executor's own pass, run once per process after an engine resolved: an upgrade leaves the
- * previous engine's `shim/` directory and the previous package's `toolchain/` cache behind, and nobody needs
- * them. Two conditions keep it safe. The directory must be **superseded** — its digest is not the one this
- * package uses — so the running build is never a candidate. And it must be **unshared**: every file in it has
- * all its hard-link names inside it, so no installed package (or other cache) still points at those bytes.
- * The second condition is also what makes the report honest — a directory that only mirrors an installed
- * package frees nothing, so deleting it would be churn against another version's files.
- *
- * The remaining risk is another installed version that *copied* rather than linked its cache and is still
- * running: its next resolution recreates the directory, so the worst case is one failed `bash` spawn, not lost
- * data. An entry that cannot be removed (a process holds it open) is left for the next pass.
- * @param options - the state root, the two digests this package uses, and the filesystem seam.
- * @returns what the pass removed.
- */
-export declare function pruneSuperseded(options: {
-    readonly root: string;
-    readonly engine: string | null;
-    readonly toolchain: string | null;
-    readonly io?: StateIo;
-}): PruneResult;
 /**
  * Render a byte count in the unit a reader cares about.
  * @param bytes - the count.

@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDigests, formatBytes, inspectState, pruneSuperseded, removable, removeEntries } from "../lib/state.js";
+import { currentDigests, formatBytes, inspectState, removable, removeEntries } from "../lib/state.js";
 
 let passed = 0;
 function pass(name) {
@@ -171,34 +171,11 @@ function file(path, bytes) {
   pass("sizes render in the unit a reader cares about");
 }
 
-// 7. The automatic pass removes only what it actually frees: superseded and unshared.
-{
-  const state = join(ROOT, "prune");
-  file(join(state, "shim", CURRENT_ENGINE, "bash.exe"), 10);
-  file(join(state, "shim", PREVIOUS_ENGINE, "bash.exe"), 20);
-  const sharedDir = join(state, "toolchain", PREVIOUS_TOOLCHAIN);
-  linkSync(file(join(sharedDir, "bin", "grep.exe"), 30), join(ROOT, "package-copy.exe"));
-  file(join(state, "tools", "bin", "grep.exe"), 40);
-
-  const result = pruneSuperseded({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
-  assert.deepEqual(result.names, [PREVIOUS_ENGINE], "only the superseded, unshared shim directory goes");
-  assert.equal(result.bytes, 20);
-  assert.equal(existsSync(join(state, "shim", PREVIOUS_ENGINE)), false);
-  assert.equal(existsSync(sharedDir), true, "a directory whose bytes another name holds is not worth deleting");
-  assert.equal(existsSync(join(state, "shim", CURRENT_ENGINE)), true, "the current directory is never a candidate");
-  assert.equal(existsSync(join(state, "tools")), true, "a source-built toolchain belongs to the operator, not to this cache pass");
-  assert.equal(pruneSuperseded({ root: state, engine: null, toolchain: CURRENT_TOOLCHAIN }).removed, 0, "an unknown engine digest means nothing is called superseded");
-
-  rmSync(join(ROOT, "package-copy.exe"), { force: true });
-  rmSync(state, { recursive: true, force: true });
-  pass("the automatic pass removes superseded, unshared caches and nothing else");
-}
-
-// 8. A cache directory that holds a link is never auto-deleted, and deleting it by hand never follows it.
+// 7. A cache directory that holds a link is reported as such, and deleting it never follows the link.
 //
-// A junction inside the cache could point anywhere. The automatic pass refuses such a tree outright, and the
-// explicit tool removes the link itself: Node's recursive removal unlinks a reparse point instead of walking
-// into it, which the last assertion pins.
+// A junction inside the cache could point anywhere. The report names the tree, and the deletion removes the
+// link itself: Node's recursive removal unlinks a reparse point instead of walking into it, which the last
+// assertion pins.
 {
   const state = join(ROOT, "links-in-cache");
   const stale = join(state, "shim", PREVIOUS_ENGINE);
@@ -211,12 +188,6 @@ function file(path, bytes) {
   const report = inspectState({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN });
   const entry = report.entries.find((one) => one.kind === "shim");
   assert.equal(entry.linked, true, "the report says the tree holds a link");
-  assert.equal(
-    pruneSuperseded({ root: state, engine: CURRENT_ENGINE, toolchain: CURRENT_TOOLCHAIN }).removed,
-    0,
-    "the automatic pass leaves a tree holding a link alone",
-  );
-  assert.equal(existsSync(join(target, "keep.txt")), true, "the link target is untouched");
 
   removeEntries(removable(report.entries, { superseded: true }));
   assert.equal(existsSync(stale), false, "the explicit tool still removes the cache directory");
@@ -224,7 +195,7 @@ function file(path, bytes) {
 
   rmSync(target, { recursive: true, force: true });
   rmSync(state, { recursive: true, force: true });
-  pass("a cache tree holding a link is never auto-deleted, and manual deletion does not follow it");
+  pass("a cache tree holding a link is reported, and deleting it does not follow the link");
 }
 
 rmSync(ROOT, { recursive: true, force: true });

@@ -106,16 +106,6 @@ export interface StateReport {
   readonly removableBytes: number
 }
 
-/** What one automatic pass did. */
-export interface PruneResult {
-  /** Directories removed. */
-  readonly removed: number
-  /** Bytes that deletion actually freed, summed over the removed directories. */
-  readonly bytes: number
-  /** Their names, for the log line. */
-  readonly names: readonly string[]
-}
-
 /** The production filesystem: four reads and one delete, so the classification above is the module's content. */
 export const nodeIo: StateIo = {
   isDirectory: (path) => {
@@ -379,54 +369,6 @@ export function reclaimable(entries: readonly StateEntry[], options: { supersede
 export function removeEntries(entries: readonly StateEntry[], io: StateIo = nodeIo): { removed: number; bytes: number } {
   for (const entry of entries) io.remove(entry.path)
   return { removed: entries.length, bytes: reclaimable(entries, { superseded: true, tools: true, dev: true }) }
-}
-
-/**
- * Remove the superseded cache directories whose bytes deleting actually frees.
- *
- * This is the executor's own pass, run once per process after an engine resolved: an upgrade leaves the
- * previous engine's `shim/` directory and the previous package's `toolchain/` cache behind, and nobody needs
- * them. Two conditions keep it safe. The directory must be **superseded** — its digest is not the one this
- * package uses — so the running build is never a candidate. And it must be **unshared**: every file in it has
- * all its hard-link names inside it, so no installed package (or other cache) still points at those bytes.
- * The second condition is also what makes the report honest — a directory that only mirrors an installed
- * package frees nothing, so deleting it would be churn against another version's files.
- *
- * The remaining risk is another installed version that *copied* rather than linked its cache and is still
- * running: its next resolution recreates the directory, so the worst case is one failed `bash` spawn, not lost
- * data. An entry that cannot be removed (a process holds it open) is left for the next pass.
- * @param options - the state root, the two digests this package uses, and the filesystem seam.
- * @returns what the pass removed.
- */
-export function pruneSuperseded(options: {
-  readonly root: string
-  readonly engine: string | null
-  readonly toolchain: string | null
-  readonly io?: StateIo
-}): PruneResult {
-  const io = options.io ?? nodeIo
-  if (options.root.length === 0 || options.engine === null || !io.isDirectory(options.root)) {
-    return { removed: 0, bytes: 0, names: [] }
-  }
-  const report = inspectState({ root: options.root, engine: options.engine, toolchain: options.toolchain, io })
-  // A tree holding a link or junction is never a candidate: deleting it would be a decision about names
-  // outside this directory, and the pass only ever means to remove bytes it laid down itself.
-  const doomed = removable(report.entries, { superseded: true }).filter((entry) => entry.shared === 0 && !entry.linked)
-  let removed = 0
-  let bytes = 0
-  const names: string[] = []
-  for (const entry of doomed) {
-    try {
-      io.remove(entry.path)
-    } catch {
-      // A directory another process holds open stays; the next session's pass tries again.
-      continue
-    }
-    removed += 1
-    bytes += entry.bytes
-    names.push(entry.name)
-  }
-  return { removed, bytes, names }
 }
 
 /**

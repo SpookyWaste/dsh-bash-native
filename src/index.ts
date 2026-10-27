@@ -29,7 +29,6 @@ import type { BashNativeConfig } from './config.js'
 import { describeShellEnvironment } from './prompt.js'
 import { engineEnvValue, resolveEngine } from './resolve.js'
 import { prepareShellNames } from './shim.js'
-import { currentDigests, defaultStateRoot, formatBytes, pruneSuperseded } from './state.js'
 import type { EngineResolution, EngineVerdict, ResolvedEngine } from './resolve.js'
 import { FILE_COMMANDS_FROM_PATH_ENV, defaultRcFile, defaultToolsDir, fileCommandsFromPath, probeToolchain, rcFileContents } from './toolchain.js'
 import type { ToolchainProbe } from './toolchain.js'
@@ -51,9 +50,6 @@ interface ProcessFacts {
   readonly runnerProgram: string
   readonly workdir: string
 }
-
-/** State roots this process has already pruned, so the pass runs once per directory per process. */
-const PRUNED_STATE_ROOTS = new Set<string>()
 
 /** Engine resolution cached per configuration-and-environment key. */
 interface CachedResolution {
@@ -310,42 +306,8 @@ export class BashNativeExecutor extends LocalBashExecutor {
       dshEnv: spec.dshEnv,
     })
     const resolved: ShellExecSpec = { ...spec, env }
-    this.pruneStateCaches()
     if (!this.config.confine) return resolved
     return { ...resolved, sandboxPolicy: request.sandboxPolicy ?? this.ctx.sandboxPolicy.resolve() }
-  }
-
-  /**
-   * Remove the superseded caches of earlier builds, once per process.
-   *
-   * An upgrade leaves the previous engine's `shim/` directory and the previous package's `toolchain/` cache
-   * behind, and nothing needs them. The pass only touches a directory whose digest is not the one this build
-   * uses **and** whose files have no hard-link name outside it, so an installed package or another live cache
-   * keeps its own bytes (and the pass never claims space it does not free). It runs after the first resolution,
-   * because the engine that actually resolved is what decides which names directory is current — and only for
-   * the engine this package ships: a deployment that pointed `bashPath` somewhere else has a state directory
-   * this build did not lay out.
-   */
-  private pruneStateCaches(): void {
-    if (!this.config.pruneSupersededCaches) return
-    const packaged = this.packaged()
-    const engine = this.resolution().engine
-    if (packaged === null || !('ready' in packaged) || engine === null || engine.path !== packaged.ready) return
-    const root = defaultStateRoot(process.env)
-    if (root.length === 0 || PRUNED_STATE_ROOTS.has(root)) return
-    PRUNED_STATE_ROOTS.add(root)
-    try {
-      const pruned = pruneSuperseded({ root, engine: packaged.sha256, toolchain: currentDigests(packageRoot()).toolchain })
-      if (pruned.removed > 0) {
-        this.ctx.logger?.info?.(
-          `bash-native: removed ${pruned.removed} superseded cache director${pruned.removed === 1 ? 'y' : 'ies'} (${formatBytes(pruned.bytes)}) from ${root}`,
-        )
-      }
-    } catch (error) {
-      // A state directory that cannot be read or written only costs the disk space it holds; the shell works
-      // either way, and the operator can see the truth with `bin/clean-state.mjs`.
-      this.ctx.logger?.warn?.(`bash-native: the superseded caches under ${root} could not be pruned: ${String(error)}`)
-    }
   }
 
   /**

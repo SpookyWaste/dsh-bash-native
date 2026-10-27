@@ -1,11 +1,9 @@
 /**
  * Reports — and with `--yes`, removes — the per-user caches an upgrade leaves behind.
  *
- * The classification lives in `lib/state.js` (`src/state.ts`), because the executor runs the same pass at
- * run time: it deletes a superseded cache directory only when none of its bytes are shared with a name
- * outside it, so an installed package or another live cache keeps its own files. This script is the wider
- * tool: it also reports what the automatic pass leaves alone, and it can delete the source-built toolchain or
- * the development leftovers when the operator says so.
+ * The classification lives in `lib/state.js` (`src/state.ts`) so the rules have one home and one test. Nothing
+ * prunes by itself: an upgrade leaves the previous engine's `shim/` directory and the previous package's
+ * `toolchain/` cache behind, and removing them is this script's job, run on purpose.
  *
  * Usage:
  *   node bin/clean-state.mjs                 report; change nothing
@@ -16,6 +14,8 @@
  *   node bin/clean-state.mjs --dev           also delete the development leftovers
  *
  * Run it with DSH stopped: a running shell may still be executing a program from the directory being removed.
+ * A directory whose files are shared with an installed package frees nothing when deleted, which is what the
+ * `shared` column reports; `--yes` deletes it anyway only if you ask for it.
  * @module dsh-bash-native/bin/clean-state
  */
 

@@ -88,19 +88,6 @@ export interface BashNativeFields {
    * Setting every name is possible and documented in the README's limitations, not supported as a default.
    */
   fileCommandsFromPath: string[]
-  /**
-   * Whether the first resolution of a process removes the caches an earlier build left behind.
-   *
-   * The per-user directory keeps one `shim/<engine sha256>/` per engine build and one
-   * `toolchain/<manifest digest>/` per packaged toolchain. An upgrade lands in a new directory and the old one
-   * stays — deliberately, because another installed version may still be using it. This pass reclaims the ones
-   * it can prove are dead: the digest is not the one in use, and none of the files have a hard-link name
-   * outside the directory, so no installed package or live cache still points at those bytes. It never touches
-   * the current directory, a source-built `tools/` toolchain, or the development leftovers of
-   * `scripts/build-engine.mjs`; `bin/clean-state.mjs` is the explicit tool that reports all of it and can
-   * delete the rest on request.
-   */
-  pruneSupersededCaches: boolean
   /** Extra environment entries for every command, layered above the model-friendly defaults. */
   shellEnvOverrides: Record<string, string>
   /**
@@ -144,7 +131,6 @@ export const Config = Schema.object({
   rcFile: Schema.string().default(''),
   denialSignatureAdditions: Schema.array(Schema.string()).default(['os error 5']),
   fileCommandsFromPath: Schema.array(Schema.union([...ENGINE_FILE_COMMANDS])).default([...DEFAULT_FILE_COMMANDS_FROM_PATH]),
-  pruneSupersededCaches: Schema.boolean().default(true),
   shellEnvOverrides: Schema.dict(Schema.string()).default({}),
   verifyArtifacts: Schema.union(['stamped', 'always']).default('stamped'),
 })
