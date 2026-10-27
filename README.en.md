@@ -17,8 +17,8 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
-[![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-4b8bbe)](https://github.com/unixwin/rubash)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
 
@@ -29,6 +29,8 @@
 ## 🐟 Why it exists
 
 > ~~So the fat fish stops getting bitten by cmd~~, and without the performance cost of a subsystem or an MSYS layer
+
+**0.3.1**: the engine moved from `brush` to `rubash`, fixing a list of known defects and offering better native POSIX compatibility
 
 <p align="center">
   <img src="img/example0.jpg" width="240">
@@ -61,11 +63,35 @@
   </tbody>
 </table>
 
+### ⚡ Measured: the cost of a startup and a subshell
+
+The same scripts on the same machine (Windows 11 / x64), minimum of five runs each, using only shell builtins and one external spawn so the toolchains do not enter the comparison.
+> Reproduce with `node scripts/bench-engines.mjs` from the repository.
+
+| Workload | rubash (this plugin) | Git Bash / MSYS2 |
+|---|---:|---:|
+| `bash -c :` (start to exit) | 7 ms | 25 ms |
+| `echo hi` | 6 ms | 26 ms |
+| arith loop 10k | 65 ms | 75 ms |
+| `[ ]` 20k | 167 ms | 181 ms |
+| command sub 300 | 11 ms | **3052** ms |
+| subshell 300 | 25 ms | **2497** ms |
+| external spawn 20 (`cmd /c exit`) | 192 ms | 560 ms |
+
+The gap comes from **fork**: every command substitution and subshell under MSYS2 forks an emulation-layer process (about 8–10 ms), while rubash keeps both in-process (about 0.04 ms each), which is two to three seconds over 300 runs.
+
+### 🧭 Paths are not silently rewritten
+
+Git Bash / MSYS2 **guesses** which arguments look like paths when it hands them to a **native** program and rewrites them (`/flag` becomes `C:/Program Files/Git/flag`, so scripts and agents have to remember `MSYS_NO_PATHCONV=1`); data words are rewritten too: run `awk '/x/{print}'` through MSYS against a native `awk.exe` and the program word arrives as `X:/{print}`, a syntax error and the wrong path.
+> rubash does not guess: per child dialect, a whole argv is either passed verbatim to a program that owns a POSIX layer or uniformly translated to Win32 spellings, and the scripts, patterns and program words of the shipped tools are never rewritten, which removes most of the wrong-path cases.
+
 ---
 
 ## 📦 Install
 
 ### From the CLI
+
+> Take the `web` profile as an example
 
 ```
 dsh plugin --profile web add dsh-bash-native
@@ -91,7 +117,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.1-alpha.5)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.1-rc.3 tested)</td>
     </tr>
     <tr>
       <td><b>Persistent-terminal component</b></td>
@@ -106,7 +132,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 
 The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies three patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
 
-It reports a GNU bash 5.3 banner and an **MSYS-compatible `uname -s`** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
+> Compatible with the **MSYS `uname -s` identity** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
 <details>
 <summary><b>🧩 Patch list (click to expand)</b></summary>
@@ -171,7 +197,7 @@ It reports a GNU bash 5.3 banner and an **MSYS-compatible `uname -s`** (`MSYS_NT
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>, order 6</sub></td>
-      <td>Reads that line's <code>minimal</code> and replaces only the shell surface: one persona and one persistent bash; since 0.2.1-alpha.3 upstream ships the read-only image file tools and the compaction group</td>
+      <td>Reads that line's <code>minimal</code> and replaces only the shell surface: one persona and one persistent bash.</td>
       <td>A lean session that only needs a shell</td>
     </tr>
   </tbody>
@@ -213,16 +239,6 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
       <td>Whether a missing engine fails the load or every call (both presets set <code>true</code>)</td>
     </tr>
     <tr>
-      <td><code>promptSection</code></td>
-      <td><code>true</code></td>
-      <td>Whether the model-visible environment section is contributed</td>
-    </tr>
-    <tr>
-      <td><code>promptDetail</code></td>
-      <td><code>full</code></td>
-      <td>Kept for compatibility: the contract is two sentences now, so both values render the same text</td>
-    </tr>
-    <tr>
       <td><code>toolsDir</code></td>
       <td><code>''</code></td>
       <td>The POSIX toolchain directory; empty = first the per-user build (<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>), and if it holds no programs the bundled one. A configured directory is used as-is, even when empty (it is never silently swapped for the bundled copy)</td>
@@ -231,16 +247,6 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
       <td><code>fileCommandsFromPath</code></td>
       <td><code>['sed','rmdir']</code></td>
       <td>Engine file commands to run from the toolchain's program instead (only the twelve names the engine implements in-process); a name the toolchain does not publish, or one published on a directory that is not on <code>PATH</code>, is ignored and the in-process copy keeps answering. See “Known limitations” below.</td>
-    </tr>
-    <tr>
-      <td><code>bashPath</code></td>
-      <td><code>''</code></td>
-      <td>Absolute engine path; empty = resolve in the usual order</td>
-    </tr>
-    <tr>
-      <td><code>bundledEngineDir</code></td>
-      <td><code>''</code></td>
-      <td>A directory that carries the engine: probes <code>rubash.exe</code>, then <code>bin/rubash.exe</code></td>
     </tr>
     <tr>
       <td><code>rcFile</code></td>
@@ -285,22 +291,15 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
 
 <br>
 
-- **Shadows the unrelated Windows programs of the same name**, such as `find.exe` and `timeout.exe`. The toolchain has **no** `convert`, so that name still reaches Windows' volume converter: **do not use it as ImageMagick**.
-- **Understands the same `/tmp` and drive-mount aliases as the engine** (using `$TMP` is still recommended), including a program that starts another program: `printf '/tmp/f\n' | xargs awk '{print}'` and `printf '/tmp/x\n' | xargs rm` both reach the real file.
+- **Understands the same `/tmp` and drive-mount aliases as the engine**, including a program that starts another program: `printf '/tmp/f\n' | xargs awk '{print}'` and `printf '/tmp/x\n' | xargs rm` both reach the real file.
 - **One table protects the data positions on both sides**: the value of `-e`/`-f`, a grep/sed/awk first positional operand, find's `-name`/`-path` primaries and basename/dirname's positionals are never translated — the engine's own funnels and the toolchain side of “a program starts a program” follow the same list.
 - **Also puts `bash` and `sh` on `PATH`** (the toolchain directory first, then the **names directory**, both ahead of the host's `PATH`):
 
   > `src/shim.ts` points those two names at the verified engine inside `%LOCALAPPDATA%\dsh-bash-native\shim\<engine sha256>\` — hard links on the same volume, so both names share the engine's bytes.
 
-  So `bash script.sh`, `bash -c …`, `sh -c …` and Makefiles or npm hooks that call `bash` all work. No utility names appear here, because a `cat.exe` hard-linked to the engine would only be a shell that calls itself `cat`.
-
 ---
 
 ## ⚠️ Known limitations
-
-- **`sed` and `rmdir` are answered by the toolchain's programs** (the `fileCommandsFromPath` default): both of the engine's own copies differ from GNU in measured ways — `sed` does not recognise `\b`, `\{m,n\}` or `\|`, and `rmdir` exits 0 for a missing operand and removes the parent of `d/.`. Running the programs fixes both, at the cost of one process per call (about 11–13 ms, against about 0.05 ms in-process).
-
-- **The other ten in-process file commands stay as they are** (`cat`, `rm`, `mkdir`, `touch`, `cp`, `tty`, `pwd`, `printf`, `chmod`, `mkfifo`): no measured difference from GNU, and `chmod` and `mkfifo` have **no toolchain program at all** on Windows (uutils publishes neither applet), so sending them to `PATH` only produces `command not found`. `shellEnvOverrides: { RUBASH_FILE_COMMANDS_FROM_PATH: 'all' }` switches the whole layer off, but then `chmod +x` starts failing and every `cat`/`rm` pays the process.
 
 - **Two platform differences unrelated to the in-process copies**:
 
@@ -320,38 +319,27 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
   | the engine's own builtins | `141` | finish correctly |
 
 - **`{ …; } | head` hangs when a line is longer than about 100 KB** (rubash 1.4.3; measured: a 60 KB line is fine, a 200 KB line times out): the reader takes part of the line and exits, and the writer never aborts — with the pipeline's output going to a file it hangs, and with a second pipe it **loses the whole output**. Workaround: `{ …; } | cat | head`, or write to a file first. Recorded in `docs/research.md` §72; `test/test-brush-regressions.mjs` prints the current state on every run.
-
-- **A data word on an `xargs` or `find -exec` command line** is translated by the shell first: the `/d/x` in `xargs grep -F /d/x` becomes a Windows spelling before `xargs` runs. Paths coming through stdin are unaffected (the toolchain program translates them itself).
-- **Where the bundled programs cannot reach**: `find.exe` and `timeout.exe` are shadowed, but `find -exec` only starts programs the engine can find; a script that spells `C:\Windows\System32\find.exe` still reaches the Windows search tool.
+- **A program the engine does not know cannot tell data from a path**: a path-shaped data word handed to an unknown **native** program (`node -e '…' '/x/{print}'`) is treated as a path operand and translated to a Win32 spelling — MSYS behaves the same way; what differs is that the shipped tools' scripts, patterns and program words have a fixed data-position table and are never rewritten.
 
 ---
 
 ## 🧹 Disk footprint and cleanup
 
-The runtime state lives under `%LOCALAPPDATA%\dsh-bash-native` and is **content-addressed**: one `shim/<engine sha256>/` per engine build (the `bash`/`sh` names), one `toolchain/<manifest digest>/` per packaged toolchain (the programs plus the names under `bin/`). An upgrade whose bytes changed lands in a new directory, and the old one is **deliberately not pruned**: another installed version, or a live process, may still be using it.
+The runtime state lives under `%LOCALAPPDATA%\dsh-bash-native` and is **content-addressed**: one `shim/<engine sha256>/` per engine build.
 
 | Directory | Written by | Size | If deleted |
 |---|---|:---:|---|
 | `shim/<digest>/` | every resolution | the engine's size (about 0 with a hard link on the same volume) | recreated on the next resolution |
 | `toolchain/<digest>/` | every resolution | about 36 MB (about 0 with hard links on the same volume) | recreated on the next resolution |
-| `tools/` | `npm run toolchain` | about 36 MB | must be rebuilt (Rust, slow) |
-| `build/`, `engine-backup/`, `rubash.exe` | `scripts/build-engine.mjs` | 1–2 GB | only development builds are affected |
 | `verified/` | every verification | tens of KB | one extra hash, nothing else |
 
 To clean up explicitly (run it with **DSH stopped**):
+> Replace `<dsh_profile>` with your profile's path, for example `%USERPROFILE%\.dsh\profiles\<profile>`
 
 ```sh
-node node_modules/dsh-bash-native/bin/clean-state.mjs          # report only, change nothing
-node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the superseded shim/ and toolchain/ caches
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs          # report only, change nothing
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # delete the superseded shim/ and toolchain/ caches
 ```
-
-(Those paths are relative to the profile directory: the desktop edition keeps the package under `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\`, not in the global npm tree, so run it from there or spell the absolute path.)
-
-`--tools` also deletes the source-built toolchain, `--dev` also deletes the development leftovers; `verified/` and the rc file are always kept. The script decides only on “is the directory name a 64-character sha256” and “is it the digest this package uses”; anything it cannot classify is left alone, and it refuses to delete when either digest cannot be read.
-
-Cleanup happens only through the two commands above: an upgrade deletes nothing by itself. A superseded cache cannot affect the new version — engine resolution looks at `bashPath`, `bundledEngineDir`, this package's artifact and `rubash` on `PATH`; a persistent terminal runs the resolved engine by absolute path; and a command's `PATH` only ever names the `shim/` directory of the engine in use, so an earlier engine's tools cannot be reached through it. When to clean is therefore your decision.
-
-Hard links are counted once per inode; when a file in a directory also has a name outside it (the same binary inside an installed package, for example), the report marks the bytes as `shared`, because deleting the directory would free none of them — the “superseded caches” line therefore states what a deletion really frees.
 
 ## 📄 License
 
@@ -365,10 +353,5 @@ Hard links are counted once per inode; when a file in a directory also has a nam
 
 ## 🙏 References and thanks
 
-The engine, [rubash](https://github.com/unixwin/rubash), is implemented by the unixwin team; this repository only patches it three times and builds it. It is the first-hand behavioural baseline for the three facts this plugin states — data positions are never translated, an environment entry the host cannot decode must not take every command down, and the shell decides which file commands come from PATH rather than its own in-process copy.
-
-On the road to a native bash on Windows, **[oh-my-pi](https://github.com/can1357/oh-my-pi)** was one of the earliest implementations, and this plugin's earlier brush-era diagnoses and fixes benefited from the record it left behind.
-
-[MSYS2](https://www.msys2.org/)'s path aliases and identity conventions are the reference behind the `/tmp`, `/c/...` and `uname -s` parts of the contract.
-
+On the road to a native bash for agents, **[oh-my-pi](https://github.com/can1357/oh-my-pi)** is one of the earliest implementations to blaze it, and this plugin's early brush diagnosis and fixes also benefited from the record it left.
 <!-- ═══════════════════════════════════════════════════════════════════════ -->

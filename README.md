@@ -17,8 +17,8 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--alpha.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
-[![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-4b8bbe)](https://github.com/unixwin/rubash)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
 
@@ -29,6 +29,8 @@
 ## 🐟 为什么需要它
 
 > ~~避免肥鱼被 cmd 咬~~，也规避了子系统和 MSYS 兼容层的性能开销
+
+**0.3.1**：引擎由`brush`更换为`rubash`，修复多项已知缺陷，提供更好的原生 POSIX 兼容
 
 <p align="center">
   <img src="img/example0.jpg" width="240">
@@ -61,11 +63,35 @@
   </tbody>
 </table>
 
+### ⚡ 实测：启动与子 shell 的代价
+
+同一台机器（Windows 11 / x64）上的同一组脚本，每项取 5 次最小值，负载只用 shell 内建与一次外部进程，排除工具链差异。
+> 复现：仓库里的 `node scripts/bench-engines.mjs`。
+
+| 工作负载 | rubash（本插件） | Git Bash / MSYS2 |
+|---|---:|---:|
+| `bash -c :`（启动到退出） | 7 ms | 25 ms |
+| `echo hi` | 6 ms | 26 ms |
+| 算术循环 10k 次 | 65 ms | 75 ms |
+| `[ ]` 判定 20k 次 | 167 ms | 181 ms |
+| 命令替换 300 次 | 11 ms | **3052** ms |
+| 子 shell 300 次 | 25 ms | **2497** ms |
+| 外部进程 20 次（`cmd /c exit`） | 192 ms | 560 ms |
+
+差距来自 **fork**：MSYS2 每次命令替换与子 shell 都要 fork 一个兼容层进程（约 8–10 ms），rubash 两样都做在进程内（每次约 0.04 ms），300 次就相差 2–3 秒。
+
+### 🧭 路径不会被“自动替换”
+
+Git Bash / MSYS2 把参数交给**原生**程序时会**猜**哪些像路径并改写（`/flag` → `C:/Program Files/Git/flag`，于是脚本和 agent 被迫记着 `MSYS_NO_PATHCONV=1`）；连数据位也一起改：用 MSYS 调原生 `awk.exe` 跑 `awk '/x/{print}'`，程序位到手是 `X:/{print}`，直接语法错误、进错路径。
+> rubash 不猜：按子进程方言，整条 argv 要么原样交给带 POSIX 层的程序，要么统一翻成 Win32 拼写；随包工具的脚本、模式、程序位永不改写，极大减少了找不到路径的情况。
+
 ---
 
 ## 📦 安装
 
 ### CLI 安装
+
+> 以 `web` profile 为例
 
 ```
 dsh plugin --profile web add dsh-bash-native
@@ -91,7 +117,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-alpha.5）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-rc.3实测）</td>
     </tr>
     <tr>
       <td><b>持久终端组件</b></td>
@@ -106,7 +132,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
 
-它报告 GNU bash 5.3 的版本横幅，以及 **MSYS 兼容的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑照常成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
+> 兼容 **MSYS 的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑也能成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 
 <details>
 <summary><b>🧩 补丁清单（点击展开）</b></summary>
@@ -171,7 +197,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>Native Bash (Windows, minimal)</b><br><sub>id <code>bash-native-minimal</code>，order 6</sub></td>
-      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash；上游从 0.2.1-alpha.3 起自带只读图片的文件工具与压缩组</td>
+      <td>读本机那条线的 <code>minimal</code> 并只换 shell 面：一个 persona 与一个持久 bash。</td>
       <td>只要一个 shell 的轻量会话</td>
     </tr>
   </tbody>
@@ -213,16 +239,6 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td>无引擎时是加载失败，还是每次调用失败（两个预设都设 <code>true</code>）</td>
     </tr>
     <tr>
-      <td><code>promptSection</code></td>
-      <td><code>true</code></td>
-      <td>是否贡献模型可见的环境契约小节</td>
-    </tr>
-    <tr>
-      <td><code>promptDetail</code></td>
-      <td><code>full</code></td>
-      <td>保留的兼容键：契约只剩两句后，两个取值产出同一段文字，设或不设都一样</td>
-    </tr>
-    <tr>
       <td><code>toolsDir</code></td>
       <td><code>''</code></td>
       <td>POSIX 工具链目录；空 = 先看每用户目录里自建的那份（<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>），没有程序就用随包工具链。填了则照用，空目录也算数（不会悄悄换成随包那份）</td>
@@ -231,16 +247,6 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td><code>fileCommandsFromPath</code></td>
       <td><code>['sed','rmdir']</code></td>
       <td>改从工具链程序执行的引擎内建文件命令（仅限引擎实现的 12 个名字）；工具链没有提供该程序、或工具链目录不在 <code>PATH</code> 上时自动忽略，进程内副本继续生效。见下面的「已知限制」</td>
-    </tr>
-    <tr>
-      <td><code>bashPath</code></td>
-      <td><code>''</code></td>
-      <td>引擎绝对路径；空 = 按解析顺序找</td>
-    </tr>
-    <tr>
-      <td><code>bundledEngineDir</code></td>
-      <td><code>''</code></td>
-      <td>自带引擎目录，先探 <code>rubash.exe</code> 再探 <code>bin/rubash.exe</code></td>
     </tr>
     <tr>
       <td><code>rcFile</code></td>
@@ -285,22 +291,15 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 <br>
 
-- **遮蔽语义无关的同名 Windows 程序**：如 `find.exe`、`timeout.exe`；但 `convert.exe` 工具链**没有**对应实现，因此仍会命中 Windows 的卷转换工具，**别当 ImageMagick 用**。
-- **支持与引擎相同的 `/tmp` 与盘符别名**（仍然推荐使用 `$TMP`），“程序再启动程序”的链同样成立：`printf '/tmp/f\n' | xargs awk '{print}'` 与 `printf '/tmp/x\n' | xargs rm` 都拿到真实路径。
+- **支持与引擎相同的 `/tmp` 与盘符别名**，“程序再启动程序”的链同样成立：`printf '/tmp/f\n' | xargs awk '{print}'` 与 `printf '/tmp/x\n' | xargs rm` 都拿到真实路径。
 - **数据位由两边同一张表保护**：开关 <code>-e</code>/<code>-f</code> 的值、grep/sed/awk 的首个位置操作数、find 的 <code>-name</code>/<code>-path</code> 类主项、basename/dirname 的位置参数，都不翻译——引擎启动的子进程与工具链里“程序再启动程序”的那一半用的是同一份清单。
 - **顺带把 `bash` 与 `sh` 放到 `PATH` 上**（工具链目录在前，**名字目录**紧随其后，两者都排在宿主原有 `PATH` 之前）：
 
   > `src/shim.ts` 在 `%LOCALAPPDATA%\dsh-bash-native\shim\<引擎 sha256>\` 里把这两个名字指向已校验引擎——同卷时是**硬链接**，两个名字共用引擎那一份字节。
 
-  于是 `bash script.sh`、`bash -c …`、`sh -c …` 与调用 `bash` 的 Makefile/npm 钩子都能用；工具名不在这里，因为把 `cat.exe` 硬链到引擎只会得到一个自称 `cat` 的 shell。
-
 ---
 
 ## ⚠️ 已知限制
-
-- **`sed` 与 `rmdir` 由工具链的程序回答**（`fileCommandsFromPath` 的默认值）：引擎自己那两份实现与 GNU 有实测差异——`sed` 不认 `\b`、`\{m,n\}`、`\|`，`rmdir` 对不存在的路径返回 0、并把 `d/.` 的父目录删掉。改走工具链后这两条都正确，代价是每次调用多一次进程创建（约 11–13 ms；进程内约 0.05 ms）。
-
-- **其余 10 个进程内文件命令保持原样**（`cat`、`rm`、`mkdir`、`touch`、`cp`、`tty`、`pwd`、`printf`、`chmod`、`mkfifo`）：它们的简单形态没有测到与 GNU 的差异，而 `chmod`、`mkfifo` 在 Windows 上**没有工具链程序**（uutils 不发布这两个 applet），改走 `PATH` 只会得到 `command not found`。需要全关时可用 `shellEnvOverrides: { RUBASH_FILE_COMMANDS_FROM_PATH: 'all' }`，但 `chmod +x` 会开始失败，`cat`/`rm` 每次也多一次进程创建。
 
 - **两条与进程内副本无关的平台差异**：
 
@@ -320,38 +319,27 @@ https://github.com/SpookyWaste/dsh-bash-native
   | 引擎自己的内建 | `141` | 正确结束 |
 
 - **`{ …; } | head` 在单行超过约 100 KB 时会挂起**（rubash 1.4.3，实测：60 KB 单行正常、200 KB 单行超时）：读端读走一部分就退出，写端不中止；把这条管道的输出接到文件时是挂起，接到另一个管道时则**整段输出丢失**。绕开办法：`{ …; } | cat | head`，或先写到文件再读。记录在 `docs/research.md` §72，`test/test-brush-regressions.mjs` 每次运行都会打印现状。
-
-- **`xargs` / `find -exec` 命令行里的数据词**由 shell 先翻译：`xargs grep -F /d/x` 里的 `/d/x` 在进 `xargs` 之前就会变成 Windows 形态；从 stdin 来的路径不受影响（由工具链程序自己翻译）。
-- **工具链的自带程序覆盖不到的地方**：`find.exe`、`timeout.exe` 已遮蔽，但 `find -exec` 只启动引擎能找到的程序；一个脚本若写死了 `C:\Windows\System32\find.exe`，撞上的仍是 Windows 的搜索工具。
+- **不认识的程序分不清数据与路径**：把一个“像路径”的数据词交给引擎不认识的**原生**程序（`node -e '…' '/x/{print}'`），它会被当作路径操作数翻成 Win32 拼写——MSYS 同样如此；区别是随包工具的脚本、模式、程序位有确定的数据位表，永不被改写。
 
 ---
 
 ## 🧹 磁盘足迹与清理
 
-运行时状态都在 `%LOCALAPPDATA%\dsh-bash-native` 下，并且**按内容寻址**：每个引擎构建一个 `shim/<引擎 sha256>/`（`bash`/`sh` 两个名字），每个随包工具链一个 `toolchain/<manifest 摘要>/`（程序本体加 `bin/` 下的名字）。升级后字节变了就落到新目录，旧目录**故意不自动删**：另一个已安装的版本或一个还活着的进程可能仍在使用它。
+运行时状态都在 `%LOCALAPPDATA%\dsh-bash-native` 下，并且**按内容寻址**：每个引擎构建一个 `shim/<引擎 sha256>/`。
 
 | 目录 | 谁写的 | 大小 | 删掉会怎样 |
 |---|---|:---:|---|
 | `shim/<摘要>/` | 每次解析 | 引擎大小（同卷硬链接时约 0） | 下次解析重建 |
 | `toolchain/<摘要>/` | 每次解析 | 约 36 MB（同卷硬链接时约 0） | 下次解析重建 |
-| `tools/` | `npm run toolchain` | 约 36 MB | 要重新构建（Rust，慢） |
-| `build/`、`engine-backup/`、`rubash.exe` | `scripts/build-engine.mjs` | 1–2 GB | 只影响开发构建 |
 | `verified/` | 每次校验 | 几十 KB | 只会多一次哈希 |
 
 显式清理（**停掉 DSH 之后**运行）：
+> 将<dsh_profile>替换为你的profile路径，例如：`%USERPROFILE%\.dsh\profiles\<profile>`
 
 ```sh
-node node_modules/dsh-bash-native/bin/clean-state.mjs          # 只报告，不动文件
-node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代的 shim/ 与 toolchain/ 缓存
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs          # 只报告，不动文件
+node <dsh_profile>/node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代的 shim/ 与 toolchain/ 缓存
 ```
-
-（上面的路径相对于 profile 目录：桌面版的包在 `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\` 下，不在全局 npm 树里——从别处执行请写绝对路径。）
-
-`--tools` 连自建工具链一起删，`--dev` 连开发残留一起删；`verified/` 与 rc 文件永远保留。脚本只按「目录名是不是 64 位 sha256」和「是不是本包正在用的那个摘要」判断，认不出来的条目不碰；两个摘要都读不到时它拒绝删除。
-
-清理只由上面那两条命令触发：升级本身不删任何东西。被取代的缓存留着不影响新版本——引擎解析只看 `bashPath`、`bundledEngineDir`、本包产物与 `PATH` 上的 `rubash`，持久化终端直接用解析到的引擎绝对路径，命令的 `PATH` 里也只会出现当前引擎摘要的 `shim/` 目录，旧引擎的内置工具搭不上这条路径——所以什么时候清由你决定。
-
-硬链接按 inode 只算一次；一个目录里的文件若在它之外还有名字（例如已安装包里的同一份二进制），报告会标出 `shared`，那部分字节删了也不会释放，所以“被取代的缓存”那一行报的是真正能回收的量。
 
 ## 📄 许可
 
@@ -365,10 +353,5 @@ node node_modules/dsh-bash-native/bin/clean-state.mjs --yes    # 删掉被取代
 
 ## 🙏 参考与致谢
 
-引擎 [rubash](https://github.com/unixwin/rubash) 由 unixwin 团队实现，本仓库只做三笔补丁与构建；它对本插件声明的“数据位不翻译”“解不出的环境变量不该拖垮整条命令”“哪些文件命令改从 <code>PATH</code> 上的程序执行”三件事提供了第一手的行为基线。
-
-Windows 原生 bash 这条路上，**[oh-my-pi](https://github.com/can1357/oh-my-pi)** 是最早的先行实现之一，本插件早期针对 brush 的诊断与修法也受益于它留下的记录。
-
-[MSYS2](https://www.msys2.org/) 的路径别名与身份约定是 `/tmp`、`/c/...` 和 `uname -s` 这几条契约的参照。
-
+为 Agent 提供原生 bash 这条路上，**[oh-my-pi](https://github.com/can1357/oh-my-pi)** 是最早的先行实现之一，本插件早期针对 brush 的诊断与修法也受益于它留下的记录。
 <!-- ═══════════════════════════════════════════════════════════════════════ -->

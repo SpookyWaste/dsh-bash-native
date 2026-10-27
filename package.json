@@ -90,7 +90,8 @@
     "doc-parity": "node test/test-doc-parity.mjs --release",
     "prepack": "tsc -p tsconfig.json",
     "prepublishOnly": "npm run build && npm run doc-parity && npm test",
-    "clean-state": "node bin/clean-state.mjs"
+    "clean-state": "node bin/clean-state.mjs",
+    "bench": "node scripts/bench-engines.mjs"
   },
   "files": [
     "lib",
