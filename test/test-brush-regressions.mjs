@@ -5,9 +5,9 @@
 // patch fixed still true?" — with the probe that patch's own README recorded, so a behaviour cannot quietly
 // regress just because no corpus case happens to hit it.
 //
-// Two probes (a compound or function stage writing one very long line into a closed pipe) are known to fail
-// on rubash 1.4.3 and are reported as NOTE rather than assertions: a hang is not an acceptable outcome to pin,
-// and the failure is documented in `docs/research.md` §72 so the fix is tracked where the fix belongs.
+// One probe from that set (a compound or function stage feeding a streaming consumer) used to hang on rubash
+// 1.4.3 and was reported as NOTE; engine patch 0004 fixed it, so it is an assertion now. The measurement and
+// the residual shape are in `docs/research.md` §78.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -86,6 +86,18 @@ function shell(id, script, files, options = {}) {
   const drive = shell("drive", "cd /c/Windows && pwd; test -f /c/Windows/System32/drivers/etc/hosts; echo rc=$?");
   assert.equal(drive.stdout, "/c/Windows\nrc=0", "/c is a drive mount for cd, test and pwd");
   pass("0002/0004/0009: /tmp and /c aliases hold for the shell and for child arguments");
+}
+
+// engine 0005 — `cd` into a virtual root that has a real directory behind it. The Windows-host bridge used
+// to rewrite PWD and stop, so the process stayed in the previous directory: relative operands then failed
+// while `pwd` reported `/tmp`. The display value is expected to stay `/tmp`, so both halves are asserted.
+{
+  const moved = shell("cd-into-tmp", 'printf "alias\\n" > /tmp/cd-into-tmp.txt; cd /tmp; pwd; echo "$PWD"; cat cd-into-tmp.txt; rm -f cd-into-tmp.txt');
+  assert.equal(moved.status, 0, "cd /tmp followed by a relative operand succeeds");
+  assert.equal(moved.stdout, "/tmp\n/tmp\nalias", "cd /tmp moves the process and keeps reporting the virtual name");
+  const dir = shell("cd-into-tmp-dir", "cd /tmp && ls -d . >/dev/null && echo ok");
+  assert.equal(dir.stdout, "ok", "cd /tmp leaves the shell in a directory it can list");
+  pass("engine 0005: cd into a virtual root with a real directory behind it also moves the process");
 }
 
 // 0003 — an ERR trap fires in the scope that set it.
@@ -226,18 +238,26 @@ function shell(id, script, files, options = {}) {
   pass("the old README's limitations: select, exec, ulimit, jobs, kill, data operands, ./s.sh and >( )");
 }
 
-// 0013/0014 — a compound or function stage that writes one long line while its reader leaves. The brush
-// patches fixed exactly this; rubash 1.4.3 does not, and the outcome depends on where the shell's stdout goes:
-// a file hangs it, a pipe loses the output. Reported, not asserted, so the suite stays a regression gate for
-// everything that does work — `docs/research.md` §72 carries the measurement and the workaround.
+// engine 0004 — a compound or function stage feeding a streaming consumer. rubash 1.4.3 ran the in-process producer
+// to completion before starting the last member's output drain, so a consumer that filled its own 64 KiB pipe
+// stopped reading, blocked the producer, and left nobody to start the drain. Missing that deadline used to be
+// reported here as a note; the engine patch starts the drain before the producer, so it is an assertion now.
 {
   const one = "x".repeat(200000) + "\n";
-  // The shape matters: appending a byte count to the pipeline moves the reader onto an internal pipe and
-  // then it works, so these two run exactly as an agent would write them.
-  const compound = shell("compound-stage", "{ cat long.txt; } | head -1", { "long.txt": one }, { timeout: 3000 });
-  const fn = shell("function-stage", "f() { cat long.txt; }; f | head -1", { "long.txt": one }, { timeout: 3000 });
-  const outcomes = [compound, fn].map((result) => (result.status === null ? "timed out" : `status ${result.status}, ${JSON.stringify(result.stdout)}`));
-  note("0013/0014: a compound stage writing one long line into a closed pipe", outcomes.join("; "));
+  // `shell` trims the final newline off stdout, so the expected value is the line the fixture holds.
+  const line = one.trimEnd();
+  const many = "0123456789abcdefghij\n".repeat(70000);
+  const compound = shell("compound-stage", "{ cat long.txt; } | head -1", { "long.txt": one }, { timeout: 5000 });
+  const fn = shell("function-stage", "f() { cat long.txt; }; f | head -1", { "long.txt": one }, { timeout: 5000 });
+  // The boundary is the last member's own output, not the input line: one byte past its 64 KiB output pipe is
+  // where 1.4.3 hung, and a producer sized under that boundary never showed the deadlock at all.
+  const boundary = shell("streaming-consumer-boundary", "{ cat many.txt; } | head -c 65537 > /dev/null", { "many.txt": many }, { timeout: 5000 });
+  assert.equal(compound.status, 0, "a compound stage feeding head -1 completes");
+  assert.equal(compound.stdout, line, "the whole line reaches head through the compound stage");
+  assert.equal(fn.status, 0, "a function stage feeding head -1 completes");
+  assert.equal(fn.stdout, line, "the whole line reaches head through the function stage");
+  assert.equal(boundary.status, 0, "a consumer that writes one byte past its output pipe completes");
+  pass("0004: a compound or function stage feeding a streaming consumer no longer deadlocks");
 }
 
 // 0018 — an undecodable environment entry. Staging an unpaired surrogate needs a PowerShell launcher, and this

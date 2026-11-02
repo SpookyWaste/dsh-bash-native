@@ -1,0 +1,35 @@
+diff --git a/src/executor/pipeline_exec.rs b/src/executor/pipeline_exec.rs
+index 1172061d..7222298a 100644
+--- a/src/executor/pipeline_exec.rs
++++ b/src/executor/pipeline_exec.rs
+@@ -1600,6 +1600,20 @@ impl Executor {
+             processes.push(child);
+         }
+ 
++        // dsh-bash-native patch: start the last member's output drains BEFORE
++        // the shell-side producer runs. The producer executes in this thread and
++        // returns only when it is done, while the consumers are already running.
++        // Leaving the last member's stdout/stderr pipes unread until afterwards
++        // let a streaming consumer (`head`, `cat`, `grep`) fill its own pipe,
++        // stop reading the inter-member pipe, and block the producer on a full
++        // one, with nobody left to start the drain: measured, consumer output of
++        // 65537 bytes and up, and roughly 128 KiB and up in transit, hung the
++        // shell (both pipes are 64 KiB). The all-external path never has this
++        // window — every member is already running when its drain starts.
++        let last_index = consumer_count - 1;
++        let last_stdout = processes[last_index].stdout.take().map(spawn_pipe_drain);
++        let last_stderr = processes[last_index].stderr.take().map(spawn_pipe_drain);
++
+         // The producer stage runs in-process with its fd 1 bound to pipe[0]'s
+         // write end. Holding the writer here keeps the pipe open across the
+         // stage; it is dropped below so the consumers see EOF on a normal
+@@ -1660,9 +1674,6 @@ impl Executor {
+         // member against its immediate downstream so the Windows broken-pipe
+         // window only arms after that downstream exited.
+         let mut results: Vec<(String, String, i32)> = vec![Default::default(); consumer_count];
+-        let last_index = consumer_count - 1;
+-        let last_stdout = processes[last_index].stdout.take().map(spawn_pipe_drain);
+-        let last_stderr = processes[last_index].stderr.take().map(spawn_pipe_drain);
+         for index in 0..last_index {
+             let (head, tail) = processes.split_at_mut(index + 1);
+             let member = head.last_mut().expect("member index inside pipeline");

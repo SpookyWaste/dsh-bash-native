@@ -1,0 +1,25 @@
+diff --git a/src/builtins/cd.rs b/src/builtins/cd.rs
+index 7b6f09e..1b66699 100644
+--- a/src/builtins/cd.rs
++++ b/src/builtins/cd.rs
+@@ -115,6 +115,20 @@ where
+ 
+     let old_pwd = current_logical_pwd(env_vars);
+     if let Some(logical_dir) = logical_posix_test_dir(&target, env_vars) {
++        // dsh-bash-native patch: the bridge below writes PWD and stops there, so the process stays in
++        // whatever directory the shell came from. For a name that has a REAL directory behind it — the
++        // virtual-root layer maps `/tmp` onto the temp root and `/home` onto the user's home — GNU cd
++        // would have moved; not moving made every relative operand and every child process look in the
++        // previous directory while `pwd` reported the new one (`cd /tmp && ls` listed the old tree).
++        // `/` keeps the logical-only bridge: without a configured shell root it names no single
++        // directory, and moving to the current drive's root would answer a different question than the
++        // one it answers today. Names with nothing behind them (`/usr`, `/etc`, `/bin`) cannot move.
++        if logical_dir != "/" && target.path.is_dir() {
++            if let Err(error) = env::set_current_dir(&target.path) {
++                write!(stderr, "{}cd: {}: {}\n", diagnostic_prefix(env_vars), logical_dir, crate::posix_errors::message(&error))?;
++                return Ok(EXECUTION_FAILURE);
++            }
++        }
+         // TODO(builtins/cd.def): This is a Windows-host bridge for the GNU
+         // Bash upstream tests that use POSIX system directories. A complete
+         // shell should keep logical and physical directory state separately.

@@ -1,6 +1,6 @@
 # rubash 的补丁
 
-这个目录里有**三笔**补丁：两笔修引擎自己的语义缺陷（`0001`、`0003`），一笔是 Windows 平台上的取舍（`0002`）。每一笔都带 `dsh-bash-native patch` 标记，`scripts/build-engine.mjs` 在应用后用 `git grep` 断言 `src/` 里能看到它——避免"diff 打上了但没人编译"。
+这个目录里有**五笔**补丁：三笔修引擎自己的语义缺陷（`0001`、`0003`、`0005`），两笔修 Windows 上的行为缺陷（`0002`、`0004`）。每一笔都带 `dsh-bash-native patch` 标记，`scripts/build-engine.mjs` 在应用后用 `git grep` 断言 `src/` 里能看到它——避免"diff 打上了但没人编译"。
 
 ## 0001-data-primary-positions-every-child.patch
 
@@ -59,6 +59,46 @@ rmdir /definitely/absent                # 静默成功，rc=0
 **为什么本插件只用它切两条**：`chmod`、`mkfifo` 在 Windows 上没有可替换的程序（uutils 不发布这两个 applet，`coreutils.exe chmod` 直接报 `unknown program`），切过去只会得到 `command not found`；`cat`/`rm`/`mkdir` 等每次多一次进程创建（实测约 11–13 ms，进程内约 0.05 ms）。所以插件默认 `['sed','rmdir']`，其余留给进程内副本。
 
 **上游化**：这是一个宿主/CLI 级开关，对任何"把 POSIX 工具链放在 `PATH` 上"的 Windows 部署都成立，值得按 issue/PR 提交；上游若只接受库 API 而不接受环境变量，就保留这一笔。
+
+## 0004-drain-last-consumer-before-shell-writer.patch
+
+**症状**（1.4.3 + 本仓库前三笔，管道输出接到文件，也就是本插件 `bash` 工具的真实形态）：
+
+```
+{ cat big.txt; } | head -1      # big.txt 是一行 200 KB —— 挂起，4 秒超时、0 字节
+{ cat 200KB; } | cat >/dev/null # 同样挂起：与"读端提前退出"无关
+{ cat big.txt; } | head -c 70000 >/dev/null
+f() { cat big.txt; }; f | head -1
+```
+
+边界是**末段自己的输出量**，不是行长度、也不是输入量：末段输出 65536 字节时能过，65537 就挂；反过来，`head -1` 对一行 120 KB 能过（整份输入还没超过两段管道容量之和）、对一行 132 KB 就挂。`| wc -l`、`| tail -1`、`| grep -c` 这些"读完才吐一个小结果"的消费者永远不触发。
+
+**根因**：`run_shell_writer_pipeline` 先 spawn 全部外部消费者，再**在本线程里同步**跑完进程内生产者，最后才 `spawn_pipe_drain` 末段的 stdout/stderr。生产者跑完前，末段的输出管道没人读（`Stdio::piped()`，容量 64 KiB），而它的 stderr 同样如此。于是：末段是流式过滤器（`head`、`cat`、`tee` 都是一边读一边写）→ 它的输出写满 64 KiB 时阻塞、不再读上游 → 进程内生产者写满 inter-member 管道（同样 64 KiB）时阻塞 → shell 线程正阻塞在生产者里、永远不会走到起 drain 的那一行 → 三方互等。全外部路径没有这个窗口，因为它在 drain 之前已经把所有成员都跑起来了，所以 `cat big | head -1` 一直是好的。
+
+**改法**：把末段的两个 `spawn_pipe_drain` 从"生产者返回之后"移到"消费者 spawn 完之后、生产者启动之前"。语义不变（末段输出本来就在生产者返回后才被消费），只是让读端从第一刻就在。
+
+**边界**：修好的是"生产者自己的写会因断管而停"的那一类——shell 内建（写端看到 EPIPE 以 141 结束）、`cat`/`seq` 等工具（自己的写错误让它退出）。**不修**"inside 复合阶段的外部生产者不肯停"这一类：`{ yes; } | head -1` 仍然挂起，因为 GNU 靠 SIGPIPE 杀掉它，而 Windows 没有 SIGPIPE，`wait_for_windows_pipeline_member` 的 lingerer 窗口只覆盖全外部路径。这一笔没有单测（时序要靠真管道，构造不出来），行为由 `test/test-brush-regressions.mjs` 的 `compound-stage` 与 `function-stage` 两例断言。
+
+**上游化**：这是上游 `execute_shell_writer_pipeline`（niubash#345 的产物）自己的时序缺陷，全平台的进程内生产者都受影响，值得按 issue/PR 提交。
+
+## 0005-cd-into-virtual-roots-with-a-real-directory.patch
+
+**症状**（1.4.3 + 本仓库前四笔）：
+
+```
+cd /tmp; pwd            # /tmp
+cd /tmp; ls             # 列出来的还是 cd 之前的目录
+cd /tmp; cat rel.txt    # cat: rel.txt: No such file or directory
+cd /tmp; node -e 'console.log(process.cwd())'   # 还是 cd 之前的目录
+```
+
+**根因**：`src/builtins/cd.rs` 的 `logical_posix_test_dir`：在没有配置 shell root 的 Windows 主机上，显示名**恰好**是 `/`、`/bin`、`/etc`、`/tmp`、`/usr` 之一时走"逻辑桥"——写 `PWD`/`OLDPWD`/`__RUBASH_PHYSICAL_PWD` 后直接 `return`，**跳过 `env::set_current_dir`**。这个桥是为 GNU 上游测试里 `cd /usr` 这类名字准备的（那些名字在 Windows 上没有物理目录），但 `/tmp` 与 `/home` 在虚拟根映射里**确实有真实目录**（`shell_path_to_windows("/tmp")` 就是会话临时目录），于是 cwd 留在原地而 `pwd` 报新目录：此后每个相对操作数、每个子进程都在旧目录里找东西。子路径不受影响——`cd /tmp/sub` 不是那五个名字，走正常 chdir。
+
+**改法**：在逻辑桥里补一次 chdir，条件是该名字**确实有目录**（`target.path.is_dir()`）且不是 `/`。`/` 保持只改逻辑状态：没有 shell root 时它不指向任何唯一目录，跳到当前盘根是另一种答案；`/usr`、`/etc`、`/bin` 没有目录可去，桥照旧。显示值仍然是 `/tmp`，所以 `pwd`、`$PWD`、`cd -` 与 GNU 一致。
+
+**边界**：`pushd` / `popd` **不在这一笔里**——它们的问题更大：实测 `pushd /d/work` 之后 `pwd` 说 `/d/work`，而 `cmd /c cd` 与子进程都还在原目录，即 `pushd` 对**任何**路径都不 chdir（`popd_chdir` 只对那五个名字返回 `Bridged`，普通路径走 `set_current_dir`，但 `pushd` 自己的分支只调 `bindpwd_write`）。要修得单独一笔，风险与这一笔不同，没有塞进来。
+
+**上游化**：`logical_posix_test_dir` 是上游给 GNU 套件留的桥，`/tmp` 落在里面属于漏判；按 issue 提交时一并带上 `pushd` 的那条实测。
 
 ## 升级 rubash 时
 

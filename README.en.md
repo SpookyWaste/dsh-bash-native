@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -117,7 +117,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.1-rc.3 tested)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.1-rc.5 tested)</td>
     </tr>
     <tr>
       <td><b>Persistent-terminal component</b></td>
@@ -130,7 +130,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 
 ## ⚙️ Engine
 
-The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies three patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
+The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies five patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
 
 > Compatible with the **MSYS `uname -s` identity** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
@@ -158,6 +158,14 @@ The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash),
     <tr>
       <td><code>0003-file-commands-from-path</code></td>
       <td>Adds <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>: the shell names the in-process file commands that should run from a program on <code>PATH</code> instead (<code>all</code>, <code>none</code>, or a list), read from the shell's own variables so an <code>--rcfile</code> can set it; it also makes the inline pipeline arms honour the host's switch for turning the in-process copies off.</td>
+    </tr>
+    <tr>
+      <td><code>0004-drain-last-consumer-before-shell-writer</code></td>
+      <td>Starts draining the last pipeline member's stdout/stderr <b>before</b> the in-process producer runs instead of after it returns: otherwise the last member fills its own 64 KiB output pipe and stops reading upstream, the producer then fills the inter-member pipe, and the shell thread is blocked inside the producer, so nothing ever starts the drain. That is the <code>{ …; } | head</code> hang.</td>
+    </tr>
+    <tr>
+      <td><code>0005-cd-into-virtual-roots-with-a-real-directory</code></td>
+      <td>A <code>cd</code> into a virtual root that has <b>a real directory behind it</b> (<code>/tmp</code>) now moves the process as well: the bridge used to rewrite <code>PWD</code> and stop, so <code>pwd</code> reported the new directory while relative operands and child processes stayed in the old one. <code>/usr</code>, <code>/etc</code> and <code>/bin</code> have no directory to move to and <code>/</code> names no single one, so those three keep the logical-only behaviour.</td>
     </tr>
   </tbody>
 </table>
@@ -317,9 +325,6 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
   | `cat big \| head -c 1` | `13` | — |
   | `ls -R some-dir \| head -c 1` | `1` | — |
   | the engine's own builtins | `0` | does not report the closed pipe (see `PIPESTATUS[0]` above) |
-
-- **`{ …; } | head` hangs when a line is longer than about 100 KB** (rubash 1.4.3; measured: a 60 KB line is fine, a 200 KB line times out): the reader takes part of the line and exits, and the writer never aborts — with the pipeline's output going to a file it hangs, and with a second pipe it **loses the whole output**. Workaround: `{ …; } | cat | head`, or write to a file first. Recorded in `docs/research.md` §72; `test/test-brush-regressions.mjs` prints the current state on every run.
-- **A program the engine does not know cannot tell data from a path**: a path-shaped data word handed to an unknown **native** program (`node -e '…' '/x/{print}'`) is treated as a path operand and translated to a Win32 spelling — MSYS behaves the same way; what differs is that the shipped tools' scripts, patterns and program words have a fixed data-position table and are never rewritten.
 
 ---
 

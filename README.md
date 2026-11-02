@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
@@ -117,7 +117,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-rc.3实测）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-rc.5实测）</td>
     </tr>
     <tr>
       <td><b>持久终端组件</b></td>
@@ -130,7 +130,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
+引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用五笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
 
 > 兼容 **MSYS 的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑也能成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 
@@ -158,6 +158,14 @@ https://github.com/SpookyWaste/dsh-bash-native
     <tr>
       <td><code>0003-file-commands-from-path</code></td>
       <td>新增 <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>：由 shell 指定哪些「进程内文件命令」改从 <code>PATH</code> 上的程序执行（<code>all</code> / <code>none</code> / 名字列表），并从 shell 自己的变量表读取，所以 <code>--rcfile</code> 也能设置；顺带让内联管道分支不再无视宿主的「关掉进程内副本」开关。</td>
+    </tr>
+    <tr>
+      <td><code>0004-drain-last-consumer-before-shell-writer</code></td>
+      <td>末段管道的 stdout/stderr 在<b>进程内生产者启动之前</b>就开始抽干，而不是等它跑完：否则末段写满自己 64 KiB 的输出管道后不再读上游，生产者随即写满 inter-member 管道，而 shell 线程正阻塞在生产者里，没人去起那个抽干线程——三方互等。<code>{ …; } | head</code> 这类形状的挂起就是它。</td>
+    </tr>
+    <tr>
+      <td><code>0005-cd-into-virtual-roots-with-a-real-directory</code></td>
+      <td><code>cd</code> 进 <code>/tmp</code> 这类<b>背后有真实目录</b>的虚拟根时，进程也跟着走：原来只改写 <code>PWD</code> 就返回，于是 <code>pwd</code> 报新目录、相对操作数与子进程却还在旧目录。<code>/usr</code>、<code>/etc</code>、<code>/bin</code> 没有目录可去、<code>/</code> 没有唯一目标，这三个名字的只改逻辑行为不变。</td>
     </tr>
   </tbody>
 </table>
@@ -317,9 +325,6 @@ https://github.com/SpookyWaste/dsh-bash-native
   | `cat big \| head -c 1` | `13` | — |
   | `ls -R 某目录 \| head -c 1` | `1` | — |
   | 引擎自己的内建 | `0` | 不报断管（见上一条 `PIPESTATUS[0]`） |
-
-- **`{ …; } | head` 在单行超过约 100 KB 时会挂起**（rubash 1.4.3，实测：60 KB 单行正常、200 KB 单行超时）：读端读走一部分就退出，写端不中止；把这条管道的输出接到文件时是挂起，接到另一个管道时则**整段输出丢失**。绕开办法：`{ …; } | cat | head`，或先写到文件再读。记录在 `docs/research.md` §72，`test/test-brush-regressions.mjs` 每次运行都会打印现状。
-- **不认识的程序分不清数据与路径**：把一个“像路径”的数据词交给引擎不认识的**原生**程序（`node -e '…' '/x/{print}'`），它会被当作路径操作数翻成 Win32 拼写——MSYS 同样如此；区别是随包工具的脚本、模式、程序位有确定的数据位表，永不被改写。
 
 ---
 

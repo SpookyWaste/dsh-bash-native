@@ -52,6 +52,31 @@ const ENABLED_BASH_ROWS = {
   "bash-native-minimal": ["bash-native-persistent"],
 };
 
+/**
+ * The shipped `!!js` nodes each composition carries on purpose, row id and property path to expression.
+ *
+ * A carried expression is not evaluated by this bundle and must not be: `@deepseek-ai/dsh-agent-preset`
+ * hands the shipped definition to `ctx.agentPresets.register()`, this bundle hands its composed definition
+ * to the same method, the registry activates both from one owner scope, and the Loader asks each entry's
+ * own context for its `disabled` node. Carrying the node verbatim is therefore what keeps the row's meaning
+ * equal to the shipped preset's; resolving it here would evaluate it against this package's plane instead.
+ *
+ * What this table pins is the review, not the carry. The shipped expressions used to be exactly the
+ * platform branches on the shell surface this bundle replaces — rows that never reach a mount here — so a
+ * new one anywhere else means a shipped row now enters this bundle's preset with a condition of its own,
+ * and the run fails until someone decides it is right. Changed text fails the same way, and so does an
+ * entry that upstream removed.
+ *
+ * `standard.patch.yml` at `@deepseek-ai/dsh-web-app` 0.2.2-alpha.2 (reviewed 2026-11-02): the model-facing
+ * plugin-manager tools are disabled in a session that has no profile context. It reads a root service the
+ * preset's mount context already sees, and it is the host's row — neither the shell surface nor anything
+ * this bundle provides.
+ */
+const REVIEWED_SHIPPED_EXPRESSIONS = {
+  "bash-native": new Map([["tool-plugin-manager.disabled", "!ctx.get('profileContext')"]]),
+  "bash-native-minimal": new Map(),
+};
+
 /** A JSON form that ignores mapping key order, which YAML makes no promise about. */
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -64,17 +89,33 @@ function canonical(value) {
   );
 }
 
-/** Every `!!js` expression node in a value tree, as its object path. */
-function jsExprPaths(value, path = "", found = []) {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => jsExprPaths(item, `${path}[${index}]`, found));
-    return found;
-  }
-  if (value === null || typeof value !== "object") return found;
-  for (const [key, item] of Object.entries(value)) {
-    const next = path === "" ? key : `${path}.${key}`;
-    if (key === "__jsExpr") found.push(next);
-    jsExprPaths(item, next, found);
+/**
+ * Every `!!js` expression a composition carries, keyed by row id and property path, with its text.
+ *
+ * The text is part of the identity: an upstream release that rewrites an expression in place has to land
+ * as a change, not pass because the path is unchanged. Rows of the realm group are skipped — the deferred
+ * expressions inside it are this bundle's own contract, not something the shipped file declares.
+ * @param rows - the composed top-level rows.
+ * @param groupId - the realm group this bundle mounts in place of the shipped shell surface.
+ * @returns one `{ key, expression }` per carried node, e.g. `{ key: "tool-plugin-manager.disabled", … }`.
+ */
+function carriedExpressions(rows, groupId) {
+  const found = [];
+  const walk = (value, path) => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, `${path}[${index}]`));
+      return;
+    }
+    if (value === null || typeof value !== "object") return;
+    if (typeof value.__jsExpr === "string") {
+      found.push({ key: path, expression: value.__jsExpr });
+      return;
+    }
+    for (const [key, item] of Object.entries(value)) walk(item, path === "" ? key : `${path}.${key}`);
+  };
+  for (const row of rows) {
+    if (row.id === groupId || row.id.startsWith(`${groupId}/`)) continue;
+    walk(row, row.id);
   }
   return found;
 }
@@ -176,15 +217,16 @@ async function checkShipped(id, path) {
   assert.deepEqual(drift, [], `shipped rows whose composition this preset does not carry verbatim: ${drift.join(", ")}. Fix lib/preset-data.js or the read in lib/preset-source.js.`);
   pass(`${id}: every shipped row beside the shell surface is carried verbatim`);
 
-  // Only what is carried matters: the deferred expressions inside this bundle's own group (the PTY row
-  // reading the realm's executor) are its own contract and belong there.
-  const expressions = jsExprPaths(definition.plugins.filter((row) => row.id !== groupId));
+  // Carried expressions are handed to the Loader, so the alarm is over what upstream's file decides runs
+  // under this bundle's preset ids: exactly the reviewed set, matched on text as well as on position.
+  const carried = carriedExpressions(definition.plugins, groupId);
+  const spelling = ({ key, expression }) => `${key} = ${JSON.stringify(expression)}`;
   assert.deepEqual(
-    expressions,
-    [],
-    `the composed ${id} carries a shipped \`!!js\` at ${expressions.join(", ")}; the shipped platform branches live on the rows this bundle replaces, so a new expression has to be reviewed before it runs in this bundle's realm`,
+    carried.map(spelling).sort(),
+    [...REVIEWED_SHIPPED_EXPRESSIONS[id]].map(([key, expression]) => spelling({ key, expression })).sort(),
+    `the shipped \`!!js\` nodes carried by ${id} are not the reviewed set (carried: ${carried.map(spelling).join("; ") || "none"}). A new or rewritten expression decides a shipped row's enablement under this bundle's preset id, so read it and record it in REVIEWED_SHIPPED_EXPRESSIONS`,
   );
-  pass(`${id}: no shipped expression is carried into this bundle's realm`);
+  pass(`${id}: every shipped expression the preset carries is a reviewed one`);
 
   const group = definition.plugins.find((row) => row.id === groupId);
   assert.deepEqual(group.isolate, { shell: true, terminals: true }, "the executor and its terminal registry are realm-scoped");
