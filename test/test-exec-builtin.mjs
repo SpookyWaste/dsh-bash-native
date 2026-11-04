@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRunner, findEngine } from "../scripts/engine-harness.mjs";
+import { createRunner, findEngine, pathWithToolchain, toolsDirectory } from "../scripts/engine-harness.mjs";
 
 let passed = 0;
 function pass(name) {
@@ -26,7 +26,15 @@ if (engine === null) {
 console.log(`engine: ${engine}`);
 
 const FIXTURE = mkdtempSync(join(tmpdir(), "dsh-bash-native-exec-"));
-const run = createRunner(engine, FIXTURE);
+const runner = createRunner(engine, FIXTURE);
+// `cat` and its kin are resolved on PATH, and a plain terminal has no POSIX toolchain on it: the packaged farm
+// is stated here instead, so the suite behaves the same in a developer shell, a confining session and CI.
+const tools = toolsDirectory(process.argv, process.env);
+const env = {
+  ...process.env,
+  PATH: pathWithToolchain({ withTools: tools.length > 0, toolsDir: tools, engine, basePath: process.env.PATH ?? "" }),
+};
+const run = (script, options = {}) => runner(script, { ...options, env: options.env ?? env });
 
 try {
   {

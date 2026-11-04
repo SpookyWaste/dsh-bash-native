@@ -25,9 +25,10 @@ import assert from "node:assert/strict";
 import { closeSync, chmodSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { dirname, delimiter, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Config } from "../lib/config.js";
+import { pathWithToolchain, toolsDirectory } from "../scripts/engine-harness.mjs";
 
 let passed = 0;
 function pass(name) {
@@ -42,12 +43,26 @@ const STDOUT = join(SCRATCH, "stdout.txt");
 const STDERR = join(SCRATCH, "stderr.txt");
 const SOURCE = join(SCRATCH, "src.txt");
 const READ_ONLY = join(SCRATCH, "read-only.txt");
+/**
+ * The environment every run gets: the toolchain the plugin would have placed, so `cp`/`find`/`sed` resolve as
+ * they do in a session.
+ *
+ * `toolsDirectory` mirrors the plugin's own order (a source-built farm, else the packaged one), and the
+ * prepared farm links every shipped applet name — the checked-in `toolchain/win32-x64` holds only the published
+ * files plus the multi-call `coreutils.exe`, so prepending that directory alone leaves `cp` unresolved. A plain
+ * terminal has neither, which is why the PATH is stated here rather than inherited.
+ */
+const TOOLS = toolsDirectory(process.argv, process.env);
+const ENGINE_ENV = {
+  ...process.env,
+  PATH: pathWithToolchain({ withTools: TOOLS.length > 0, toolsDir: TOOLS, engine: ENGINE, basePath: process.env.PATH ?? "" }),
+};
 
 /** The English dialect `dsh-sandbox-local` names for the `windows-acl` backend, plus the shipped default. */
 const DIALECT = [...["access is denied", "access to the path", "permission denied", "operation not permitted"], ...Config({}).denialSignatureAdditions];
 
 /** Run the shipped engine on one command, capturing both streams through files. */
-function runEngine(command, env = undefined, args = ["-c"]) {
+function runEngine(command, env = ENGINE_ENV, args = ["-c"]) {
   const out = openSync(STDOUT, "w");
   const err = openSync(STDERR, "w");
   try {
@@ -113,16 +128,14 @@ chmodSync(READ_ONLY, 0o444);
 // 4. A program from the packaged toolchain: the engine does not ship `find` or `sed`, and their `uucore`
 // formatting keeps the localized system message, so this class is visible only through the code.
 {
-  const packaged = [join(REPO_ROOT, "toolchain", "win32-x64"), process.env.PATH ?? ""].join(delimiter);
-  const env = { ...process.env, PATH: packaged };
-  const find = runEngine(`find '${slash(SCRATCH)}' -maxdepth 1 -name src.txt -fprint '${slash(READ_ONLY)}'; echo done`, env);
+  const find = runEngine(`find '${slash(SCRATCH)}' -maxdepth 1 -name src.txt -fprint '${slash(READ_ONLY)}'; echo done`);
   assert.equal(find.status, 0, "the masking command still decides the status");
   assert.match(find.stderr, /\(os error 5\)/, `the packaged find refusal keeps the code: ${JSON.stringify(find.stderr)}`);
   // `sed -i` cannot be this case's shape: it writes a temporary file and renames it over the target, so a
   // read-only file is replaced with no refusal at all (measured on this build). A `w` command opens the
   // file the script names, which is the refusal wanted here — and the path is spelled natively because an
   // operand inside program text is not alias-translated (the script-operand boundary the README states).
-  const sed = runEngine(`sed -e 's/content/changed/w ${slash(READ_ONLY)}' '${slash(SOURCE)}'; echo done`, env);
+  const sed = runEngine(`sed -e 's/content/changed/w ${slash(READ_ONLY)}' '${slash(SOURCE)}'; echo done`);
   assert.match(sed.stderr, /\(os error 5\)/, `the packaged sed refusal keeps the code: ${JSON.stringify(sed.stderr)}`);
   assert.equal(matchesDialect(sed.stderr), true, "the shipped dialect accepts the message through the default addition");
   pass("a packaged toolchain program refusal keeps the language-neutral code at status 0");

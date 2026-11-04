@@ -7,9 +7,7 @@ import assert from "node:assert/strict";
 import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDirectRunner, createRunner, findEngine, pathWithToolchain } from "../scripts/engine-harness.mjs";
-import { packageRoot } from "../lib/artifact.js";
-import { preparePackagedToolchain } from "../lib/toolchain-artifact.js";
+import { createDirectRunner, createRunner, findEngine, pathWithToolchain, toolsDirectory } from "../scripts/engine-harness.mjs";
 
 let passed = 0;
 function pass(name) {
@@ -27,15 +25,16 @@ if (engine === null) {
 console.log(`engine: ${engine}`);
 
 const FIXTURE = mkdtempSync(join(tmpdir(), "dsh-bash-native-engine-"));
-const run = createRunner(engine, FIXTURE);
-// The pipeline case runs the toolchain this package ships rather than whatever `sort` and `uniq` the host
-// happens to have: a CI runner with MSYS coreutils on PATH answers differently from a machine with ours, and
-// that difference belongs to the host, not to the engine.
-const packagedToolchain = preparePackagedToolchain({ packageRoot: packageRoot(), env: process.env });
-const pipelineEnv =
-  "ready" in packagedToolchain
-    ? { ...process.env, PATH: pathWithToolchain({ withTools: true, toolsDir: packagedToolchain.ready, engine, basePath: process.env.PATH ?? "" }) }
-    : { ...process.env };
+const runner = createRunner(engine, FIXTURE);
+// The commands that need a program (`cat`, `sort`, `uniq`) run the toolchain this package ships rather than
+// whatever the host happens to have: a CI runner with MSYS coreutils, a developer shell with nothing, and a
+// machine with our farm otherwise answer differently, and that difference belongs to the host.
+const tools = toolsDirectory(process.argv, process.env);
+const env = {
+  ...process.env,
+  PATH: pathWithToolchain({ withTools: tools.length > 0, toolsDir: tools, engine, basePath: process.env.PATH ?? "" }),
+};
+const run = (script, options = {}) => runner(script, { ...options, env: options.env ?? env });
 
 /**
  * The short (8.3) and long spellings of one existing directory.
@@ -80,7 +79,7 @@ function windowsSpellings(directory) {
 
 // 2. POSIX pipelines, builtins, and subshells behave as bash does.
 {
-  const pipeline = run("printf 'b\\na\\nb\\n' | sort | uniq -c", { env: pipelineEnv });
+  const pipeline = run("printf 'b\\na\\nb\\n' | sort | uniq -c");
   assert.equal(pipeline.status, 0, pipeline.stderr);
   assert.match(pipeline.stdout, /2 b/);
   assert.match(pipeline.stdout, /1 a/);
