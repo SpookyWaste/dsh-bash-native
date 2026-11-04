@@ -2407,7 +2407,7 @@
       "id": "fd-redirect-descriptor-paths",
       "category": "descriptor",
       "severity": "must-match",
-      "snippet": "( echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1 ) | cat",
+      "snippet": "( echo a > /dev/stdout; echo c > /dev/fd/1; echo d > /proc/self/fd/1 ) | while IFS= read -r line; do printf '%s\\n' \"$line\"; done",
       "expect": {
         "status": 0,
         "stdout": {
@@ -2418,10 +2418,7 @@
           ]
         }
       },
-      "note": "The three writes go to a pipe, because `> /dev/stdout` reopens the path: with a regular file for stdout that open truncates it and only the last line would survive (GNU behaviour, measured on RHEL 9).",
-      "needs": [
-        "cat"
-      ],
+      "note": "The three writes go into the pipeline member's pipe, drained here by a builtin loop so the case needs no program from PATH; with a regular file for stdout that open truncates it and only the last line would survive (GNU behaviour, measured on RHEL 9).",
       "knownGap": "docs/research.md「rubash 1.5.0 的已知差异」的「管道子 shell 的 /dev/std* 解析到外层 stdio」"
     },
     {

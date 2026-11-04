@@ -1,14 +1,14 @@
 {
-  "generated": "2026-11-03T09:19:44.016Z",
+  "generated": "2026-11-04T04:52:00.902Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "engine-only",
   "counts": {
     "total": 229,
     "pass": 93,
     "fail": 0,
-    "skip": 115,
+    "skip": 114,
     "collision": 14,
-    "knownGap": 2,
+    "knownGap": 3,
     "platform": 5,
     "silentWrong": 0
   },
@@ -95,7 +95,6 @@
     "argv-shim-no-pathconv-disables-rewrite": "missing cat, xargs",
     "pipe-closed-reader-builtin-status": "missing head, seq",
     "pipe-small-loop-is-served": "missing head",
-    "fd-redirect-descriptor-paths": "missing cat",
     "fd-process-substitution-child-stdin": "missing cat",
     "fd-process-substitution-argument": "missing cat",
     "fd-process-substitution-write-side-race": "missing sleep",
@@ -147,6 +146,7 @@
   },
   "knownGaps": {
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"st=127\", stderr \"bash: line 1: head: command not found\"",
+    "fd-redirect-descriptor-paths": "docs/research.md「rubash 1.5.0 的已知差异」的「管道子 shell 的 /dev/std* 解析到外层 stdio」: status 0 (want 0), stdout \"d\"",
     "rmdir-refuses-a-final-dot": "docs/research.md「rubash 的已知差异」的「自带工具层：rmdir 的简单形态吞掉错误」: status 0 (want 0), stdout \"rc=127\\ngone\", stderr \"bash: line 1: mkdir: command not found\""
   },
   "failures": {},
