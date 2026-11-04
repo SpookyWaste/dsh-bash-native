@@ -27,8 +27,9 @@ import { spawnSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { selectEnginePatches } from './engine-patches.mjs'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const LOCK_PATH = join(REPO_ROOT, 'engine.lock.json')
@@ -133,14 +134,22 @@ function syncSource() {
   console.log(`pin    ${capture('git', ['rev-parse', 'HEAD'], { cwd: checkout })}`)
 }
 
-/** Apply this repository's patches in filename order, then prove the code that builds carries them. */
+/**
+ * Apply exactly the patches `engine.lock.json` lists, in that order, then prove the code that builds carries them.
+ *
+ * Which files that is, and why a mismatch is refused, is `./engine-patches.mjs`: the lock is authoritative
+ * rather than the directory, so a retired patch left behind fails here instead of being applied to a codebase
+ * it no longer describes.
+ */
 function applyPatches() {
-  const files = entriesOf(patchDir).filter((name) => name.endsWith('.patch')).sort()
+  const listed = lock.patches.map((entry) => basename(entry))
+  const present = entriesOf(patchDir).filter((name) => name.endsWith('.patch'))
+  const files = selectEnginePatches({ tag: lock.tag, listed, present, directory: patchDir })
   if (files.length === 0) {
     console.log('patch  none (this pin needs no change)')
     return
   }
-  for (const file of files) run('git', ['apply', '--verbose', join(patchDir, file)], { cwd: checkout })
+  for (const name of files) run('git', ['apply', '--verbose', join(patchDir, name)], { cwd: checkout })
   // A diff that applied to a file nobody compiles would still "succeed"; the marker in the source is the
   // difference between "the patch was accepted" and "the code that runs carries it".
   const marked = capture('git', ['grep', '-l', 'dsh-bash-native patch', '--', 'src'], { cwd: checkout })

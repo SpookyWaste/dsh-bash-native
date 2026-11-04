@@ -1,0 +1,22 @@
+diff --git a/src/locale.rs b/src/locale.rs
+index 18a7505..e94497e 100644
+--- a/src/locale.rs
++++ b/src/locale.rs
+@@ -187,7 +187,16 @@ pub fn is_utf8() -> bool {
+ /// Cyrillic word, not 16/15).
+ pub fn locale_name_selects_utf8(name: &str) -> bool {
+     if name.is_empty() {
+-        return false;
++        // dsh-bash-native patch: an empty locale family means "no LC_ALL/LC_CTYPE/LANG in the
++        // environment". GNU setlocale(LC_ALL, "") resolves that to the C locale, which is what this
++        // branch answered after the 1.5.0 locale overhaul — but a Windows deployment has no POSIX
++        // locale archive to resolve against, and this engine ships an MSYS persona precisely so the
++        // script ecosystem's UTF-8 assumptions hold. Everything upstream of 1.5.0 answered UTF-8
++        // here (1.4.3's `locale_request_active` returned true for an empty name), so the empty-name
++        // case is restored: `${#v}` counts characters, `[[:alpha:]]` sees a CJK letter, `${v:0:2}`
++        // slices two characters. Naming any locale — including `C` or `POSIX` — still wins, and off
++        // Windows the C default is untouched.
++        return cfg!(windows);
+     }
+     let lower = name.to_lowercase();
+     if lower == "c" || lower == "posix" {

@@ -2,7 +2,6 @@
 # case: process-jobs-p-in-a-command-substitution
 # category: process
 # severity: must-match
-# known-gap: docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 snippet <<'CASE_187'

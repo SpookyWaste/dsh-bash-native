@@ -1,0 +1,26 @@
+diff --git a/src/builtins/cd.rs b/src/builtins/cd.rs
+index 27f5275..bab2735 100644
+--- a/src/builtins/cd.rs
++++ b/src/builtins/cd.rs
+@@ -199,6 +199,21 @@ where
+             set_shell_env(env_vars, "PWD", shell_pwd_display_path(&logical_dir));
+         }
+         refresh_dirstack_top(env_vars, cwd, &shell_pwd_display_path(&logical_dir));
++        // dsh-bash-native patch: the bridge writes the logical state and stops, so the session cwd
++        // stays in whatever directory the shell came from. For a name that has a REAL directory
++        // behind it — the virtual-root layer maps `/tmp` onto the temp root and `/home` onto the
++        // user's home — GNU cd would have moved; not moving leaves every relative operand and every
++        // child process in the previous directory while `pwd` reports the new one (`cd /tmp && ls`
++        // listed the old tree, `cd /tmp && node -e 'console.log(process.cwd())'` printed the old
++        // directory). `/` keeps the logical-only bridge: without a configured shell root it names no
++        // single directory, and moving to the current drive's root would answer a different question
++        // than the one it answers today. Names with nothing behind them (`/usr`, `/etc`, `/bin`)
++        // cannot move. The bookkeeping above runs first and is unchanged: PWD, OLDPWD, DIRSTACK and
++        // `__RUBASH_PHYSICAL_PWD` keep the logical display value.
++        if logical_dir != "/" && target.path.is_dir() {
++            *cwd = crate::executor::path::canonicalize_native(&target.path)
++                .unwrap_or_else(|_| target.path.clone());
++        }
+         env_vars.insert("__RUBASH_PHYSICAL_PWD".to_string(), logical_dir.to_string());
+         match target.print {
+             PrintPath::Always | PrintPath::CdPath => writeln!(stdout, "{logical_dir}")?,

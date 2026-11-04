@@ -24,7 +24,7 @@
 //
 // Skipped unless an engine is available: `DSH_BASH_NATIVE_ENGINE`, or a `brush` on PATH.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,12 +39,6 @@ import {
   toolsDirectory,
   violatesGuards,
 } from "../scripts/engine-harness.mjs";
-import {
-  DEFAULT_FILE_COMMANDS_FROM_PATH,
-  FILE_COMMANDS_FROM_PATH_ENV,
-  fileCommandsFromPath,
-  probeToolchain,
-} from "../lib/toolchain.js";
 
 const BASELINE_ENGINE_PATH = new URL("../corpus/baseline.json", import.meta.url);
 const BASELINE_TOOLS_PATH = new URL("../corpus/baseline-tools.json", import.meta.url);
@@ -55,40 +49,6 @@ const UPDATE_BASELINE = process.argv.includes("--update-baseline");
 const toolsDir = toolsDirectory(process.argv, process.env);
 const withTools = process.argv.includes("--with-tools") || process.argv.some((arg) => arg.startsWith("--tools-dir="));
 
-/** The filesystem seam the toolchain probe reads through, the same one the executor passes. */
-const toolchainFs = {
-  isFile: (path) => {
-    try {
-      return statSync(path).isFile();
-    } catch {
-      return false;
-    }
-  },
-  listDirectory: (path) => {
-    try {
-      return readdirSync(path, { withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => entry.name);
-    } catch {
-      return null;
-    }
-  },
-};
-
-// The policy a real session would get for this toolchain: the plugin derives it from the same probe with
-// the same rule, so the baseline describes the shipped shell rather than a test-only preference. An
-// explicit `--file-commands=` (or `DSH_BASH_NATIVE_FILE_COMMANDS`) wins, which is how one corpus is scored
-// in each policy state: `none` is the engine's in-process copies, `all` is every program.
-const toolsProbe = withTools ? probeToolchain(toolsDir, process.platform, toolchainFs) : null;
-const fileCommandsFlag = process.argv.find((arg) => arg.startsWith("--file-commands="));
-const fileCommandsOverride =
-  fileCommandsFlag !== undefined ? fileCommandsFlag.slice("--file-commands=".length) : process.env.DSH_BASH_NATIVE_FILE_COMMANDS;
-const fileCommands =
-  fileCommandsOverride !== undefined && fileCommandsOverride.length > 0
-    ? fileCommandsOverride
-    : toolsProbe === null
-      ? ""
-      : fileCommandsFromPath(toolsProbe, DEFAULT_FILE_COMMANDS_FROM_PATH).join(",");
 // The engine alone and the engine plus the toolchain are two different environments with two
 // different records, so each keeps its own baseline.
 const baselineFlag = process.argv.find((arg) => arg.startsWith("--baseline="));
@@ -122,10 +82,6 @@ const CASE_TIMEOUT_MS = 20000;
 const FIXTURE = mkdtempSync(join(tmpdir(), "dsh-bash-native-corpus-"));
 const run = createRunner(engine, FIXTURE);
 const env = { ...process.env, PATH: pathWithToolchain({ withTools, toolsDir, engine, basePath: process.env.PATH ?? "" }) };
-// The ambient value belongs to whatever shell started this run, not to this run: an engine-only baseline
-// has to describe a shell that never heard of the policy.
-delete env[FILE_COMMANDS_FROM_PATH_ENV];
-if (fileCommands.length > 0) env[FILE_COMMANDS_FROM_PATH_ENV] = fileCommands;
 const normalize = normalizeOutput;
 
 /**
@@ -244,6 +200,7 @@ const collisions = pick("collision");
 const skips = pick("skip");
 const platform = pick("platform");
 const passes = pick("pass");
+
 const counts = {
   total: corpus.cases.length,
   pass: passes.length,
@@ -267,7 +224,6 @@ const current = {
   generated: new Date().toISOString(),
   engine: engineVersion(engine),
   toolchain: withTools && toolsDir.length > 0 ? redactMachinePaths(toolsDir) : "engine-only",
-  fileCommands: fileCommands.length > 0 ? fileCommands : "none",
   counts,
   skips: Object.fromEntries(skips.map((result) => [result.entry.id, result.reason])),
   collisions: Object.fromEntries(collisions.map((result) => [result.entry.id, result.reason])),
@@ -283,7 +239,6 @@ function writeReport(notes) {
     "",
     `Engine: \`${engine}\` (${current.engine || "version unknown"})`,
     `Toolchain: \`${current.toolchain}\``,
-    `File commands from PATH: \`${current.fileCommands}\``,
     `Generated: ${current.generated}`,
     "",
     `Pass ${counts.pass}/${counts.total} · fail ${counts.fail} · known-gap ${counts.knownGap} · collision ${counts.collision} · skip ${counts.skip} · platform-difference ${counts.platform} · **silent-wrong ${counts.silentWrong}**`,
@@ -322,7 +277,6 @@ function writeReport(notes) {
 
 console.log(`engine: ${engine}${current.engine.length > 0 ? ` (${current.engine})` : ""}`);
 console.log(`toolchain: ${current.toolchain}`);
-console.log(`file commands from PATH: ${current.fileCommands}`);
 for (const result of failures) console.log(`FAIL  ${result.silentWrong === true ? "[silent-wrong] " : ""}${result.entry.id}: ${result.detail}`);
 for (const result of knownGaps) console.log(`GAP   ${result.entry.id} (${result.pointer})`);
 for (const result of collisions) console.log(`COLLIDE  ${result.entry.id}: ${result.reason}`);
@@ -366,13 +320,39 @@ if (baseline !== null) {
   });
   const incomplete = skips.filter((result) => result.host !== true);
 
+  // A `knownGap` pointer is only honest while the case still fails. Once the engine or the toolchain answers
+  // it, the declaration keeps working — in the wrong direction: a FUTURE failure is classified `known-gap`
+  // instead of `fail`, becomes a `NEW GAP` against this baseline (which no longer lists it), and the pointer
+  // sends a reader to a document that no longer describes the case. Nothing else notices that transition, so
+  // the run names the cases whose pointer has gone stale and asks for it to be removed.
+  //
+  // One exclusion keeps the message truthful: a gap that belongs to the OTHER configuration — `rmdir` is a gap
+  // without the toolchain and passes with it — is real, not stale, and its passing here says nothing about the
+  // pointer. Both baselines live in the repository, so the other one answers that directly.
+  const otherBaseline = withTools ? BASELINE_ENGINE_PATH : BASELINE_TOOLS_PATH;
+  let otherGapIds = {};
+  try {
+    otherGapIds = JSON.parse(readFileSync(otherBaseline, "utf8")).knownGaps ?? {};
+  } catch {
+    // A missing record is a supported state (the other configuration never ran here), and then nothing can be
+    // said about it; the case is treated as stale, the direction that asks for a review.
+    otherGapIds = {};
+  }
+  const thisGapIds = baseline.knownGaps ?? {};
+  const closedGaps = passes
+    .filter((result) => result.entry.knownGap !== undefined)
+    .map((result) => result.entry.id)
+    .filter((id) => thisGapIds[id] !== undefined || otherGapIds[id] === undefined);
+
   if (resolved.length > 0) notes.push(`Resolved since the baseline: ${resolved.join(", ")}. Refresh with \`--update-baseline\`.`);
+  if (closedGaps.length > 0) notes.push(`Declared gaps that now pass, so the \`knownGap\` pointer should be removed: ${closedGaps.join(", ")}.`);
   if (driftText.length > 0) notes.push(`Platform recordings differ from the baseline (informational): ${driftText.map((result) => result.entry.id).join(", ")}.`);
   writeReport(notes);
 
   for (const id of newFailures) console.log(`REGRESSION  ${id}`);
   for (const id of newGaps) console.log(`NEW GAP  ${id}`);
   for (const id of newCollisions) console.log(`NEW COLLISION  ${id}`);
+  for (const id of closedGaps) console.log(`GAP CLOSED  ${id}`);
 
   assert.equal(counts.silentWrong, 0, "an undeclared silent wrong answer is never acceptable");
   assert.deepEqual(newFailures, [], "no must-match case may fail that the baseline did not record");

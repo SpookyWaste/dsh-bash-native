@@ -1,20 +1,22 @@
 {
-  "generated": "2026-10-27T03:22:34.419Z",
+  "generated": "2026-11-03T09:19:44.016Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "engine-only",
-  "fileCommands": "none",
   "counts": {
-    "total": 227,
-    "pass": 119,
+    "total": 229,
+    "pass": 93,
     "fail": 0,
-    "skip": 86,
+    "skip": 115,
     "collision": 14,
-    "knownGap": 3,
+    "knownGap": 2,
     "platform": 5,
     "silentWrong": 0
   },
   "skips": {
+    "shell-heredoc": "missing cat",
+    "shell-heredoc-expansion": "missing cat",
     "shell-writes-lf": "missing wc",
+    "shell-crlf-passthrough": "missing wc",
     "argv-grep-direct-pattern": "missing grep",
     "grep-basic": "missing grep",
     "grep-count": "missing grep",
@@ -78,19 +80,42 @@
     "process-ps-lists": "missing ps",
     "process-ps-has-pid": "missing ps",
     "collision-which-finds-program": "missing which",
+    "builtin-disown-removes-and-leaves-the-process-running": "missing wc",
     "platform-ls-long": "missing cut, ls",
+    "platform-tmp-round-trip": "missing rm",
+    "platform-tmp-glob-expands": "missing rm",
+    "argv-tmp-builtin-cat-reads-temp": "missing cat",
+    "argv-tmp-builtin-rm-deletes-temp": "missing rm",
+    "argv-tmp-builtin-cp-writes-temp": "missing cp",
     "argv-tmp-program-path-executes": "missing grep",
     "argv-tmp-external-tool-reads-temp": "missing grep",
+    "argv-tmp-external-program-reads-temp": "missing rm",
     "argv-tmp-pattern-stays-verbatim": "missing grep",
+    "argv-tmp-data-argument-not-rewritten": "missing rm",
     "argv-shim-no-pathconv-disables-rewrite": "missing cat, xargs",
     "pipe-closed-reader-builtin-status": "missing head, seq",
+    "pipe-small-loop-is-served": "missing head",
+    "fd-redirect-descriptor-paths": "missing cat",
+    "fd-process-substitution-child-stdin": "missing cat",
+    "fd-process-substitution-argument": "missing cat",
+    "fd-process-substitution-write-side-race": "missing sleep",
+    "wait-n-internal-job": "missing sleep",
+    "platform-drive-mount-argument-copy": "missing cp",
+    "platform-drive-mount-glob": "missing head",
     "platform-drive-mount-hits-a-script-operand": "missing sed",
     "platform-drive-mount-script-operand-escape-hatch": "missing sed",
     "platform-drive-mount-hits-awk-program-text": "missing awk",
+    "crlf-string-redirect-target": "missing cat",
+    "crlf-string-heredoc-body": "missing cat",
+    "crlf-program-text-keeps-its-carriage-return": "missing wc",
+    "crlf-escape-produced-carriage-return-is-data": "missing wc",
     "crlf-file-data-keeps-its-carriage-returns": "missing cat, wc",
+    "process-jobs-p-in-a-command-substitution": "missing cat",
     "process-compound-stage-concurrency": "missing head, seq",
     "process-function-stage-concurrency": "missing head, seq",
+    "glob-trailing-slash-requires-directory": "missing mkdir",
     "xargs-rm-refuses-trailing-slash-on-a-file": "missing xargs",
+    "test-ef-directory": "missing mkdir",
     "shell-printf-partial-output-before-an-error": "missing wc",
     "coreutils-tail-block-multiple-last-line": "missing head, tail, wc, yes",
     "coreutils-tail-block-multiple-sixteen-thousand": "missing head, tail, wc, yes",
@@ -99,7 +124,10 @@
     "fd-redirect-input-from-dev-null": "missing wc",
     "fd-redirect-bundled-tool-writes-to-dev-null": "missing tail",
     "redirection-bundled-stderr-to-stdout": "missing tail",
-    "redirection-bundled-stdout-to-stderr": "missing seq"
+    "redirection-bundled-stdout-to-stderr": "missing seq",
+    "exec-redirects-the-shell": "missing cat",
+    "cd-tmp-reaches-a-relative-operand": "missing rm",
+    "process-compound-stage-large-consumer-output": "missing seq, head"
   },
   "collisions": {
     "shell-pipeline": "sort -> /c/Windows/system32/sort.exe",
@@ -118,9 +146,8 @@
     "process-relative-path-command": "find -> /c/Windows/system32/find.exe"
   },
   "knownGaps": {
-    "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"st=127\"",
-    "process-pipeline-builtin-failure-honors-its-stderr-redirect": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」: status 0 (want 0), stdout \"empty\"",
-    "rmdir-refuses-a-final-dot": "docs/research.md「rubash 的已知差异」的「自带工具层：rmdir 的简单形态吞掉错误」: status 0 (want 0), stdout \"rc=0\\ngone\""
+    "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"st=127\", stderr \"bash: line 1: head: command not found\"",
+    "rmdir-refuses-a-final-dot": "docs/research.md「rubash 的已知差异」的「自带工具层：rmdir 的简单形态吞掉错误」: status 0 (want 0), stdout \"rc=127\\ngone\", stderr \"bash: line 1: mkdir: command not found\""
   },
   "failures": {},
   "platform": {
@@ -129,8 +156,8 @@
       "stdout": "MSYS_NT-10.0-26200\n"
     },
     "platform-dev-stdin": {
-      "status": 0,
-      "stdout": "bash: line 1: cat: command not found\n"
+      "status": 127,
+      "stdout": ""
     },
     "platform-tmp-location": {
       "status": 0,
@@ -141,7 +168,7 @@
       "stdout": "/\n"
     },
     "platform-od-bytes": {
-      "status": 0,
+      "status": 127,
       "stdout": ""
     }
   }

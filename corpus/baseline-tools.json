@@ -1,11 +1,10 @@
 {
-  "generated": "2026-10-27T03:22:46.010Z",
+  "generated": "2026-11-03T09:20:10.177Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "<HOME>\\AppData\\Local\\dsh-bash-native\\tools\\bin",
-  "fileCommands": "sed,rmdir",
   "counts": {
-    "total": 227,
-    "pass": 215,
+    "total": 229,
+    "pass": 217,
     "fail": 0,
     "skip": 0,
     "collision": 0,
@@ -19,7 +18,7 @@
     "awk-quoted-wildcard-stays-literal": "docs/research.md「已知引擎差异」的「awk 的带引号通配符：已修，退出码仍与 gawk 不同」: status 0 (want 0), stdout \"rc=1\", stderr \"open *.txt: The filename, directory name, or volume label syntax is incorrect.\"",
     "pipe-closed-reader-builtin-status": "docs/research.md「rubash 的已知差异」的「断管的写端与 PIPESTATUS」: status 0 (want 0), stdout \"x st=0\"",
     "pipe-bundled-child-reports-own-status": "docs/research.md「已知引擎差异」的「断管的写端：自带诊断与自带退出码」: status 0 (want 0), stdout \"1\\n st=0\"",
-    "process-pipeline-builtin-failure-honors-its-stderr-redirect": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」: status 0 (want 0), stdout \"empty\""
+    "fd-redirect-descriptor-paths": "docs/research.md「rubash 1.5.0 的已知差异」的「管道子 shell 的 /dev/std* 解析到外层 stdio」: status 0 (want 0), stdout \"d\""
   },
   "failures": {},
   "platform": {

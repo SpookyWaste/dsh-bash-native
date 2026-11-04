@@ -84,7 +84,10 @@
             "line2"
           ]
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "shell-heredoc-expansion",
@@ -96,7 +99,10 @@
         "stdout": {
           "equals": "v=1\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "shell-for-case",
@@ -402,7 +408,10 @@
             "\\b3\\b"
           ]
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "argv-quoted-literal",
@@ -1005,8 +1014,7 @@
         "stdout": {
           "equals": "X\n"
         }
-      },
-      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：sed 的简单形态走引擎实现」"
+      }
     },
     {
       "id": "sed-bre-interval",
@@ -1021,8 +1029,7 @@
         "stdout": {
           "equals": "Xa\n"
         }
-      },
-      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：sed 的简单形态走引擎实现」"
+      }
     },
     {
       "id": "sed-address-zero-range",
@@ -1067,8 +1074,7 @@
         "stdout": {
           "equals": "bar x\n"
         }
-      },
-      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：sed 的简单形态走引擎实现」"
+      }
     },
     {
       "id": "awk-quoted-wildcard-stays-literal",
@@ -1902,7 +1908,6 @@
       "id": "process-dollar-bang-builtin-background",
       "category": "process",
       "severity": "must-match",
-      "knownGap": "docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」",
       "snippet": "sleep 0.05 & p=$!; case $p in ''|*[!0-9]*) echo bad;; *) echo good;; esac; wait",
       "expect": {
         "status": 0,
@@ -2059,7 +2064,10 @@
         "stdout": {
           "equals": "rc=0\njobs=0\nalive=0\n"
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "builtin-disown-no-such-job",
@@ -2166,7 +2174,10 @@
         "stdout": {
           "equals": "got=hi cleaned\n"
         }
-      }
+      },
+      "needs": [
+        "rm"
+      ]
     },
     {
       "id": "platform-tmp-glob-expands",
@@ -2181,7 +2192,10 @@
             "cleaned"
           ]
         }
-      }
+      },
+      "needs": [
+        "rm"
+      ]
     },
     {
       "id": "argv-tmp-builtin-cat-reads-temp",
@@ -2193,7 +2207,10 @@
         "stdout": {
           "equals": "operand-ok\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "argv-tmp-builtin-rm-deletes-temp",
@@ -2205,7 +2222,10 @@
         "stdout": {
           "equals": "deleted\n"
         }
-      }
+      },
+      "needs": [
+        "rm"
+      ]
     },
     {
       "id": "argv-tmp-builtin-cp-writes-temp",
@@ -2217,7 +2237,10 @@
         "stdout": {
           "equals": "copied\n"
         }
-      }
+      },
+      "needs": [
+        "cp"
+      ]
     },
     {
       "id": "argv-tmp-attached-option-value",
@@ -2272,7 +2295,8 @@
       "category": "argv-semantics",
       "severity": "must-match",
       "needs": [
-        "node"
+        "node",
+        "rm"
       ],
       "host": true,
       "snippet": "f=/tmp/dsh-tmp-node.txt; echo probe > \"$f\"; node -e 'const fs=require(\"fs\");console.log(fs.readFileSync(process.argv[1],\"utf8\").trim())' /tmp/dsh-tmp-node.txt; rm -f \"$f\"",
@@ -2311,7 +2335,10 @@
         "stdout": {
           "equals": "/tmp/dsh-tmp-data.txt\n"
         }
-      }
+      },
+      "needs": [
+        "rm"
+      ]
     },
     {
       "id": "argv-shim-no-pathconv-disables-rewrite",
@@ -2358,7 +2385,10 @@
         "stdout": {
           "equals": "loop\n"
         }
-      }
+      },
+      "needs": [
+        "head"
+      ]
     },
     {
       "id": "pipe-bundled-child-reports-own-status",
@@ -2388,7 +2418,11 @@
           ]
         }
       },
-      "note": "The three writes go to a pipe, because `> /dev/stdout` reopens the path: with a regular file for stdout that open truncates it and only the last line would survive (GNU behaviour, measured on RHEL 9)."
+      "note": "The three writes go to a pipe, because `> /dev/stdout` reopens the path: with a regular file for stdout that open truncates it and only the last line would survive (GNU behaviour, measured on RHEL 9).",
+      "needs": [
+        "cat"
+      ],
+      "knownGap": "docs/research.md「rubash 1.5.0 的已知差异」的「管道子 shell 的 /dev/std* 解析到外层 stdio」"
     },
     {
       "id": "fd-redirect-dev-stdin-reads",
@@ -2448,7 +2482,10 @@
         "stdout": {
           "equals": "hi\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "fd-process-substitution-argument",
@@ -2460,7 +2497,10 @@
         "stdout": {
           "equals": "hi\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "fd-process-substitution-write-side-race",
@@ -2472,7 +2512,10 @@
         "stdout": {
           "equals": "hi\n"
         }
-      }
+      },
+      "needs": [
+        "sleep"
+      ]
     },
     {
       "id": "wait-pid-status",
@@ -2568,7 +2611,10 @@
         "stdout": {
           "equals": "rc=0\n"
         }
-      }
+      },
+      "needs": [
+        "sleep"
+      ]
     },
     {
       "id": "wait-two-pids-report-the-last",
@@ -2695,7 +2741,10 @@
         "stdout": {
           "equals": "copied\n"
         }
-      }
+      },
+      "needs": [
+        "cp"
+      ]
     },
     {
       "id": "platform-drive-mount-glob",
@@ -2709,7 +2758,10 @@
             "^/c/Windows/.+\\.exe$"
           ]
         }
-      }
+      },
+      "needs": [
+        "head"
+      ]
     },
     {
       "id": "platform-drive-mount-leaves-multi-letter-roots",
@@ -2789,7 +2841,10 @@
         "stdout": {
           "equals": "sink\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "crlf-string-if-block",
@@ -2837,7 +2892,10 @@
         "stdout": {
           "equals": "line-one\nline-two\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "crlf-file-sourced",
@@ -2864,7 +2922,10 @@
         "stdout": {
           "equals": "3\n"
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "crlf-escape-produced-carriage-return-is-data",
@@ -2876,7 +2937,10 @@
         "stdout": {
           "equals": "4\n"
         }
-      }
+      },
+      "needs": [
+        "wc"
+      ]
     },
     {
       "id": "crlf-file-data-keeps-its-carriage-returns",
@@ -2901,7 +2965,6 @@
       "id": "process-jobs-p-in-a-command-substitution",
       "category": "process",
       "severity": "must-match",
-      "knownGap": "docs/research.md「命令替换里的作业表与 kill 的单目标」的「命令替换里的 jobs 与 jobs -p 是空表」",
       "snippet": "\"$BASH\" -c 'i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done' & jobs -p > pids.txt; printf 'direct=[%s] substitution=[%s]\\n' \"$(cat pids.txt)\" \"$(jobs -p)\"; kill %1",
       "expect": {
         "status": 0,
@@ -2910,7 +2973,10 @@
             "^direct=\\[[0-9]+\\] substitution=\\[[0-9]+\\]$"
           ]
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "process-kill-accepts-several-targets",
@@ -3028,7 +3094,10 @@
         "stdout": {
           "equals": "mydir/\n*.md/\n"
         }
-      }
+      },
+      "needs": [
+        "mkdir"
+      ]
     },
     {
       "id": "xargs-rm-refuses-trailing-slash-on-a-file",
@@ -3111,7 +3180,10 @@
         "stdout": {
           "equals": "0\n"
         }
-      }
+      },
+      "needs": [
+        "mkdir"
+      ]
     },
     {
       "id": "process-pipeline-builtin-failure-does-not-end-the-script",
@@ -3417,7 +3489,10 @@
         "stdout": {
           "equals": "hi\n"
         }
-      }
+      },
+      "needs": [
+        "cat"
+      ]
     },
     {
       "id": "nested-subshell-parens",
@@ -3491,6 +3566,37 @@
         }
       },
       "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：rmdir 的简单形态吞掉错误」"
+    },
+    {
+      "id": "cd-tmp-reaches-a-relative-operand",
+      "category": "shell",
+      "severity": "must-match",
+      "snippet": "printf x > /tmp/cd-relative-probe.txt; cd /tmp; test -f cd-relative-probe.txt && echo found; rm -f /tmp/cd-relative-probe.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "found\n"
+        }
+      },
+      "needs": [
+        "rm"
+      ]
+    },
+    {
+      "id": "process-compound-stage-large-consumer-output",
+      "category": "process",
+      "severity": "must-match",
+      "needs": [
+        "seq",
+        "head"
+      ],
+      "snippet": "big=$(printf 'x%.0s' $(seq 1 70000)); { printf '%s\\n' \"$big\"; } | head -1 > got.txt; line=$(cat got.txt); echo ${#line}",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "equals": "70000\n"
+        }
+      }
     }
   ]
 }

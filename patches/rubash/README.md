@@ -1,105 +1,154 @@
 # rubash 的补丁
 
-这个目录里有**五笔**补丁：三笔修引擎自己的语义缺陷（`0001`、`0003`、`0005`），两笔修 Windows 上的行为缺陷（`0002`、`0004`）。每一笔都带 `dsh-bash-native patch` 标记，`scripts/build-engine.mjs` 在应用后用 `git grep` 断言 `src/` 里能看到它——避免"diff 打上了但没人编译"。
+当前 pin 是 **v1.5.0**（`29bbf52481c36fc477135fee08d6fb0a8435b8a9`），生效三笔：`150-001`–`150-003`。第四笔 `150-004` 暂停在 `disabled/`（原因与恢复条件见该目录的 README），**不参与构建**。每一笔都带 `dsh-bash-native patch` 标记，`scripts/build-engine.mjs` 在应用后用 `git grep` 断言 `src/` 里能看到它——避免"diff 打上了但没人编译"。
 
-## 0001-data-primary-positions-every-child.patch
+## 命名规则
 
-**症状**（对未打补丁的 1.4.3 实测，命令套件为本仓库工具链）：
+文件名是 `<引擎版本去掉 v 和点>-<序号>-<slug>.patch`：v1.5.0 → `150`，v1.4.3 → `143`。序号在**一个 pin 内**从 `001` 起连续编号，所以一个名字同时说明了「属于哪个 pin」与「在这个 pin 里的次序」。
 
-```
-grep -F '/tmp/probe' p.txt     # 内容就是 /tmp/probe，却静默不匹配
-sed -n '/tmp/probe/p' p.txt    # sed.exe: <script argument 1>:1:1: error: invalid command code `C'
-awk '/tmp/probe/{print}' p.txt # <cmdline>:1:2: expected , instead of :
-```
+- 升级 pin 时整组进新前缀：同一个问题被带到新版本的补丁保留 slug、在新 pin 里重新排序（v1.4.3 的 `143-005` 就是现在 `150-001`）。
+- 暂停的补丁放在本目录的 `disabled/` 子目录里：构建脚本只扫描本级、只应用 `engine.lock.json` 列出的文件，所以它不会被应用，也不会触发"多出来的补丁"那条检查。
+- 退役不是留空号，而是**删文件**：`scripts/build-engine.mjs` 只应用 `engine.lock.json` 列出的那一组，并拒绝目录里多出来的、少掉的或前缀不对的文件，所以"旧补丁还留着"会在构建时立刻失败，而不是打到一个它已不认识的代码树上。
+- 每个 pin 的编号都记在下面的字典里；编号在**同一个 pin 内**不复用，跨 pin 的同名由前缀区分。
 
-**根因**：`src/executor/path.rs` 里 `argv_data_primary_positions(command_name, args)` 只在 `posix_aware` 类子进程上计算；其余子进程拿到空集，于是 `translated_virtual_system_root_argument` 把任何以 `/tmp`、`/usr`、`/etc`、`/home`、`/mnt/…` 或盘符 `/c/` 开头的词都改写成 Win32 拼写——包括 grep 的模式、sed 的脚本和 awk 的程序。
+## 编号字典
 
-**改法**（三处，全部在 `#[cfg(windows)]` 内）：
+### v1.5.0（当前，`150-*`）
 
-1. 数据位集合改为对**所有**子进程计算；
-2. `translated_virtual_system_root_argument` 的调用跳过数据位；
-3. 逐类分支里，native 子进程的数据位原样返回，路径操作数照旧走 `external_argument_path`。
+| 编号 | 作用 | 旧平面编号 |
+|---|---|---|
+| `150-001` | `cd` 进背后有真实目录的虚拟根（`/tmp`、`/home`）时同步 **session cwd**（1.5.0 的 cwd 是会话状态，1.4.3 的 `env::set_current_dir` 写法失效，实现重写） | `0005` / `143-005` |
+| `150-002` | locale 族未设时，Windows 上默认 UTF-8 语义（`${#v}` 按字符、`[[:alpha:]]` 认 CJK） | `0006` |
+| `150-003` | `uname`/`arch` 在 `PATH` 上没有程序时仍作答（MSYS 人设可达） | `0007` |
+| `150-004` | `chmod`/`mkfifo` 同上，并把文件内置命令的门闸改为查注册表双轴策略 | `0008`（**暂停**：`chmod` 只覆盖部分形状、`mkfifo` 的 rendezvous 挂起，见 `disabled/README.md`） |
 
-**边界**：`-e/--regexp` 的值是数据（原样），`-f/--file` 的值是路径（翻译）——这条区分上游已有，补丁没有动它。补丁自带一条单测 `data_primary_positions_hold_for_native_children`。
+### v1.4.3（历史，`143-*`，文件已删除）
 
-**上游化**：这是对第三方命令套件同样成立的缺陷，应当按 issue/PR 提交给 `unixwin/rubash`；合入后删掉本文件、把 `engine.lock.json` 的 `patches` 里对应的一行去掉即可，行为探针（`src/verify.ts` 与语料里的数据位用例）保留作回归。
+v1.4.3 那一组的原文与说明在 git 历史里（`v0.3.x` 及更早的 `patches/rubash/`）。
 
-## 0002-drop-undecodable-environment-entries.patch
+| 编号 | 作用 | 状态 |
+|---|---|---|
+| `143-001` | 数据位（grep/sed/awk 的模式、脚本、程序文本）对**所有**子进程类生效 | 退役：上游 PR [#2069](https://github.com/unixwin/rubash/pull/2069) / issue #2063，带署名与我们的单测 |
+| `143-002` | 启动时丢弃 Unicode 表示不了的环境项，而不是 panic | 退役：上游 PR [#2070](https://github.com/unixwin/rubash/pull/2070)，并扩到库/Session 摄入面 |
+| `143-003` | `RUBASH_FILE_COMMANDS_FROM_PATH`：指定哪些进程内文件命令改从 `PATH` 执行 | 退役：症状面由上游以「让位」机制修掉（#1636/#1462/#2065/#2066，PR #2074/#2077）；开关归上游 #2036 的注册表 `enable` 字段，本插件侧整条策略面已删除 |
+| `143-004` | 末段管道的抽干线程在进程内生产者**之前**启动 | 退役：上游 `rubash#2244`，1.5.0 内已带回归 |
+| `143-005` | `cd` 进有真实目录的虚拟根时让进程也跟着走 | 被 `150-001` 取代（1.5.0 改成 session cwd，实现重写） |
 
-**症状**：Windows 能把一条 Unicode 表示不了的环境项（例如名字里带未配对代理项）交给子进程，而 `std::env::vars()` 遇到它会 panic——引擎在第一条命令之前 abort，退出码和诊断都不可用。
+### 旧平面编号对照
 
-**根因**：GNU bash 把环境当字节串读，解不出来的条目原样留着；本引擎的变量表是 `String`，启动时对 `vars()` 的 `unwrap` 就成了硬失败。
+2026-11-03 之前的文档与提交信息用的是不带版本前缀的 `0001`–`0005`（v1.4.3 那组）；升级到 1.5.0 的当次提交短暂用过 `0005`–`0008`。对照：
 
-**改法**：`src/main.rs` 的 `main()` 开头调用 `drop_undecodable_environment_entries()`，用 `vars_os()` 过滤掉名字或值 `to_str()` 为 `None` 的条目。代价是那一条变量，而不是整条命令链。
+| 旧编号 | 现编号 |
+|---|---|
+| `0001` | `143-001` |
+| `0002` | `143-002` |
+| `0003` | `143-003` |
+| `0004` | `143-004` |
+| `0005` | `143-005`（→ `150-001`） |
+| `0005`–`0008`（1.5.0 当次） | `150-001`–`150-004` |
 
-**边界**：只影响 Win32 能塞进环境块、Unicode 表示不了的条目；正常环境一字不改。
+## 150-001-cd-into-virtual-roots-with-a-real-directory.patch
 
-**上游化**：可以按加固提交（"一次 panic 不该来自环境"），但上游若选择保留字节语义，这一笔就要一直带着。
-
-## 0003-file-commands-from-path.patch
-
-**症状**（1.4.3 + 本仓库补丁，`tools/bin` 已在 `PATH` 上）：
-
-```
-printf 'aaaa\n' | sed 's/a\{2,3\}/X/'   # 输出 aaaa：进程内的 sed 不认 \{m,n\}、\b、\|
-rmdir d/.                               # 把 d 删掉，rc=0
-rmdir /definitely/absent                # 静默成功，rc=0
-```
-
-**根因**：`src/executor/external_file_builtins.rs` 在进程内实现 `mkdir touch chmod cp rm rmdir cat sed mkfifo tty`（以及 `/bin/pwd`、`/bin/printf`、`/bin/cat`、`/bin/tty` 的绝对拼写）的**简单形态**，复杂形态才落到 `PATH`。这份副本是同一批命令的第二套实现：`sed` 只有一个手写的 `s/pat/rep/` 与 `Nd` 匹配器，`rmdir` 对每个操作数 `let _ = fs::remove_dir(...)` 后无条件 `exit_code = 0`。装了 POSIX 工具链的 shell 没有任何办法要求"用程序，别用副本"。
-
-**改法**：
-
-1. 新增 `RUBASH_FILE_COMMANDS_FROM_PATH`：`all`/`on`/`1` 全部走 `PATH`，`none`/`off`/`0`/未设立走进程内，其余按逗号或空白分隔的名字列表；名字与命令的基本名大小写不敏感地比较，所以 `cat` 同时覆盖 `/bin/cat`、`/usr/bin/cat`。
-2. **从 shell 自己的变量表读**，不是进程启动时读一次 `std::env`：持久 PTY 会话继承的是宿主环境、不经过执行器的 spawn 环境，只有 `--rcfile` 里的 `export` 能到它手里；`bash -c` 子 shell 也因此继承同一策略。
-3. 门闸同时加在**两条**进程内路径上：`handle_external_file_builtins` 的分派，以及 `execute_pipeline_stage_inner` 里内联的 `cat`、`sed` 分支。顺带修掉一个现存不一致——这两条内联分支此前完全不看宿主 API `set_external_file_builtins_enabled`，于是"关掉进程内副本"的宿主在管道里仍会拿到仿真版本。
-
-**边界**：未设这个变量时行为与此前完全一致；变量不清除、不消费，脚本看得见也能 `unset`；名字表只影响上面那 12 个命令，`echo`/`printf`/`pwd`/`test` 等 shell 内建不受影响。补丁自带单测 `policy_table_selects_commands_and_base_names`。
-
-**为什么本插件只用它切两条**：`chmod`、`mkfifo` 在 Windows 上没有可替换的程序（uutils 不发布这两个 applet，`coreutils.exe chmod` 直接报 `unknown program`），切过去只会得到 `command not found`；`cat`/`rm`/`mkdir` 等每次多一次进程创建（实测约 11–13 ms，进程内约 0.05 ms）。所以插件默认 `['sed','rmdir']`，其余留给进程内副本。
-
-**上游化**：这是一个宿主/CLI 级开关，对任何"把 POSIX 工具链放在 `PATH` 上"的 Windows 部署都成立，值得按 issue/PR 提交；上游若只接受库 API 而不接受环境变量，就保留这一笔。
-
-## 0004-drain-last-consumer-before-shell-writer.patch
-
-**症状**（1.4.3 + 本仓库前三笔，管道输出接到文件，也就是本插件 `bash` 工具的真实形态）：
+**症状**（对未打补丁的 1.5.0 实测）：
 
 ```
-{ cat big.txt; } | head -1      # big.txt 是一行 200 KB —— 挂起，4 秒超时、0 字节
-{ cat 200KB; } | cat >/dev/null # 同样挂起：与"读端提前退出"无关
-{ cat big.txt; } | head -c 70000 >/dev/null
-f() { cat big.txt; }; f | head -1
+cd /tmp; pwd                                    # /tmp
+cd /tmp; node -e 'console.log(process.cwd())'   # 仍是 cd 之前的目录
+cd /tmp; ls                                     # 列出的还是 cd 之前的目录
+cd /tmp; cat rel.txt                            # 找不到 rel.txt
 ```
 
-边界是**末段自己的输出量**，不是行长度、也不是输入量：末段输出 65536 字节时能过，65537 就挂；反过来，`head -1` 对一行 120 KB 能过（整份输入还没超过两段管道容量之和）、对一行 132 KB 就挂。`| wc -l`、`| tail -1`、`| grep -c` 这些"读完才吐一个小结果"的消费者永远不触发。
+**根因**：1.5.0 把 cwd 从进程状态改成会话状态（`builtins/cd.rs` 的 G-02 注释：`*cwd = physical`），但虚拟根桥接分支没有同步改造。`logical_posix_test_dir`（`cd.rs:653`）对 `/`、`/bin`、`/etc`、`/tmp`、`/usr` 这五个名字返回 `Some`，调用点（`cd.rs:169-211`）只写 `PWD`/`OLDPWD`/`DIRSTACK`/`__RUBASH_PHYSICAL_PWD` 就 `return`，**不碰 `*cwd`**。1.4.3 时代我们用 `env::set_current_dir` 补救，在 1.5.0 已经没有意义——子进程拿的是 session cwd，不是进程 cwd。
 
-**根因**：`run_shell_writer_pipeline` 先 spawn 全部外部消费者，再**在本线程里同步**跑完进程内生产者，最后才 `spawn_pipe_drain` 末段的 stdout/stderr。生产者跑完前，末段的输出管道没人读（`Stdio::piped()`，容量 64 KiB），而它的 stderr 同样如此。于是：末段是流式过滤器（`head`、`cat`、`tee` 都是一边读一边写）→ 它的输出写满 64 KiB 时阻塞、不再读上游 → 进程内生产者写满 inter-member 管道（同样 64 KiB）时阻塞 → shell 线程正阻塞在生产者里、永远不会走到起 drain 的那一行 → 三方互等。全外部路径没有这个窗口，因为它在 drain 之前已经把所有成员都跑起来了，所以 `cat big | head -1` 一直是好的。
+**改法**：在 `refresh_dirstack_top` 之后、写 `__RUBASH_PHYSICAL_PWD` 之前补一次会话 cwd：
 
-**改法**：把末段的两个 `spawn_pipe_drain` 从"生产者返回之后"移到"消费者 spawn 完之后、生产者启动之前"。语义不变（末段输出本来就在生产者返回后才被消费），只是让读端从第一刻就在。
-
-**边界**：修好的是"生产者自己的写会因断管而停"的那一类——shell 内建（写端看到 EPIPE 以 141 结束）、`cat`/`seq` 等工具（自己的写错误让它退出）。**不修**"inside 复合阶段的外部生产者不肯停"这一类：`{ yes; } | head -1` 仍然挂起，因为 GNU 靠 SIGPIPE 杀掉它，而 Windows 没有 SIGPIPE，`wait_for_windows_pipeline_member` 的 lingerer 窗口只覆盖全外部路径。这一笔没有单测（时序要靠真管道，构造不出来），行为由 `test/test-brush-regressions.mjs` 的 `compound-stage` 与 `function-stage` 两例断言。
-
-**上游化**：这是上游 `execute_shell_writer_pipeline`（niubash#345 的产物）自己的时序缺陷，全平台的进程内生产者都受影响，值得按 issue/PR 提交。
-
-## 0005-cd-into-virtual-roots-with-a-real-directory.patch
-
-**症状**（1.4.3 + 本仓库前四笔）：
-
-```
-cd /tmp; pwd            # /tmp
-cd /tmp; ls             # 列出来的还是 cd 之前的目录
-cd /tmp; cat rel.txt    # cat: rel.txt: No such file or directory
-cd /tmp; node -e 'console.log(process.cwd())'   # 还是 cd 之前的目录
+```rust
+if logical_dir != "/" && target.path.is_dir() {
+    *cwd = crate::executor::path::canonicalize_native(&target.path)
+        .unwrap_or_else(|_| target.path.clone());
+}
 ```
 
-**根因**：`src/builtins/cd.rs` 的 `logical_posix_test_dir`：在没有配置 shell root 的 Windows 主机上，显示名**恰好**是 `/`、`/bin`、`/etc`、`/tmp`、`/usr` 之一时走"逻辑桥"——写 `PWD`/`OLDPWD`/`__RUBASH_PHYSICAL_PWD` 后直接 `return`，**跳过 `env::set_current_dir`**。这个桥是为 GNU 上游测试里 `cd /usr` 这类名字准备的（那些名字在 Windows 上没有物理目录），但 `/tmp` 与 `/home` 在虚拟根映射里**确实有真实目录**（`shell_path_to_windows("/tmp")` 就是会话临时目录），于是 cwd 留在原地而 `pwd` 报新目录：此后每个相对操作数、每个子进程都在旧目录里找东西。子路径不受影响——`cd /tmp/sub` 不是那五个名字，走正常 chdir。
+**边界**：`/` 保持"只改逻辑状态"——没有配置 shell root 时它不指向任何唯一目录；`/usr`、`/etc`、`/bin` 没有真实目录可去，桥照旧；`pushd`/`popd` 不在这一笔里（1.5.0 的 pushd 已经比 1.4.3 更接近正确，但 `pwd -P` 与 `popd` 仍与 GNU 有差）。显示语义不变：`pwd`、`$PWD`、`pwd -P`、`cd -` 仍是 `/tmp`。
 
-**改法**：在逻辑桥里补一次 chdir，条件是该名字**确实有目录**（`target.path.is_dir()`）且不是 `/`。`/` 保持只改逻辑状态：没有 shell root 时它不指向任何唯一目录，跳到当前盘根是另一种答案；`/usr`、`/etc`、`/bin` 没有目录可去，桥照旧。显示值仍然是 `/tmp`，所以 `pwd`、`$PWD`、`cd -` 与 GNU 一致。
+**验证**：`test/test-brush-regressions.mjs` 的 `engine 150-001` 用例；语料 `cd-tmp-reaches-a-relative-operand`；`cd /tmp; node -e 'process.cwd()'` 落在 `%TEMP%`。
 
-**边界**：`pushd` / `popd` **不在这一笔里**——它们的问题更大：实测 `pushd /d/work` 之后 `pwd` 说 `/d/work`，而 `cmd /c cd` 与子进程都还在原目录，即 `pushd` 对**任何**路径都不 chdir（`popd_chdir` 只对那五个名字返回 `Bridged`，普通路径走 `set_current_dir`，但 `pushd` 自己的分支只调 `bindpwd_write`）。要修得单独一笔，风险与这一笔不同，没有塞进来。
+**上游化**：这是上游自己 `logical_posix_test_dir` 的漏判（桥的 TODO 仍在代码里），按 issue 提交，附 `cd /tmp` 的三条实测与 `pushd` 的现状。
 
-**上游化**：`logical_posix_test_dir` 是上游给 GNU 套件留的桥，`/tmp` 落在里面属于漏判；按 issue 提交时一并带上 `pushd` 的那条实测。
+## 150-002-default-a-unset-locale-family-to-utf-8-on-windows.patch
+
+**症状**（1.5.0 原版，未设 `LC_ALL`/`LC_CTYPE`/`LANG`）：
+
+```
+v=中文; echo ${#v}                      # 6（1.4.3 是 2：按字节而不是按字符）
+case 中 in [[:alpha:]]*) echo alpha;;   # other（CJK 不算字母）
+v=中文abc; echo "${v:0:2}"              # 切出半个字符
+```
+
+**根因**：1.5.0 的 `locale_name_selects_utf8("")` 返回 `false`（`src/locale.rs:188`，按 GNU 语义把"未设 locale 族"解释成 C locale），而 `init_locale()` 只在 `#[cfg(unix)]` 分支做事（`src/locale.rs:909`）；1.4.3 的 `locale_request_active()` 对空名字返回 `true`，所以 1.4.3 默认就是 UTF-8。Windows 没有 POSIX locale archive 可解析，而本引擎又专门保留 MSYS 人设（UTF-8 是脚本生态的默认假设），这个默认值对本部署是回归。
+
+**改法**：空名字在 Windows 上返回 `true`：
+
+```rust
+if name.is_empty() {
+    return cfg!(windows);
+}
+```
+
+**边界**：显式写 `LC_ALL=C`、`LC_ALL=POSIX` 或任何命名 locale 仍然生效（包括 `C.UTF-8`）；非 Windows 保持 C 默认不变。
+
+**验证**：`src/verify.ts` 的签名事实（`${#v} == 2`）从"拒绝引擎"变成"通过"；语料里中文相关用例；`LC_ALL=C` 下仍按字节（与 GNU 一致）。
+
+**上游化**：这是上游 1.5.0 locale 大改的副作用，按 issue 提交（请上游给 Windows 一个「locale 族未设 → UTF-8」的默认或开关）。
+
+## 150-003-identity-tools-answer-without-a-path-program.patch
+
+**症状**（1.5.0 原版，随包配置：工具链在 `PATH` 上）：
+
+```
+uname -s      # bash: line 1: uname: command not found（rc=127）
+arch          # 同上
+```
+
+**根因**：1.5.0 把所有进程内仿真改成 GNU findcmd 模型——名字在 `PATH` 上解析不到就让位给一次必然失败的 spawn。`uname`/`arch` 的行是 `ScriptYield/FailClosed`（`src/executor/command_registry.rs:623`、`:638`），而本插件的工具链**按设计不发布**这两个名字（`src/toolchain.ts` 的 `ENGINE_BUILTINS`，理由正是"身份不外包给 PATH"），于是 MSYS 人设不可达。上游 `docs/builtins.md` 自己也写着 rubash#154「身份不外包给 PATH」，与注册表的不可解析轴自相矛盾。
+
+**改法**：两行的不可解析轴改为 `Unchecked`（注册表语义：即使解析不到也作答）。可解析轴保留 `ScriptYield`：`PATH` 上的同名脚本仍会运行（nvm 的 mock `uname` 就是这个形状），native image 解析仍是进程内人设。
+
+**边界**：只在"名字完全解析不到"时改变行为；有真实 `uname.exe` 时与 1.5.0 原逻辑一致（进程内人设优先）。
+
+**验证**：`node -e "readEngineVersion(...)"`（`src/verify.ts`）从两条失败事实降到一条（locale）；`uname -s` = `MSYS_NT-…`、`arch` = `x86_64`；`test/test-package.mjs` 的 persona 断言。
+
+**上游化**：按 issue 提交，建议 `Unchecked`，或按 #2036 的注册表 `enable` 字段给宿主一个开关。
+
+## 150-004-file-commands-with-no-external-implementation.patch（暂停，文件在 `disabled/`）
+
+> ⚠️ **这一笔当前不生效**。保留本节是为了恢复时不用重写理由；暂停原因与恢复条件见 `disabled/README.md`。
+
+**症状**（1.5.0 原版，随包配置；1.4.3 两者都正常）：
+
+```
+chmod +x f.sh   # bash: line 1: chmod: command not found（rc=127）
+mkfifo p        # bash: line 1: mkfifo: command not found（rc=127）
+```
+
+**根因**：`chmod`/`mkfifo` 的行是 `Replace/FailClosed`（`command_registry.rs:745`、`:790`），且 `handle_external_file_builtins` 的门闸用的是裸谓词 `emulated_external_stands_down`（`external_file_builtins.rs:22`）而不是注册表的双轴策略。这两个名字在无 MSYS 的 Windows 上**不可能有外部实现**：uutils 不发布 Windows 版 `chmod`（没有权限位）与 `mkfifo`（需要命名管道），本仓库的工具链注释早就记着"把它们送到 PATH 会把 `chmod +x` 变成 command not found"。
+
+**改法**：两行改 `Unchecked`；同时把文件内置命令的门闸改成 `self.registered_stand_down(name)`，让注册表的双轴策略在这一面真正生效。`FailClosed` 的行行为完全不变（策略在"不可解析"时与裸谓词等价），`Replace` 的行在有程序时仍是进程内副本作答。
+
+**边界**：有真实程序时行为不变；`xargs chmod`/`find -exec chmod` 仍会执行 `PATH` 上的程序（如果有）；本插件的工具链提供 `cat`/`rm`/`cp`/`mkdir` 等，故只有 `chmod`/`mkfifo` 受这一笔的"不可解析也作答"影响。
+
+**验证**：`chmod +x f.sh` rc=0、`mkfifo p` 落盘；语料与 `test/test-package.mjs` 的 rm/cat 行为不变。
+
+**上游化**：与 `150-003` 合并成一个 issue（同一类：无 MSYS 部署里"不可解析"不等于"GNU 的 not found"）。提交时还要同步改注册表的两条一致性断言（`command_registry.rs` 里「row-level Unchecked 必须为空」的测试与 per-face 记录表）。
 
 ## 升级 rubash 时
 
-`scripts/build-engine.mjs` 每次构建都会 `git reset --hard` 到 pin 再按文件名顺序应用本目录的补丁；补丁若与新的 pin 冲突会在这里失败，而不是产出一个行为不对的引擎。新增补丁时先确认它排在已有补丁之后仍能 `git apply --check`（同一文件的上下文会变）。
+`scripts/build-engine.mjs` 每次构建都会 `git reset --hard` 到 pin，然后**按 `engine.lock.json` 的 `patches` 顺序**应用本目录的补丁——不是按目录里有什么。它先核对：列出的文件都在、目录里没有多出来的、每个文件名都带当前 pin 的版本前缀（`v1.5.0` → `150-`）。补丁若与新的 pin 冲突会在这里失败，而不是产出一个行为不对的引擎。
+
+换 pin 时的检查清单：
+
+1. 逐笔对照上游。上游合入后，删除对应的 `.patch`，把编号写进「编号字典」的历史表（同一个 pin 内的编号不复用），并在 `engine.lock.json` 的 `note`/`why` 里更新原因。
+2. 留下来的补丁整组进新前缀（如 `150-001` → `151-001`），slug 不变、序号在新 pin 内重排；`engine.lock.json` 的 `patches` 数组同步。
+3. 改完 lock（`tag`/`ref`/`patches`/`note`/`why`）再跑构建脚本；它只重写 `artifact`，手写字段会被保留。
+4. 暂停某一笔时把它移到 `disabled/` 并从 lock 的 `patches` 删掉，同时在字典里标"暂停"；恢复时反向操作。
+5. 构建后必须重跑 `scripts/license-scan.mjs --checkout=<checkout>`（`Cargo.lock` 可能变）与全套 `npm test` + 语料。

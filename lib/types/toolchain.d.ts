@@ -42,11 +42,9 @@ export declare const TOOLCHAIN_COMMANDS: readonly ['grep', 'sed', 'awk', 'jq', '
  */
 export declare const NOTABLE_ADDITIONS: readonly ['tty', 'nohup', 'nice', 'uptime', 'hostid', 'pathchk', 'locate', 'updatedb'];
 /**
- * Names rubash answers inside the shell process, so the toolchain must not publish a second copy.
- *
- * `uname` and `arch` are full builtins with no external fallback, and the engine keeps their identity
- * fields (the MSYS-compatible persona) out of `PATH` on purpose, so a program of the same name would be a
- * second opinion about which platform this is.
+ * `uname` and `arch` are answered inside the engine process, and this build keeps answering them when no
+ * program of that name resolves (engine patch 150-003). A toolchain copy would be a second opinion about which
+ * platform this is, so none is published.
  */
 export declare const ENGINE_BUILTINS: readonly ['arch', 'uname'];
 /**
@@ -68,34 +66,6 @@ export declare const ENGINE_FALLBACK_NAMES: readonly ['basename', 'dirname', 'sl
  * `find-exec-rm` cases are the gate that the program form really resolves.
  */
 export declare const SHELL_BUILTINS: readonly ['echo', 'printf', 'pwd', 'test', 'true', 'false', 'kill'];
-/**
- * Commands rubash answers with an in-process copy, in its own words "the external file builtins".
- *
- * For a simple form the engine implements `mkdir`, `touch`, `chmod`, `cp`, `rm`, `rmdir`, `cat`, `sed`,
- * `mkfifo` and `tty` itself, plus the absolute spellings `/bin/pwd`, `/bin/printf`, `/bin/cat` and
- * `/bin/tty`; anything more involved it hands to `PATH`. That layer is a second implementation of commands
- * this toolchain also publishes, and the two do not agree everywhere — see
- * {@link DEFAULT_FILE_COMMANDS_FROM_PATH}. Naming a command in {@link fileCommandsFromPath} runs the
- * toolchain's program instead. This list mirrors `patches/rubash/0003` and the engine's own `matches!`.
- */
-export declare const ENGINE_FILE_COMMANDS: readonly ['cat', 'chmod', 'cp', 'mkdir', 'mkfifo', 'printf', 'pwd', 'rm', 'rmdir', 'sed', 'touch', 'tty'];
-/**
- * The commands whose in-process copy is measurably not GNU's, and so default to the toolchain's program.
- *
- * `sed`: the in-process copy is a hand-rolled matcher for `s/pat/rep/` and `Nd` only — `\b`, `\{m,n\}` and
- * `\|` do not work, while the toolchain's sed (with this repository's patch) implements them. `rmdir`: the
- * in-process copy ignores every `remove_dir` error and then reports success, so a missing operand exits 0 and
- * `dir/.` removes the parent.
- *
- * The rest of the layer stays in-process on purpose. `chmod` and `mkfifo` have no toolchain program at all on
- * Windows — uutils publishes neither applet — so sending them to `PATH` turns `chmod +x` into "command not
- * found". `cat`, `rm`, `mkdir`, `touch`, `cp`, `tty`, `pwd` and `printf` agree with GNU in the corpus and are
- * hot enough that one process per call costs more than the copy saves. A deployment that wants every program
- * can still pass `all` through `shellEnvOverrides`.
- */
-export declare const DEFAULT_FILE_COMMANDS_FROM_PATH: readonly ['sed', 'rmdir'];
-/** The engine variable that carries {@link DEFAULT_FILE_COMMANDS_FROM_PATH} to the shell. */
-export declare const FILE_COMMANDS_FROM_PATH_ENV = "RUBASH_FILE_COMMANDS_FROM_PATH";
 /** POSIX names Windows also answers to with unrelated semantics. */
 export declare const WINDOWS_IMPOSTORS: readonly ['find', 'timeout', 'convert'];
 /** What a probe found, and what the model therefore has to be told. */
@@ -167,19 +137,6 @@ export declare function prependPath(dir: string, basePath: string, delimiter: st
  */
 export declare function prependPaths(dirs: readonly string[], basePath: string, delimiter: string): string;
 /**
- * The commands one run should take from `PATH` instead of the engine's in-process copy.
- *
- * A name survives only when the toolchain directory will actually lead `PATH` — the same `provided`
- * condition the executor uses to decide the prepend — and the probe found that program, either among the
- * declared names or in `additional` (where `rmdir` and the other published applets live). Everything else
- * keeps the engine's copy: a machine without a toolchain behaves exactly as it did before this switch
- * existed, and a toolchain missing one program costs only that program.
- * @param probe - the toolchain probe for this resolution.
- * @param requested - the configured commands, already validated against {@link ENGINE_FILE_COMMANDS}.
- * @returns the commands to hand the engine, in the configured order, without duplicates.
- */
-export declare function fileCommandsFromPath(probe: ToolchainProbe, requested: readonly string[]): readonly string[];
-/**
  * Where the interactive startup file lives, next to the per-user state rather than inside the
  * toolchain directory so a user-configured `toolsDir` is never written to.
  * @param env - the environment to read `LOCALAPPDATA` from.
@@ -195,12 +152,9 @@ export declare function defaultRcFile(env: Record<string, string | undefined>, t
  * silently be the Windows programs again — and no `bash`/`sh` name either. The whole `PATH` prefix is
  * single-quoted so a path containing `$`, a quote or a backslash cannot be interpreted, and the inherited
  * `PATH` is double-quoted so it expands; adjacent quoted strings concatenate, which is what puts the
- * platform's separator between them. The file-command policy is exported for the same reason: the engine
- * reads it from the shell's own variables, so a session that never sees this executor's spawn environment
- * still learns which commands come from the toolchain.
+ * platform's separator between them.
  * @param dirs - the directories to prepend, in priority order; empty entries are ignored.
  * @param delimiter - the platform's `PATH` separator.
- * @param fileCommands - the commands whose programs should answer instead of the engine's in-process copies.
  * @returns the file's text, ending with exactly one newline.
  */
-export declare function rcFileContents(dirs: readonly string[], delimiter: string, fileCommands?: readonly string[]): string;
+export declare function rcFileContents(dirs: readonly string[], delimiter: string): string;

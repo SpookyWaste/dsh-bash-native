@@ -3,7 +3,7 @@
 Written by `node scripts/emit-linux-oracle.mjs` from `corpus/compat.json`. Do not edit by hand: change the
 corpus and re-run the generator.
 
-Included: 183 of 227 cases (10 of them known gaps).
+Included: 185 of 229 cases (5 of them known gaps).
 
 | Category | Cases |
 |---|---|
@@ -16,9 +16,9 @@ Included: 183 of 227 cases (10 of them known gaps).
 | `find` | 6 |
 | `grep` | 14 |
 | `jq` | 2 |
-| `process` | 24 |
+| `process` | 25 |
 | `sed` | 13 |
-| `shell` | 5 |
+| `shell` | 6 |
 | `shell-syntax` | 46 |
 | `xargs` | 7 |
 

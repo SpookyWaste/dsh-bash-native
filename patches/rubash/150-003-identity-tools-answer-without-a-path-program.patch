@@ -1,0 +1,30 @@
+diff --git a/src/executor/command_registry.rs b/src/executor/command_registry.rs
+index c7fbaa9..6802a0d 100644
+--- a/src/executor/command_registry.rs
++++ b/src/executor/command_registry.rs
+@@ -624,7 +624,13 @@ pub(crate) const COMMAND_REGISTRY: &[CommandRow] = &[
+         class: ClaimClass::HiddenFastpath,
+         impls: &[ImplRef::new(Entry::SimpLate, "command_dispatch_late -> printf_path_builtins::execute_identity_tool (builtins/uname.rs)"), ImplRef::new(Entry::CmdLate, "command_no_alias_late -> printf_path_builtins::execute_identity_tool")],
+         admission: Admission::Full,
+-        stand_down: StandDown::new(ResolvablePolicy::ScriptYield, UnresolvablePolicy::FailClosed),
++        // dsh-bash-native patch: the MSYS persona is unreachable when the only thing that can report
++        // it is a program on PATH. This row's unresolvable axis is `Unchecked` so the identity tool
++        // answers from the persona even when no `uname.exe` resolves — the #154 design ("identity is
++        // not outsourced to PATH") and what 1.4.3 did. The resolvable axis keeps `ScriptYield`, so a
++        // script named `uname` on PATH still runs. Without this a deployment with no external uname
++        // gets `uname: command not found` (GNU-correct) and the persona is never observable.
++        stand_down: StandDown::new(ResolvablePolicy::ScriptYield, UnresolvablePolicy::Unchecked),
+         function_shadow: FunctionShadow::Allow,
+         enable_n: EnableN::NotApplicable,
+         introspection: Introspection::Emulated,
+@@ -639,7 +645,9 @@ pub(crate) const COMMAND_REGISTRY: &[CommandRow] = &[
+         class: ClaimClass::HiddenFastpath,
+         impls: &[ImplRef::new(Entry::SimpLate, "command_dispatch_late -> printf_path_builtins::execute_identity_tool (builtins/uname.rs)"), ImplRef::new(Entry::CmdLate, "command_no_alias_late -> printf_path_builtins::execute_identity_tool")],
+         admission: Admission::Full,
+-        stand_down: StandDown::new(ResolvablePolicy::ScriptYield, UnresolvablePolicy::FailClosed),
++        // dsh-bash-native patch: same ruling as the `uname` row above — `arch` is the same identity
++        // face and the same persona, so it answers when no `arch.exe` resolves.
++        stand_down: StandDown::new(ResolvablePolicy::ScriptYield, UnresolvablePolicy::Unchecked),
+         function_shadow: FunctionShadow::Allow,
+         enable_n: EnableN::NotApplicable,
+         introspection: Introspection::Emulated,

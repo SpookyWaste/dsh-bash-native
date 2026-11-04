@@ -6,7 +6,8 @@
  * is a bash tool" and "there is a bash". Nothing else is published here: the engine's built-in utilities are
  * in-process commands a child cannot exec, so the programs a child needs come from the toolchain's `bin/`
  * directory (which is what publishes those command names and carries their own path rules), and the two names
- * Windows has no applet for (`chmod`, `mkfifo`) stay commands inside the shell only.
+ * Windows has no applet for (`chmod`, `mkfifo`) are not answered at all: their in-process copy is parked until
+ * upstream completes it (see `patches/rubash/disabled/`), so a child that needs one gets `command not found`.
  *
  * The engine is not installed under those names — a second 10.9 MB binary would be waste, and `PATH` is not
  * the package's to write — so every name is a hard link to the verified engine in a per-user directory,

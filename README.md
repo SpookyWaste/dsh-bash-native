@@ -32,6 +32,8 @@
 
 **0.3.1**：引擎由`brush`更换为`rubash`，修复多项已知缺陷，提供更好的原生 POSIX 兼容
 
+**0.3.3**：引擎升级到 `rubash` 1.5.0——三笔补丁 `150-001`–`150-003`，旧补丁随上游合入退役
+
 <p align="center">
   <img src="img/example0.jpg" width="240">
 </p>
@@ -130,7 +132,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用五笔补丁，产物 `engine/win32-x64/rubash.exe`（约 11 MB）随包提交。
+引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 14 MB）随包提交。
 
 > 兼容 **MSYS 的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑也能成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 
@@ -148,31 +150,23 @@ https://github.com/SpookyWaste/dsh-bash-native
   </thead>
   <tbody>
     <tr>
-      <td><code>0001-data-primary-positions-every-child</code></td>
-      <td>“数据位”的判定从 POSIX-aware 子进程推广到<b>所有</b>子进程：grep/sed/awk 的模式、脚本与程序文本，find 的模式主项，basename/dirname 的位置参数都原样交给程序；文件操作数照常翻成 Windows 形态。</td>
+      <td><code>150-001-cd-into-virtual-roots-with-a-real-directory</code></td>
+      <td><code>cd</code> 进 <code>/tmp</code> 这类<b>背后有真实目录</b>的虚拟根时，把<b>会话 cwd</b> 也一起移动（1.5.0 里 cwd 是会话状态，不再是进程 cwd）：原来只改 <code>PWD</code> 就返回，于是 <code>pwd</code> 报新目录、相对操作数与子进程却还在旧目录。<code>PWD</code>、<code>pwd -P</code>、<code>DIRSTACK</code> 仍然显示 <code>/tmp</code>；<code>/usr</code>、<code>/etc</code>、<code>/bin</code> 没有目录可去，<code>/</code> 没有唯一目标，这四个名字保持只改逻辑状态。</td>
     </tr>
     <tr>
-      <td><code>0002-drop-undecodable-environment-entries</code></td>
-      <td>启动时丢掉 Win32 能传入、但 Unicode 表示不了的环境项（<code>std::env::vars()</code> 遇到它会 panic）；代价是那一条变量，而不是每条命令都在建 shell 时 abort。</td>
+      <td><code>150-002-default-a-unset-locale-family-to-utf-8-on-windows</code></td>
+      <td>没设 <code>LC_ALL</code>/<code>LC_CTYPE</code>/<code>LANG</code> 时，Windows 上默认按 UTF-8 字符语义：<code>${#中文}</code> 是 2、<code>[[:alpha:]]</code> 认 CJK、<code>${v:0:2}</code> 切两个字符。1.5.0 把空的 locale 族解释成 C locale（按字节），这条把它改回 1.4.3 的默认；显式写 <code>LC_ALL=C</code> 仍然按字节。</td>
     </tr>
     <tr>
-      <td><code>0003-file-commands-from-path</code></td>
-      <td>新增 <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>：由 shell 指定哪些「进程内文件命令」改从 <code>PATH</code> 上的程序执行（<code>all</code> / <code>none</code> / 名字列表），并从 shell 自己的变量表读取，所以 <code>--rcfile</code> 也能设置；顺带让内联管道分支不再无视宿主的「关掉进程内副本」开关。</td>
-    </tr>
-    <tr>
-      <td><code>0004-drain-last-consumer-before-shell-writer</code></td>
-      <td>末段管道的 stdout/stderr 在<b>进程内生产者启动之前</b>就开始抽干，而不是等它跑完：否则末段写满自己 64 KiB 的输出管道后不再读上游，生产者随即写满 inter-member 管道，而 shell 线程正阻塞在生产者里，没人去起那个抽干线程——三方互等。<code>{ …; } | head</code> 这类形状的挂起就是它。</td>
-    </tr>
-    <tr>
-      <td><code>0005-cd-into-virtual-roots-with-a-real-directory</code></td>
-      <td><code>cd</code> 进 <code>/tmp</code> 这类<b>背后有真实目录</b>的虚拟根时，进程也跟着走：原来只改写 <code>PWD</code> 就返回，于是 <code>pwd</code> 报新目录、相对操作数与子进程却还在旧目录。<code>/usr</code>、<code>/etc</code>、<code>/bin</code> 没有目录可去、<code>/</code> 没有唯一目标，这三个名字的只改逻辑行为不变。</td>
+      <td><code>150-003-identity-tools-answer-without-a-path-program</code></td>
+      <td><code>PATH</code> 上没有 <code>uname</code>/<code>arch</code> 程序时仍由引擎作答（MSYS 人设）：1.5.0 的进程内仿真要先解析到程序，否则让位给一次必然失败的 spawn。可解析的一侧不变——<code>PATH</code> 上的同名脚本仍然会运行。</td>
     </tr>
   </tbody>
 </table>
 
 </details>
 
-> 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 11 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
+> 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 14 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
 ---
 
@@ -185,9 +179,9 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ---
 
-## 🎛 两个预设<sub>0.2.0：静态挂载改为跟随官方预设替换</sub>
+## 🎛 两个预设
 
-[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册：启动时读**本机安装的** `presets/{standard,minimal}.patch.yml`，把 shipped 的 shell 面换成插件自己的 realm group；它们各自带一个 `isolate: { shell: true, terminals: true }` 的 realm，宿主层与其他 preset（包括用 `pwsh` 的那些）不受影响。
+[`cordis.patch.yml`](cordis.patch.yml) 只有**一行注册器**（`dsh-bash-native/presets`），两个 preset 由插件在运行时注册：启动时读**本机安装的** `presets/{standard,minimal}.patch.yml`，把 shipped 的 shell 面换成插件自己的 realm group，不影响其他 preset。
 
 <table>
   <thead>
@@ -252,11 +246,6 @@ https://github.com/SpookyWaste/dsh-bash-native
       <td>POSIX 工具链目录；空 = 先看每用户目录里自建的那份（<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>），没有程序就用随包工具链。填了则照用，空目录也算数（不会悄悄换成随包那份）</td>
     </tr>
     <tr>
-      <td><code>fileCommandsFromPath</code></td>
-      <td><code>['sed','rmdir']</code></td>
-      <td>改从工具链程序执行的引擎内建文件命令（仅限引擎实现的 12 个名字）；工具链没有提供该程序、或工具链目录不在 <code>PATH</code> 上时自动忽略，进程内副本继续生效。见下面的「已知限制」</td>
-    </tr>
-    <tr>
       <td><code>rcFile</code></td>
       <td><code>''</code></td>
       <td>持久 PTY 会话读的启动文件；空 = <code>%LOCALAPPDATA%\dsh-bash-native\bash-native-rc.sh</code></td>
@@ -274,7 +263,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     <tr>
       <td><code>verifyArtifacts</code></td>
       <td><code>'stamped'</code></td>
-      <td>校验力度：<code>stamped</code> 只在产物或运行副本的 size/mtime 变化时重新哈希；<code>always</code> 每次解析都哈希（引擎 11 MB、工具链 37 MB）</td>
+      <td>校验力度：<code>stamped</code> 只在产物或运行副本的 size/mtime 变化时重新哈希；<code>always</code> 每次解析都哈希（引擎 14 MB、工具链 37 MB）</td>
     </tr>
   </tbody>
 </table>

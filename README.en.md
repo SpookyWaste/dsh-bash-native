@@ -32,6 +32,8 @@
 
 **0.3.1**: the engine moved from `brush` to `rubash`, fixing a list of known defects and offering better native POSIX compatibility
 
+**0.3.3**: the engine moved to `rubash` 1.5.0 — three patches `150-001`–`150-003`; the old patches were retired with upstream merges
+
 <p align="center">
   <img src="img/example0.jpg" width="240">
 </p>
@@ -130,7 +132,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 
 ## ⚙️ Engine
 
-The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies five patches at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 11 MB).
+The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies three patches (`150-001`–`150-003`) at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 14 MB).
 
 > Compatible with the **MSYS `uname -s` identity** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
@@ -148,31 +150,23 @@ The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash),
   </thead>
   <tbody>
     <tr>
-      <td><code>0001-data-primary-positions-every-child</code></td>
-      <td>Extends the <b>data-position</b> rule from POSIX-aware children to <b>every</b> child: a grep/sed/awk pattern, script or program, find's pattern primaries, and basename/dirname's positional text reach the program verbatim, while file operands are still translated to their Windows spelling.</td>
+      <td><code>150-001-cd-into-virtual-roots-with-a-real-directory</code></td>
+      <td>A <code>cd</code> into a virtual root that has <b>a real directory behind it</b> (<code>/tmp</code>) now moves the <b>session cwd</b> as well (1.5.0 keeps cwd in session state, not in the process): the bridge used to rewrite <code>PWD</code> and stop, so <code>pwd</code> reported the new directory while relative operands and child processes stayed in the old one. <code>PWD</code>, <code>pwd -P</code> and <code>DIRSTACK</code> still show <code>/tmp</code>; <code>/usr</code>, <code>/etc</code> and <code>/bin</code> have no directory to move to and <code>/</code> names no single one, so those four keep the logical-only behaviour.</td>
     </tr>
     <tr>
-      <td><code>0002-drop-undecodable-environment-entries</code></td>
-      <td>Drops environment entries Windows can hand a process but Unicode cannot represent (<code>std::env::vars()</code> panics on one) before anything reads the environment, so the cost is that one variable instead of every command aborting.</td>
+      <td><code>150-002-default-a-unset-locale-family-to-utf-8-on-windows</code></td>
+      <td>With no <code>LC_ALL</code>/<code>LC_CTYPE</code>/<code>LANG</code> set, Windows defaults to UTF-8 character semantics: <code>${#中文}</code> is 2, <code>[[:alpha:]]</code> matches CJK, and <code>${v:0:2}</code> slices two characters. 1.5.0 reads an empty locale family as the C locale (bytes); this restores the 1.4.3 default. An explicit <code>LC_ALL=C</code> still means bytes.</td>
     </tr>
     <tr>
-      <td><code>0003-file-commands-from-path</code></td>
-      <td>Adds <code>RUBASH_FILE_COMMANDS_FROM_PATH</code>: the shell names the in-process file commands that should run from a program on <code>PATH</code> instead (<code>all</code>, <code>none</code>, or a list), read from the shell's own variables so an <code>--rcfile</code> can set it; it also makes the inline pipeline arms honour the host's switch for turning the in-process copies off.</td>
-    </tr>
-    <tr>
-      <td><code>0004-drain-last-consumer-before-shell-writer</code></td>
-      <td>Starts draining the last pipeline member's stdout/stderr <b>before</b> the in-process producer runs instead of after it returns: otherwise the last member fills its own 64 KiB output pipe and stops reading upstream, the producer then fills the inter-member pipe, and the shell thread is blocked inside the producer, so nothing ever starts the drain. That is the <code>{ …; } | head</code> hang.</td>
-    </tr>
-    <tr>
-      <td><code>0005-cd-into-virtual-roots-with-a-real-directory</code></td>
-      <td>A <code>cd</code> into a virtual root that has <b>a real directory behind it</b> (<code>/tmp</code>) now moves the process as well: the bridge used to rewrite <code>PWD</code> and stop, so <code>pwd</code> reported the new directory while relative operands and child processes stayed in the old one. <code>/usr</code>, <code>/etc</code> and <code>/bin</code> have no directory to move to and <code>/</code> names no single one, so those three keep the logical-only behaviour.</td>
+      <td><code>150-003-identity-tools-answer-without-a-path-program</code></td>
+      <td><code>uname</code>/<code>arch</code> answer from the engine process even when no program of that name resolves (the MSYS persona): 1.5.0 gates its in-process emulations on PATH resolution and otherwise defers to a spawn that is bound to fail. The resolvable side is unchanged — a same-named script on <code>PATH</code> still runs.</td>
     </tr>
   </tbody>
 </table>
 
 </details>
 
-> 💡 Every resolution verifies the artifact against the **sha256** in the lock, and a **stamp** skips the repeated work: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and while they are unchanged those 11 MB are not read again (`verifyArtifacts: 'always'` restores hashing on every resolution).
+> 💡 Every resolution verifies the artifact against the **sha256** in the lock, and a **stamp** skips the repeated work: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and while they are unchanged those 14 MB are not read again (`verifyArtifacts: 'always'` restores hashing on every resolution).
 
 ---
 
@@ -185,9 +179,9 @@ The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash),
 
 ---
 
-## 🎛 Two presets<sub>0.2.0: static mounting became a replacement of the shipped presets</sub>
+## 🎛 Two presets
 
-[`cordis.patch.yml`](cordis.patch.yml) carries **one registrar line** (`dsh-bash-native/presets`), and the plugin registers both presets at runtime: it reads the **locally installed** `presets/{standard,minimal}.patch.yml` and replaces the shell surface with its own realm group. Each realm is `isolate: { shell: true, terminals: true }`, so the host layer and every other preset (including the `pwsh` ones) are untouched.
+[`cordis.patch.yml`](cordis.patch.yml) carries **one registrar line** (`dsh-bash-native/presets`), and the plugin registers both presets at runtime: it reads the **locally installed** `presets/{standard,minimal}.patch.yml` and replaces the shell surface with its own realm group, without affecting the other presets.
 
 <table>
   <thead>
@@ -252,11 +246,6 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
       <td>The POSIX toolchain directory; empty = first the per-user build (<code>%LOCALAPPDATA%\dsh-bash-native\tools\bin</code>), and if it holds no programs the bundled one. A configured directory is used as-is, even when empty (it is never silently swapped for the bundled copy)</td>
     </tr>
     <tr>
-      <td><code>fileCommandsFromPath</code></td>
-      <td><code>['sed','rmdir']</code></td>
-      <td>Engine file commands to run from the toolchain's program instead (only the twelve names the engine implements in-process); a name the toolchain does not publish, or one published on a directory that is not on <code>PATH</code>, is ignored and the in-process copy keeps answering. See “Known limitations” below.</td>
-    </tr>
-    <tr>
       <td><code>rcFile</code></td>
       <td><code>''</code></td>
       <td>Startup file for a persistent PTY session; empty = <code>%LOCALAPPDATA%\dsh-bash-native\bash-native-rc.sh</code></td>
@@ -274,7 +263,7 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
     <tr>
       <td><code>verifyArtifacts</code></td>
       <td><code>'stamped'</code></td>
-      <td>Verification strength: <code>stamped</code> re-hashes only when the artifact's or the runtime copy's size/mtime changed; <code>always</code> hashes on every resolution (11 MB engine, 37 MB toolchain)</td>
+      <td>Verification strength: <code>stamped</code> re-hashes only when the artifact's or the runtime copy's size/mtime changed; <code>always</code> hashes on every resolution (14 MB engine, 37 MB toolchain)</td>
     </tr>
   </tbody>
 </table>

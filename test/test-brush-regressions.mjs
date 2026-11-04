@@ -6,8 +6,8 @@
 // regress just because no corpus case happens to hit it.
 //
 // One probe from that set (a compound or function stage feeding a streaming consumer) used to hang on rubash
-// 1.4.3 and was reported as NOTE; engine patch 0004 fixed it, so it is an assertion now. The measurement and
-// the residual shape are in `docs/research.md` §78.
+// 1.4.3; upstream rubash#2244 fixed it in 1.5.0, so it is an assertion now. The measurement and the residual
+// shape are in `docs/research.md` §78.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -88,16 +88,16 @@ function shell(id, script, files, options = {}) {
   pass("0002/0004/0009: /tmp and /c aliases hold for the shell and for child arguments");
 }
 
-// engine 0005 — `cd` into a virtual root that has a real directory behind it. The Windows-host bridge used
-// to rewrite PWD and stop, so the process stayed in the previous directory: relative operands then failed
-// while `pwd` reported `/tmp`. The display value is expected to stay `/tmp`, so both halves are asserted.
+// engine 150-001 — `cd` into a virtual root that has a real directory behind it. The bridge writes PWD and stops,
+// so the session cwd stayed in the previous directory: relative operands then failed while `pwd` reported
+// `/tmp`. The display value is expected to stay `/tmp`, so both halves are asserted.
 {
   const moved = shell("cd-into-tmp", 'printf "alias\\n" > /tmp/cd-into-tmp.txt; cd /tmp; pwd; echo "$PWD"; cat cd-into-tmp.txt; rm -f cd-into-tmp.txt');
   assert.equal(moved.status, 0, "cd /tmp followed by a relative operand succeeds");
   assert.equal(moved.stdout, "/tmp\n/tmp\nalias", "cd /tmp moves the process and keeps reporting the virtual name");
   const dir = shell("cd-into-tmp-dir", "cd /tmp && ls -d . >/dev/null && echo ok");
   assert.equal(dir.stdout, "ok", "cd /tmp leaves the shell in a directory it can list");
-  pass("engine 0005: cd into a virtual root with a real directory behind it also moves the process");
+  pass("engine 150-001: cd into a virtual root with a real directory behind it moves the session cwd");
 }
 
 // 0003 — an ERR trap fires in the scope that set it.
@@ -116,11 +116,25 @@ function shell(id, script, files, options = {}) {
   pass("0005: a closed reader does not fail the pipeline");
 }
 
-// 0006 — descriptor paths resolve against this process's descriptors.
+// 0006 — descriptor paths resolve against this process's descriptors. rubash 1.5.0 opens the alias as a
+// PATH, which is what GNU does (measured on RHEL 9 by the corpus): with a regular file for stdout that open
+// truncates it, so a later `> /dev/stdout` replaces what was already written. The pipeline shape is the one
+// the engine still gets wrong (see the NOTE below, and `docs/research.md`).
 {
   const result = shell("descriptor", 'printf "in\\n" | cat /dev/stdin; printf "out\\n" > /dev/stdout');
-  assert.equal(result.stdout, "in\nout", "/dev/stdin and /dev/stdout are the shell's descriptors");
-  pass("0006: /dev/stdin and /dev/stdout work in a pipeline and a redirect");
+  assert.equal(result.stdout, "out", "the file-shaped `> /dev/stdout` truncates, as GNU does");
+  pass("0006: /dev/stdin and /dev/stdout resolve for a file-shaped stdout");
+}
+
+// The pipeline shape: a subshell whose fd 1 is the pipe must reach THAT fd, not the process's stdout.
+// rubash 1.5.0 resolves the alias to the process handle, so the write lands outside the pipe; the corpus
+// declares the gap (`fd-redirect-descriptor-paths`), and this records it until upstream fixes the fd face.
+{
+  const result = shell("descriptor-pipeline", "( echo a > /dev/stdout; echo c > /dev/fd/1 ) | cat");
+  note(
+    "N5: `> /dev/stdout` inside a pipeline member writes to the process stdout, not the member's fd 1",
+    `stdout ${JSON.stringify(result.stdout)} (GNU would print a and c)`,
+  );
 }
 
 // 0007/0008 — wait selectors and the kill builtin.
@@ -238,10 +252,11 @@ function shell(id, script, files, options = {}) {
   pass("the old README's limitations: select, exec, ulimit, jobs, kill, data operands, ./s.sh and >( )");
 }
 
-// engine 0004 — a compound or function stage feeding a streaming consumer. rubash 1.4.3 ran the in-process producer
-// to completion before starting the last member's output drain, so a consumer that filled its own 64 KiB pipe
-// stopped reading, blocked the producer, and left nobody to start the drain. Missing that deadline used to be
-// reported here as a note; the engine patch starts the drain before the producer, so it is an assertion now.
+// rubash#2244 — a compound or function stage feeding a streaming consumer. rubash 1.4.3 ran the in-process
+// producer to completion before starting the last member's output drain, so a consumer that filled its own
+// 64 KiB pipe stopped reading, blocked the producer, and left nobody to start the drain. Missing that deadline
+// used to be reported here as a note; upstream starts the drain before the producer since 1.5.0, so it is an
+// assertion now.
 {
   const one = "x".repeat(200000) + "\n";
   // `shell` trims the final newline off stdout, so the expected value is the line the fixture holds.
@@ -260,8 +275,39 @@ function shell(id, script, files, options = {}) {
   pass("0004: a compound or function stage feeding a streaming consumer no longer deadlocks");
 }
 
+// Three behaviours the engine still does not have. They are reported, not asserted: none of them has a
+// POSIX-correct outcome this engine can reach yet, and each run is bounded so a change in the surrounding
+// facts shows up in the log without hanging the suite.
+{
+  // `pushd`/`popd` are further behind `cd` than patch 150-001 covers: they record the target on the directory
+  // stack and in PWD, and 1.5.0 moves the session cwd for the bridged names, but `popd`, `pwd -P` and the
+  // general path still disagree with GNU. `pwd -P` reads the session cwd, so the pair of lines shows the
+  // split directly.
+  const pushd = shell("pushd-chdir", "cd /c/Windows; pushd /tmp >/dev/null 2>&1; pwd; pwd -P", undefined, { timeout: 3000 });
+  const lines = pushd.stdout.split("\n");
+  note("pushd: the target reaches PWD but never moves the process", `pwd=${JSON.stringify(lines[0] ?? "")} pwd -P=${JSON.stringify(lines[1] ?? "")}`);
+
+  // Upstream's #2244 fixed the deadlock for a producer whose own write ends on a broken pipe. A producer the
+  // shell cannot stop is the other class: `yes` keeps writing, and `wait_for_windows_pipeline_member`'s
+  // lingerer window only covers the all-external path, so a compound stage around it still hangs.
+  const lingerer = shell("compound-unbounded-producer", "{ yes; } | head -1", undefined, { timeout: 3000 });
+  note(
+    "0004 boundary: an unbounded external producer inside a compound stage still hangs",
+    lingerer.status === null ? "timed out" : `status ${lingerer.status}, ${JSON.stringify(lingerer.stdout.trim())}`,
+  );
+
+  // Interpreters: the text an option carries is a program, but only the six text tools have a data-position
+  // entry, so a program whose first token is path-shaped is rewritten before the child parses it. `node` and
+  // `python` are the candidates for an engine patch; until then this records the current answer.
+  const program = shell("interpreter-program-text", `node -e '/tmp/g.test("x"); console.log("ok")'`, undefined, { timeout: 5000 });
+  note(
+    "interpreters: program text starting with a path-shaped word is rewritten",
+    `status ${program.status}, stdout ${JSON.stringify(program.stdout.trim())}`,
+  );
+}
+
 // 0018 — an undecodable environment entry. Staging an unpaired surrogate needs a PowerShell launcher, and this
-// harness decodes the environment as UTF-8, so the behaviour is covered by the engine patch (`0002`) and by
+// harness decodes the environment as UTF-8, so the behaviour is covered upstream (it was engine patch `143-002`) and by
 // `docs/research.md` §72 instead of by a case that cannot be built here.
 note("0018: an undecodable environment entry is not stageable through this harness");
 

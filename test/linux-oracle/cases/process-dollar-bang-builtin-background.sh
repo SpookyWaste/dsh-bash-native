@@ -2,7 +2,6 @@
 # case: process-dollar-bang-builtin-background
 # category: process
 # severity: must-match
-# known-gap: docs/research.md「已知引擎差异」的「内建命令的后台作业没有 PID」
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 snippet <<'CASE_110'

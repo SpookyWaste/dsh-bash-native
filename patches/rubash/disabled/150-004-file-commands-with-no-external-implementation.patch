@@ -1,0 +1,54 @@
+diff --git a/src/executor/command_registry.rs b/src/executor/command_registry.rs
+index c7fbaa9..6802a0d 100644
+--- a/src/executor/command_registry.rs
++++ b/src/executor/command_registry.rs
+@@ -746,7 +754,13 @@ pub(crate) const COMMAND_REGISTRY: &[CommandRow] = &[
+         class: ClaimClass::EmulatedExternal,
+         impls: &[ImplRef::new(Entry::ExternalFile, "external_file_builtins::external_chmod")],
+         admission: Admission::Full,
+-        stand_down: StandDown::new(ResolvablePolicy::Replace, UnresolvablePolicy::FailClosed),
++        // dsh-bash-native patch: no external `chmod` can exist in a no-MSYS Windows deployment —
++        // uutils coreutils ships no Windows `chmod` applet, because the platform has no permission
++        // bits to set. `FailClosed` therefore makes the name permanently unavailable (`chmod:
++        // command not found`), not GNU-correct: GNU parity is unreachable for this name on Windows
++        // and the in-process answer is the only one. `Replace` on the resolvable axis is kept, so an
++        // operator's own `chmod.exe` still replaces the copy.
++        stand_down: StandDown::new(ResolvablePolicy::Replace, UnresolvablePolicy::Unchecked),
+         function_shadow: FunctionShadow::Allow,
+         enable_n: EnableN::NotApplicable,
+         introspection: Introspection::Emulated,
+@@ -791,7 +805,11 @@ pub(crate) const COMMAND_REGISTRY: &[CommandRow] = &[
+         class: ClaimClass::EmulatedExternal,
+         impls: &[ImplRef::new(Entry::ExternalFile, "external_file_builtins::external_mkfifo")],
+         admission: Admission::Full,
+-        stand_down: StandDown::new(ResolvablePolicy::Replace, UnresolvablePolicy::FailClosed),
++        // dsh-bash-native patch: same ruling as the `chmod` row above — a Windows deployment with no
++        // MSYS runtime has no external `mkfifo` either, so `FailClosed` turns the name into a
++        // permanent 127 instead of deferring to another implementation. The engine's own mkfifo
++        // writes WinuxCmd's fifo marker, which is the meaningful shape here.
++        stand_down: StandDown::new(ResolvablePolicy::Replace, UnresolvablePolicy::Unchecked),
+         function_shadow: FunctionShadow::Allow,
+         enable_n: EnableN::NotApplicable,
+         introspection: Introspection::Emulated,
+diff --git a/src/executor/external_file_builtins.rs b/src/executor/external_file_builtins.rs
+index ea24e70..d2036b6 100644
+--- a/src/executor/external_file_builtins.rs
++++ b/src/executor/external_file_builtins.rs
+@@ -19,7 +19,16 @@ impl Executor {
+         // fall through to the (failing) lookup instead of executing
+         // (rubash#1126). Slash names go straight to execve in GNU and
+         // keep working.
+-        if !name.contains('/') && !name.contains('\\') && self.emulated_external_stands_down(name) {
++        //
++        // dsh-bash-native patch: consult the registered two-axis policy
++        // (`Executor::registered_stand_down`) instead of the bare
++        // predicate, so a row whose unresolvable axis is `Unchecked`
++        // (chmod/mkfifo — names with no possible external implementation on
++        // a no-MSYS Windows host) answers from the in-process copy instead
++        // of turning into a permanent "command not found". Every row that
++        // keeps `FailClosed` behaves exactly as before: the policy answers
++        // `true` precisely when `emulated_external_stands_down` does.
++        if !name.contains('/') && !name.contains('\\') && self.registered_stand_down(name) {
+             return Ok(false);
+         }
+         let emulated = matches!(

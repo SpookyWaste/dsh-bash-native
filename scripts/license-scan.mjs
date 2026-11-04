@@ -1,7 +1,7 @@
 // Produces the third-party notice for the engine this package ships.
 //
 // The shipped `engine/win32-x64/rubash.exe` is a Rust build of `rubash` at the commit pinned in
-// `engine.lock.json`, with this repository's two patches applied. `Cargo.lock` records the dependency
+// `engine.lock.json`, with this repository's patch set applied (the numbered list lives in the lock). `Cargo.lock` records the dependency
 // graph but not the licenses; the
 // license of each package comes from its `Cargo.toml` in the local registry cache, which is what the
 // build actually compiled.
@@ -104,7 +104,7 @@ const lines = [
   "# Third-party notices for the shipped engine",
   "",
   "This package ships `engine/win32-x64/rubash.exe`, a Rust build of [`rubash`](https://github.com/unixwin/rubash)",
-  "at the commit pinned in `engine.lock.json`, with this repository's two patches applied. The table below",
+  "at the commit pinned in `engine.lock.json`, with this repository's patch set applied. The table below",
   "covers every package in the build's `Cargo.lock` that the local registry cache holds.",
   "",
   "rubash itself is MIT: its license text ships beside the artifact as `engine/LICENSE.rubash`. The crates",

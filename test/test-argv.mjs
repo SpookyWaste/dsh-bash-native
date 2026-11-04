@@ -71,16 +71,16 @@ const bashEngine = resolveEngine(baseInput, { PATH: "C:\\tools" }, "win32", fixt
   pass("prepended directories keep their order and cannot duplicate an entry");
 }
 
-// 3c. Engine policy entries sit above the model-friendly defaults and below the operator's own.
+// 3c. The operator's own entries sit above the model-friendly defaults, and a request entry above them.
 {
-  const env = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed,rmdir" } });
-  assert.equal(env.RUBASH_FILE_COMMANDS_FROM_PATH, "sed,rmdir");
-  assert.equal(env.TERM, "dumb", "the model-friendly defaults are still there");
-  const overrides = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed" }, overrides: { RUBASH_FILE_COMMANDS_FROM_PATH: "all" } });
-  assert.equal(overrides.RUBASH_FILE_COMMANDS_FROM_PATH, "all", "shellEnvOverrides replaces the derived policy");
-  const request = buildShellEnv({ enginePolicy: { RUBASH_FILE_COMMANDS_FROM_PATH: "sed" }, env: { RUBASH_FILE_COMMANDS_FROM_PATH: "none" } });
-  assert.equal(request.RUBASH_FILE_COMMANDS_FROM_PATH, "none", "a request entry outranks the derived policy");
-  pass("engine policy entries sit between the defaults and the operator's own entries");
+  const env = buildShellEnv({});
+  assert.equal(env.TERM, "dumb", "the model-friendly defaults are there");
+  const overrides = buildShellEnv({ overrides: { TERM: "xterm", DSH_EXTRA: "one" } });
+  assert.equal(overrides.TERM, "xterm", "shellEnvOverrides replaces a default");
+  assert.equal(overrides.DSH_EXTRA, "one", "an override that is not a default still lands");
+  const request = buildShellEnv({ overrides: { TERM: "xterm" }, env: { TERM: "screen" } });
+  assert.equal(request.TERM, "screen", "a request entry outranks the operator's override");
+  pass("defaults, operator overrides and request entries keep their order");
 }
 
 // 4. Temp variables stay out of the executor's hands: the sandbox runner owns them.
