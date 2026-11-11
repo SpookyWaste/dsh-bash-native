@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.1-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -29,10 +29,6 @@
 ## 🐟 Why it exists
 
 > ~~So the fat fish stops getting bitten by cmd~~, and without the performance cost of a subsystem or an MSYS layer
-
-**0.3.1**: the engine moved from `brush` to `rubash`, fixing a list of known defects and offering better native POSIX compatibility
-
-**0.3.3**: the engine moved to `rubash` 1.5.0 — three patches `150-001`–`150-003`; the old patches were retired with upstream merges
 
 <p align="center">
   <img src="img/example0.jpg" width="240">
@@ -119,7 +115,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.1-rc.5 tested)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.2-rc.1 tested)</td>
     </tr>
     <tr>
       <td><b>Persistent-terminal component</b></td>
@@ -128,7 +124,18 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
   </tbody>
 </table>
 
----
+--- 
+## 📝 Changelog
+
+- **0.3.1**: the engine moved from `brush` to `rubash`, fixing a list of known defects and offering better native POSIX compatibility
+- **0.3.3**: the engine moved to `rubash` 1.5.0 — three patches `150-001`–`150-003`; the old patches were retired with upstream merges
+- **0.3.5**: `jaq` and `findutils` on the toolchain moved to their latest releases, and a new `du` patch speeds up accounting across many files (below).
+
+| Tree | Before (per entry) | Patched (enumeration) |
+|---|---|---|
+| 20,000 files | 1.29 s | 45 ms |
+| 228k-file workspace | >600 s | 3.2 s |
+
 
 ## ⚙️ Engine
 

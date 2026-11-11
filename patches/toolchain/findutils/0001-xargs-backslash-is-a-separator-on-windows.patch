@@ -1,8 +1,8 @@
 diff --git a/src/xargs/mod.rs b/src/xargs/mod.rs
-index ff83333..ae6b8b6 100644
+index 8347dd3..7a83c47 100644
 --- a/src/xargs/mod.rs
 +++ b/src/xargs/mod.rs
-@@ -574,6 +574,9 @@ where
+@@ -623,6 +623,9 @@ where
  {
      fn next(&mut self) -> io::Result<Option<Argument>> {
          enum Escape {
@@ -12,23 +12,28 @@ index ff83333..ae6b8b6 100644
              Slash,
              Quote(u8),
          }
-@@ -619,11 +622,19 @@ where
-             match (&escape, pending[i]) {
-                 (Some(Escape::Quote(quote)), c) if c == *quote => escape = None,
+@@ -675,6 +678,7 @@ where
+                     ));
+                 }
                  (Some(Escape::Quote(_)), c) => result.push(c),
 +                #[cfg(not(windows))]
                  (Some(Escape::Slash), c) => {
                      result.push(c);
                      escape = None;
+@@ -683,6 +687,16 @@ where
+                     in_argument = true;
+                     escape = Some(Escape::Quote(c));
                  }
-                 (None, c @ (b'"' | b'\'')) => escape = Some(Escape::Quote(c)),
 +                // Every Windows program that prints a path prints backslashes (`find`, `grep -l`,
 +                // `ls`), and unescaping them corrupts the argument: `.\b.txt` would become `.b.txt`.
 +                // GNU's escape semantics assume `\` is not a path separator, which is false here, so
 +                // the character is taken literally and quoting remains the way to group words.
 +                #[cfg(windows)]
-+                (None, b'\\') => result.push(b'\\'),
++                (None, b'\\') => {
++                    in_argument = true;
++                    result.push(b'\\');
++                }
 +                #[cfg(not(windows))]
-                 (None, b'\\') => escape = Some(Escape::Slash),
-                 (None, c) if c.is_ascii_whitespace() => {
-                     if !result.is_empty() {
+                 (None, b'\\') => {
+                     in_argument = true;
+                     escape = Some(Escape::Slash);

@@ -1761,6 +1761,28 @@
       ]
     },
     {
+      "id": "coreutils-du-apparent-size",
+      "category": "coreutils",
+      "severity": "must-match",
+      "files": [
+        "a.txt",
+        "b.txt"
+      ],
+      "snippet": "du -b --apparent-size a.txt b.txt",
+      "expect": {
+        "status": 0,
+        "stdout": {
+          "lines": [
+            "18\ta.txt",
+            "8\tb.txt"
+          ]
+        }
+      },
+      "needs": [
+        "du"
+      ]
+    },
+    {
       "id": "coreutils-head-tail",
       "category": "coreutils",
       "severity": "must-match",
@@ -3011,7 +3033,7 @@
         "status": 0,
         "stdout": {
           "matches": [
-            "find \\(Rust\\) 0\\.10\\.0"
+            "find 0\\.11\\.0"
           ]
         }
       }

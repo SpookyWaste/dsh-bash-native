@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.1--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.1-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
@@ -29,10 +29,6 @@
 ## 🐟 为什么需要它
 
 > ~~避免肥鱼被 cmd 咬~~，也规避了子系统和 MSYS 兼容层的性能开销
-
-**0.3.1**：引擎由`brush`更换为`rubash`，修复多项已知缺陷，提供更好的原生 POSIX 兼容
-
-**0.3.3**：引擎升级到 `rubash` 1.5.0——三笔补丁 `150-001`–`150-003`，旧补丁随上游合入退役
 
 <p align="center">
   <img src="img/example0.jpg" width="240">
@@ -119,7 +115,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.1-rc.5实测）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.2-rc.1实测）</td>
     </tr>
     <tr>
       <td><b>持久终端组件</b></td>
@@ -128,7 +124,18 @@ https://github.com/SpookyWaste/dsh-bash-native
   </tbody>
 </table>
 
----
+--- 
+## 📝 Changelog
+
+- **0.3.1**：引擎由 `brush` 更换为 `rubash` ，修复多项已知缺陷，提供更好的原生 POSIX 兼容
+- **0.3.3**：引擎升级到 `rubash` 1.5.0——三笔补丁 `150-001`–`150-003`，旧补丁随上游合入退役
+- **0.3.5**：更新工具链`jaq`和 `findutils` 到最新 release 。为 `du` 命令添加新补丁，优化多文件的统计速度（见下）。
+
+| 树 | 旧（逐条目） | 补丁（枚举） |
+|---|---|---|
+| 20,000 文件 | 1.29 s | 45 ms |
+| 228k 文件 工作区 | >600 s | 3.2 s |
+
 
 ## ⚙️ 引擎
 

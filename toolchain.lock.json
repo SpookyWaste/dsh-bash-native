@@ -11,19 +11,19 @@
       "features": [
         "windows"
       ],
-      "why": "Provides the programs a pipeline needs as real executables, which `xargs` and `find -exec` require because they cannot invoke shell builtins, plus `kill` and `timeout`. `stat`, `chmod` and `id` are opt-in features: enabling `stat` does not compile (uutils 0.12.0 then imports `uucore::fs::major`/`minor` and `uucore::fsext::statfs`, which that crate does not export for this feature combination), so it stays off and is recorded as a residual gap instead. `chmod` and `id` stay off deliberately (README records the residual-command decisions).",
+      "why": "Provides the programs a pipeline needs as real executables, which `xargs` and `find -exec` require because they cannot invoke shell builtins, plus `kill` and `timeout`. `stat`, `chmod` and `id` are opt-in features: enabling `stat` does not compile (uutils 0.12.0 then imports `uucore::fs::major`/`minor` and `uucore::fsext::statfs`, which that crate does not export for this feature combination), so it stays off and is recorded as a residual gap instead. `chmod` and `id` stay off deliberately (README records the residual-command decisions). Patch `0005` gives `du` a Windows directory-enumeration traversal (one handle per directory instead of two opens per file) and keeps the per-entry traversal for `-L`/`-D`, for reparse points and for compressed or sparse entries; see `patches/toolchain/coreutils/README.md`.",
       "pathAlias": true,
       "uucoreErrno": true
     },
     {
       "name": "findutils",
       "repo": "https://github.com/uutils/findutils",
-      "tag": "0.10.0",
+      "tag": "0.11.0",
       "features": [],
       "skip": [
         "testing-commandline"
       ],
-      "why": "`find`, `xargs`, and `locate`. `testing-commandline` is a test helper the workspace also builds; it is not a command, so it stays out of the tools directory.",
+      "why": "`find`, `xargs`, and `locate`. `testing-commandline` is a test helper the workspace also builds; it is not a command, so it stays out of the tools directory. 0.11.0 is the first release whose `locate`/`updatedb` default to a Windows database path (`C:\\ProgramData\\locatedb`) with the platform path separator, so the two names this bundle advertises work out of the box instead of needing `--database`; the same release moves `xargs` input splitting, `find -printf`/`-ls`/`-newerXt` and the two `xargs`/`find` entry points, which is why both patches under `patches/toolchain/findutils` were re-cut for it.",
       "pathAlias": true,
       "uucoreErrno": true
     },
@@ -48,13 +48,13 @@
     {
       "name": "jaq",
       "repo": "https://github.com/01mf02/jaq",
-      "tag": "v3.1.1",
+      "tag": "v3.1.2",
       "features": [],
       "wildStub": false,
       "rename": {
         "jaq": "jq"
       },
-      "why": "`jq`, replacing the C implementation. Measured in section 28 of docs/research.md: 71/71 on the idioms a model writes, the corpus's jq cases and ten regex-dialect probes, then 40/48 on the extended list, where every remaining difference is a loud `unknown flag`/`undefined filter` on a rarely used feature (`$__loc__`, `--binary`, `--seq`, `have_decnum`/`have_literal_numbers`, `--run-tests`) except extreme-exponent formatting (`1E+1000` vs `1e1000`, the same value). Modules, `debug`, `stderr`, `input_filename`, `@uri`/`@sh`/`@html`/`@csv`/`@tsv`, `--slurpfile`, `--rawfile`, `input`/`inputs` and the whole regex surface agree. Built from source so the alias patch can reach it and so no prebuilt C binary stays in the chain.",
+      "why": "`jq`, replacing the C implementation. Measured in section 28 of docs/research.md: 71/71 on the idioms a model writes, the corpus's jq cases and ten regex-dialect probes, then 40/48 on the extended list, where every remaining difference is a loud `unknown flag`/`undefined filter` on a rarely used feature (`$__loc__`, `--binary`, `--seq`, `have_decnum`/`have_literal_numbers`, `--run-tests`) except extreme-exponent formatting (`1E+1000` vs `1e1000`, the same value). Modules, `debug`, `stderr`, `input_filename`, `@uri`/`@sh`/`@html`/`@csv`/`@tsv`, `--slurpfile`, `--rawfile`, `input`/`inputs` and the whole regex surface agree. Built from source so the alias patch can reach it and so no prebuilt C binary stays in the chain. 3.1.2 is the release that fixes `scan` (it now applies `g` implicitly and returns capture groups as arrays, where 3.1.1 answered the first match only); that shape was never part of the 71-idiom list, so the patch moved to v3.1.2 unchanged.",
       "pathAlias": true
     }
   ],
@@ -88,10 +88,10 @@
   ],
   "packaged": {
     "path": "toolchain/win32-x64/manifest.json",
-    "sha256": "2584926df89f7a33f058dbe874f542f77dd637a65d2d9640685ea413b8f798d2",
+    "sha256": "7015f46a7d5b22a0aceda2b14f116b076d7a8270c2a3798e3d7cd8dfdca195ef",
     "bytes": 5979,
     "files": 14,
     "names": 101,
-    "bytesTotal": 36833280
+    "bytesTotal": 37364224
   }
 }

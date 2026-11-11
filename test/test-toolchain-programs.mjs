@@ -2,7 +2,10 @@
 // existence check and then failed with "External libstdbuf not found" the first time it was invoked.
 //
 // Two checks, in the order a break would show up: the advertised programs answer their own invocation, and
-// every installed name starts at all. The two that used to follow — that a name the engine bundles also had
+// every installed name starts at all. A third pins the behaviours two upgrades bought and one defect they
+// removed: `xargs` takes a Windows backslash literally (the findutils patch), and `jq`'s `scan` returns
+// every match and its capture groups (jaq 3.1.2), where the previous release answered the first match only
+// — a silent wrong answer. The two that used to follow — that a name the engine bundles also had
 // a program form here, and that both layers reported one version — described the farm's second copy of the
 // engine's utilities; patch `0016` and the shim directory replaced that copy, and those gates now live in
 // `test-package.mjs` and in the corpus's `xargs-rm` case.
@@ -87,6 +90,20 @@ if (dir.length === 0 || !existsSync(dir) || engine === null) {
   }
   assert.deepEqual(unrunnable, [], `installed names that cannot start: ${unrunnable.join(" ")}`);
   pass(`all ${names.length} installed names start`);
+
+  // 3. The two behaviours the upgraded components are trusted for. `scan` is the regression that motivated
+  //    the jaq bump: 3.1.1 answered the first match only and dropped capture groups, so a jq-shaped script
+  //    got a plausible but wrong result. A Windows backslash is a path separator, not an escape, which is
+  //    what the findutils patch keeps `xargs` from unescaping (GNU's rule assumes the opposite).
+  const scan = run(`printf '"a1 a2 a3"\\n' | jq -r 'scan("\\\\d+")'`, { cwd: scratch, env });
+  assert.equal(scan.status, 0, `jq scan exited ${scan.status}: ${scan.stderr}`);
+  assert.equal(scan.stdout.replace(/\r\n/g, "\n"), "1\n2\n3\n");
+  pass("jq's scan applies the global flag and returns every match");
+
+  const literalBackslash = run(`printf 'a\\\\b\\n' | xargs printf '<%s>\\n'`, { cwd: scratch, env });
+  assert.equal(literalBackslash.status, 0, `xargs exited ${literalBackslash.status}: ${literalBackslash.stderr}`);
+  assert.equal(literalBackslash.stdout.replace(/\r\n/g, "\n"), "<a\\b>\n");
+  pass("xargs takes a Windows backslash literally instead of escaping the next byte");
 
   // The program forms of the utilities the engine bundles are no longer this farm's business: the plugin's
   // shim directory publishes those names as hard links to the engine (patch `0016`), so `xargs rm` and

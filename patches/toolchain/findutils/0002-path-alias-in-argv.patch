@@ -1,30 +1,31 @@
 diff --git a/src/find/main.rs b/src/find/main.rs
-index 1d8787e..00de317 100644
+index b9e4eda..7edf9d3 100644
 --- a/src/find/main.rs
 +++ b/src/find/main.rs
-@@ -4,13 +4,16 @@
+@@ -4,6 +4,9 @@
  // license that can be found in the LICENSE file or at
  // https://opensource.org/licenses/MIT.
  
 +#[path = "../../dsh_path_alias.rs"]
 +mod dsh_path_alias;
 +
- fn main() {
-     // Ignores the SIGPIPE signal.
-     // This is to solve the problem that when find is used with a pipe character,
+ use std::ffi::OsString;
+ 
+ /// Collect the process arguments as UTF-8 strings.
+@@ -21,7 +24,7 @@ fn main() {
      // the downstream software of the standard output stream closes the pipe and triggers a panic.
      uucore::panic::mute_sigpipe_panic();
  
--    let args = std::env::args().collect::<Vec<String>>();
-+    let args: Vec<String> = dsh_path_alias::translate_string(std::env::args()).collect();
-     let strs: Vec<&str> = args.iter().map(std::convert::AsRef::as_ref).collect();
-     let deps = findutils::find::StandardDependencies::new();
-     std::process::exit(findutils::find::find_main(&strs, &deps));
+-    let args = match collect_utf8_args(std::env::args_os()) {
++    let args = match collect_utf8_args(dsh_path_alias::translate(std::env::args_os())) {
+         Ok(args) => args,
+         Err(invalid) => {
+             eprintln!(
 diff --git a/src/xargs/main.rs b/src/xargs/main.rs
-index 061ac21..89de8f6 100644
+index 6ae4393..a63dabc 100644
 --- a/src/xargs/main.rs
 +++ b/src/xargs/main.rs
-@@ -4,8 +4,11 @@
+@@ -4,10 +4,13 @@
  // license that can be found in the LICENSE file or at
  // https://opensource.org/licenses/MIT.
  
@@ -32,8 +33,10 @@ index 061ac21..89de8f6 100644
 +mod dsh_path_alias;
 +
  fn main() {
--    let args = std::env::args().collect::<Vec<String>>();
-+    let args: Vec<String> = dsh_path_alias::translate_string(std::env::args()).collect();
-     std::process::exit(findutils::xargs::xargs_main(
-         &args
-             .iter()
+     // `std::env::args` panics on a non-UTF-8 argument, so read the arguments
+     // with `args_os` and report the first invalid one instead of aborting.
+-    let args = match std::env::args_os()
++    let args = match dsh_path_alias::translate(std::env::args_os())
+         .map(std::ffi::OsString::into_string)
+         .collect::<Result<Vec<String>, _>>()
+     {

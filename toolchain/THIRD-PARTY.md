@@ -7,14 +7,14 @@ and the command names it publishes; `src/toolchain-artifact.ts` verifies those h
 | Component | Version | Licence | Source | Files | Names |
 | --- | --- | --- | --- | --- | --- |
 | `coreutils` | 0.12.0 | MIT | https://github.com/uutils/coreutils | `coreutils.exe` | 88 |
-| `findutils` | 0.10.0 | MIT | https://github.com/uutils/findutils | `find.exe`, `locate.exe`, `updatedb.exe`, `xargs.exe` | 4 |
+| `findutils` | 0.11.0 | MIT | https://github.com/uutils/findutils | `find.exe`, `locate.exe`, `updatedb.exe`, `xargs.exe` | 4 |
 | `goawk` | v1.32.0 | MIT | https://github.com/benhoyt/goawk | `awk.exe` | 1 |
 | `grep` | 0.2.0 | MIT | https://github.com/uutils/grep | `grep.exe` | 1 |
-| `jaq` | v3.1.1 | MIT | https://github.com/01mf02/jaq | `jq.exe` | 1 |
+| `jaq` | v3.1.2 | MIT | https://github.com/01mf02/jaq | `jq.exe` | 1 |
 | `posix-extra` | 0.1.0 | MIT | in-repo (posix-extra) | `cmp.exe`, `diff.exe`, `ps.exe`, `stat.exe`, `which.exe` | 5 |
 | `sed` | 0.3.0 | MIT | https://github.com/uutils/sed | `sed.exe` | 1 |
 
 GNU bash is **not** part of this package: it is GPLv3 and is only ever invoked as an external program.
-The engine this bundle ships has its own record in `engine/THIRD-PARTY.md` and `engine/LICENSE.brush`.
+The engine this bundle ships has its own record in `engine/THIRD-PARTY.md` and `engine/LICENSE.rubash`.
 
 Rebuild and repackage with `node scripts/build-toolchain.mjs` followed by `node scripts/pack-toolchain.mjs`.

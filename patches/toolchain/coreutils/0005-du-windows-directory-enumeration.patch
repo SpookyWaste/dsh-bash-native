@@ -1,0 +1,855 @@
+diff --git a/src/uu/du/src/du.rs b/src/uu/du/src/du.rs
+index ed98f19..2304a92 100644
+--- a/src/uu/du/src/du.rs
++++ b/src/uu/du/src/du.rs
+@@ -76,8 +76,13 @@ mod options {
+     pub const FILES0_FROM: &str = "files0-from";
+     pub const VERBOSE: &str = "verbose";
+     pub const FILE: &str = "FILE";
++    /// Hidden escape hatch: traverse with the per-entry path instead of the directory enumeration.
++    pub const LEGACY_WALK: &str = "legacy-walk";
+ }
+ 
++#[cfg(windows)]
++mod windows_enum;
++
+ struct TraversalOptions {
+     all: bool,
+     separate_dirs: bool,
+@@ -129,8 +134,13 @@ struct Stat {
+     blocks: u64,
+     inodes: u64,
+     inode: Option<FileInfo>,
+-    metadata: Metadata,
++    is_dir: bool,
+     latest_time: Option<SystemTime>,
++    /// Only the Unix traversal and the Windows per-entry traversal keep it: it is consulted by
++    /// `--time` there (`metadata_get_time`), and the Windows enumeration derives the same value
++    /// from the directory entry instead of stating the path again.
++    #[cfg(not(windows))]
++    metadata: Metadata,
+ }
+ 
+ impl Stat {
+@@ -162,15 +172,18 @@ impl Stat {
+         let latest_time = options
+             .time
+             .and_then(|time| metadata_get_time(&metadata, time));
++        let is_dir = metadata.is_dir();
+ 
+         Ok(Self {
+             path: path.to_path_buf(),
+-            size: if metadata.is_dir() { 0 } else { metadata.len() },
++            size: if is_dir { 0 } else { metadata.len() },
+             blocks,
+             inodes: 1,
+             inode: file_info,
+-            metadata,
++            is_dir,
+             latest_time,
++            #[cfg(not(windows))]
++            metadata,
+         })
+     }
+ 
+@@ -209,6 +222,7 @@ impl Stat {
+             blocks,
+             inodes: 1,
+             inode: file_info_option,
++            is_dir: safe_metadata.is_dir(),
+             metadata: std_metadata,
+             latest_time,
+         })
+@@ -412,7 +426,7 @@ fn safe_du(
+             }
+         }
+     };
+-    if !my_stat.metadata.is_dir() {
++    if !my_stat.is_dir {
+         return Ok(my_stat);
+     }
+ 
+@@ -502,6 +516,7 @@ fn safe_du(
+                 blocks: entry_stat.st_blocks as u64,
+                 inodes: 1,
+                 inode: file_info,
++                is_dir,
+                 // We need a fake metadata - create one from symlink_metadata of parent
+                 // This is a workaround since we can't get real metadata without the full path
+                 metadata: my_stat.metadata.clone(),
+@@ -517,6 +532,7 @@ fn safe_du(
+                 blocks: entry_stat.st_blocks as u64,
+                 inodes: 1,
+                 inode: file_info,
++                is_dir,
+                 metadata: my_stat.metadata.clone(),
+                 latest_time,
+             }
+@@ -602,6 +618,149 @@ fn safe_du(
+     Ok(my_stat)
+ }
+ 
++/// Which traversal `du_walk` continues with.
++///
++/// The Windows enumeration hands an entry it cannot describe exactly to the regular per-entry
++/// traversal, and that entry keeps the regular traversal for its whole subtree; everything else
++/// stays on the enumeration.
++#[derive(Clone, Copy, PartialEq, Eq)]
++enum WalkMode {
++    Legacy,
++    #[cfg(windows)]
++    Fast,
++}
++
++/// Account for one directory entry: exclusion, hard-link deduplication, `--one-file-system`,
++/// then accumulate it into `my_stat` and recurse into directories.
++///
++/// `entry_name` is the entry's name inside its directory: the excludes match it as well as the
++/// full path.
++#[allow(clippy::too_many_arguments)]
++fn process_entry(
++    this_stat: Stat,
++    entry_name: &OsStr,
++    options: &TraversalOptions,
++    depth: usize,
++    seen_inodes: &mut HashSet<FileInfo>,
++    print_tx: &mpsc::Sender<UResult<StatPrintInfo>>,
++    ancestors: Option<&mut HashSet<FileInfo>>,
++    symlink_depth: usize,
++    walk_mode: WalkMode,
++    my_stat: &mut Stat,
++) -> Result<(), Box<mpsc::SendError<UResult<StatPrintInfo>>>> {
++    // We have an exclude list
++    for pattern in &options.excludes {
++        // Look at all patterns with both short and long paths
++        // if we have 'du foo' but search to exclude 'foo/bar'
++        // we need the full path
++        if pattern.matches(&this_stat.path.to_string_lossy())
++            || pattern.matches(entry_name.to_string_lossy().as_ref())
++        {
++            // if the directory is ignored, leave early
++            if options.verbose {
++                println!(
++                    "{}",
++                    translate!("du-verbose-ignored", "path" => this_stat.path.quote())
++                );
++            }
++            // Go to the next file
++            return Ok(());
++        }
++    }
++
++    if let Some(inode) = this_stat.inode {
++        // Check if the inode has been seen before and if we should skip it
++        if seen_inodes.contains(&inode) && !options.count_links {
++            // Skip further processing for this inode
++            return Ok(());
++        }
++        // Mark this inode as seen
++        seen_inodes.insert(inode);
++    }
++
++    if this_stat.is_dir {
++        if options.one_file_system
++            && let (Some(this_inode), Some(my_inode)) = (this_stat.inode, my_stat.inode)
++            && this_inode.dev_id != my_inode.dev_id
++        {
++            return Ok(());
++        }
++
++        let this_stat = du_walk(
++            walk_mode,
++            this_stat,
++            options,
++            depth + 1,
++            seen_inodes,
++            print_tx,
++            ancestors,
++            Some(symlink_depth),
++        )?;
++
++        if !options.separate_dirs {
++            my_stat.size += this_stat.size;
++            my_stat.blocks += this_stat.blocks;
++            my_stat.inodes += this_stat.inodes;
++            merge_latest_time(&mut my_stat.latest_time, this_stat.latest_time);
++        }
++        print_tx.send(Ok(StatPrintInfo {
++            stat: this_stat,
++            depth: depth + 1,
++        }))?;
++    } else {
++        my_stat.size += this_stat.size;
++        my_stat.blocks += this_stat.blocks;
++        my_stat.inodes += 1;
++        merge_latest_time(&mut my_stat.latest_time, this_stat.latest_time);
++        if options.all {
++            print_tx.send(Ok(StatPrintInfo {
++                stat: this_stat,
++                depth: depth + 1,
++            }))?;
++        }
++    }
++
++    Ok(())
++}
++
++/// Keep the newest timestamp of the subtree, which is what `--time` reports for a directory.
++fn merge_latest_time(into: &mut Option<SystemTime>, other: Option<SystemTime>) {
++    *into = match (*into, other) {
++        (Some(a), Some(b)) => Some(a.max(b)),
++        (a, None) => a,
++        (None, b) => b,
++    };
++}
++
++/// Continue the traversal with the implementation `walk_mode` names.
++#[allow(clippy::too_many_arguments)]
++fn du_walk(
++    walk_mode: WalkMode,
++    my_stat: Stat,
++    options: &TraversalOptions,
++    depth: usize,
++    seen_inodes: &mut HashSet<FileInfo>,
++    print_tx: &mpsc::Sender<UResult<StatPrintInfo>>,
++    ancestors: Option<&mut HashSet<FileInfo>>,
++    symlink_depth: Option<usize>,
++) -> Result<Stat, Box<mpsc::SendError<UResult<StatPrintInfo>>>> {
++    match walk_mode {
++        WalkMode::Legacy => du_regular(
++            my_stat,
++            options,
++            depth,
++            seen_inodes,
++            print_tx,
++            ancestors,
++            symlink_depth,
++        ),
++        #[cfg(windows)]
++        WalkMode::Fast => {
++            windows_enum::walk(my_stat, options, depth, seen_inodes, print_tx, ancestors)
++        }
++    }
++}
++
+ // this takes `my_stat` to avoid having to stat files multiple times.
+ // Only used on non-Linux platforms
+ // Regular traversal using std::fs
+@@ -624,16 +783,12 @@ fn du_regular(
+     let symlink_depth = symlink_depth.unwrap_or(0);
+ 
+     // Add current directory to ancestors if it's a directory
+-    let my_inode = if my_stat.metadata.is_dir() {
+-        my_stat.inode
+-    } else {
+-        None
+-    };
++    let my_inode = if my_stat.is_dir { my_stat.inode } else { None };
+ 
+     if let Some(inode) = my_inode {
+         ancestors.insert(inode);
+     }
+-    if my_stat.metadata.is_dir() {
++    if my_stat.is_dir {
+         let read = match fs::read_dir(&my_stat.path) {
+             Ok(read) => read,
+             Err(e) => {
+@@ -648,6 +803,7 @@ fn du_regular(
+             match f {
+                 Ok(entry) => {
+                     let entry_path = entry.path();
++                    let entry_name = entry.file_name();
+ 
+                     // Check if this is a symlink when using -L
+                     let mut current_symlink_depth = symlink_depth;
+@@ -677,7 +833,7 @@ fn du_regular(
+                             // Check if symlink with -L points to an ancestor (cycle detection)
+                             if is_symlink
+                                 && options.dereference == Deref::All
+-                                && this_stat.metadata.is_dir()
++                                && this_stat.is_dir
+                                 && let Some(inode) = this_stat.inode
+                                 && ancestors.contains(&inode)
+                             {
+@@ -685,87 +841,18 @@ fn du_regular(
+                                 continue 'file_loop;
+                             }
+ 
+-                            // We have an exclude list
+-                            for pattern in &options.excludes {
+-                                // Look at all patterns with both short and long paths
+-                                // if we have 'du foo' but search to exclude 'foo/bar'
+-                                // we need the full path
+-                                if pattern.matches(&this_stat.path.to_string_lossy())
+-                                    || pattern.matches(&entry.file_name().into_string().unwrap())
+-                                {
+-                                    // if the directory is ignored, leave early
+-                                    if options.verbose {
+-                                        println!(
+-                                            "{}",
+-                                            translate!("du-verbose-ignored", "path" => this_stat.path.quote())
+-                                        );
+-                                    }
+-                                    // Go to the next file
+-                                    continue 'file_loop;
+-                                }
+-                            }
+-
+-                            if let Some(inode) = this_stat.inode {
+-                                // Check if the inode has been seen before and if we should skip it
+-                                if seen_inodes.contains(&inode) && !options.count_links {
+-                                    // Skip further processing for this inode
+-                                    continue;
+-                                }
+-                                // Mark this inode as seen
+-                                seen_inodes.insert(inode);
+-                            }
+-
+-                            if this_stat.metadata.is_dir() {
+-                                if options.one_file_system
+-                                    && let (Some(this_inode), Some(my_inode)) =
+-                                        (this_stat.inode, my_stat.inode)
+-                                    && this_inode.dev_id != my_inode.dev_id
+-                                {
+-                                    continue;
+-                                }
+-
+-                                let this_stat = du_regular(
+-                                    this_stat,
+-                                    options,
+-                                    depth + 1,
+-                                    seen_inodes,
+-                                    print_tx,
+-                                    Some(ancestors),
+-                                    Some(current_symlink_depth),
+-                                )?;
+-
+-                                if !options.separate_dirs {
+-                                    my_stat.size += this_stat.size;
+-                                    my_stat.blocks += this_stat.blocks;
+-                                    my_stat.inodes += this_stat.inodes;
+-                                    my_stat.latest_time =
+-                                        match (my_stat.latest_time, this_stat.latest_time) {
+-                                            (Some(a), Some(b)) => Some(a.max(b)),
+-                                            (a, None) => a,
+-                                            (None, b) => b,
+-                                        };
+-                                }
+-                                print_tx.send(Ok(StatPrintInfo {
+-                                    stat: this_stat,
+-                                    depth: depth + 1,
+-                                }))?;
+-                            } else {
+-                                my_stat.size += this_stat.size;
+-                                my_stat.blocks += this_stat.blocks;
+-                                my_stat.inodes += 1;
+-                                my_stat.latest_time =
+-                                    match (my_stat.latest_time, this_stat.latest_time) {
+-                                        (Some(a), Some(b)) => Some(a.max(b)),
+-                                        (a, None) => a,
+-                                        (None, b) => b,
+-                                    };
+-                                if options.all {
+-                                    print_tx.send(Ok(StatPrintInfo {
+-                                        stat: this_stat,
+-                                        depth: depth + 1,
+-                                    }))?;
+-                                }
+-                            }
++                            process_entry(
++                                this_stat,
++                                &entry_name,
++                                options,
++                                depth,
++                                seen_inodes,
++                                print_tx,
++                                Some(&mut *ancestors),
++                                current_symlink_depth,
++                                WalkMode::Legacy,
++                                &mut my_stat,
++                            )?;
+                         }
+                         Err(e) => {
+                             print_tx.send(Err(e.map_err_context(
+@@ -1196,6 +1283,20 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+         #[cfg(not(all(unix, not(target_os = "redox"))))]
+         let use_safe_traversal = false;
+ 
++        // Windows directory enumeration: one open per directory instead of two per entry.
++        // `-L`, `-D` and `--legacy-walk` keep the per-entry path, which their symlink handling
++        // and path-based dereferencing rely on.
++        #[cfg(windows)]
++        let walk_mode = if !matches.get_flag(options::LEGACY_WALK)
++            && traversal_options.dereference == Deref::None
++        {
++            WalkMode::Fast
++        } else {
++            WalkMode::Legacy
++        };
++        #[cfg(not(windows))]
++        let walk_mode = WalkMode::Legacy;
++
+         // Pre-populate seen_inodes with the starting directory to detect cycles
+         let stat = Stat::new(&path, None, &traversal_options);
+         if let Ok(stat) = stat.as_ref()
+@@ -1240,7 +1341,8 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+         } else {
+             // Use regular traversal (non-Linux or when -L is used)
+             if let Ok(stat) = stat {
+-                let stat = du_regular(
++                let stat = du_walk(
++                    walk_mode,
+                     stat,
+                     &traversal_options,
+                     0,
+@@ -1563,6 +1665,16 @@ pub fn uu_app() -> Command {
+                 .value_parser(clap::value_parser!(OsString))
+                 .action(ArgAction::Append),
+         )
++        .arg(
++            // Deliberately undocumented: it exists so the enumeration can be compared with the
++            // per-entry traversal in the tests, and to keep a way out if the enumeration meets a
++            // filesystem it mishandles.
++            Arg::new(options::LEGACY_WALK)
++                .long(options::LEGACY_WALK)
++                .hide(true)
++                .action(ArgAction::SetTrue)
++                .overrides_with(options::LEGACY_WALK),
++        )
+ }
+ 
+ #[derive(Clone, Copy)]
+diff --git a/src/uu/du/src/windows_enum.rs b/src/uu/du/src/windows_enum.rs
+new file mode 100644
+index 0000000..bec06da
+--- /dev/null
++++ b/src/uu/du/src/windows_enum.rs
+@@ -0,0 +1,428 @@
++// This file is part of the uutils coreutils package.
++//
++// For the full copyright and license information, please view the LICENSE
++// file that was distributed with this source code.
++
++//! Windows directory enumeration for `du`.
++//!
++//! `GetFileInformationByHandleEx(FileIdBothDirectoryInfo)` reports the apparent size, the
++//! allocated size and the identity of every entry of one directory in batched buffer reads.
++//! The traversal therefore needs one `CreateFile` per directory instead of the two per file
++//! `Stat::new` performs on Windows (`get_file_info` and `get_blocks` each open the path), which
++//! is what makes `du` slow there: every open is an extra filesystem operation, and with an
++//! on-access virus scanner it is also an extra scan.
++//!
++//! Entries the enumeration cannot describe exactly are handed back to the regular per-entry
++//! traversal, with their whole subtree: reparse points (junctions and symbolic links), and
++//! compressed or sparse files, whose allocated size has its own accounting rules. A file whose
++//! reported allocation is zero although it has content is handed back as well, so a filesystem
++//! that does not fill in `AllocationSize` (some network shares) stays correct instead of being
++//! reported as empty.
++//!
++//! Nothing here opens a file: OneDrive and other cloud placeholders are measured from the
++//! directory index instead of being opened, so `du` no longer risks hydrating them.
++
++use std::ffi::{OsStr, OsString};
++use std::fs::{self, File};
++use std::io;
++use std::mem::{offset_of, size_of, zeroed};
++use std::os::windows::ffi::OsStringExt;
++use std::os::windows::fs::OpenOptionsExt;
++use std::os::windows::io::AsRawHandle;
++use std::path::Path;
++use std::sync::mpsc;
++use std::time::{Duration, SystemTime, UNIX_EPOCH};
++
++use rustc_hash::FxHashSet as HashSet;
++use uucore::display::Quotable;
++use uucore::error::{FromIo, UResult};
++use uucore::fsext::MetadataTimeField;
++use uucore::translate;
++use windows_sys::Win32::Foundation::{ERROR_NO_MORE_FILES, HANDLE};
++use windows_sys::Win32::Storage::FileSystem::{
++    FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
++    FILE_ATTRIBUTE_SPARSE_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_BOTH_DIR_INFO, FILE_ID_INFO,
++    FILE_LIST_DIRECTORY, FILE_STANDARD_INFO, FileIdBothDirectoryInfo, FileIdInfo, FileStandardInfo,
++    GetFileInformationByHandleEx,
++};
++
++use super::{FileInfo, Stat, StatPrintInfo, TraversalOptions, WalkMode, du_walk, process_entry};
++
++/// Size of one enumeration buffer. The kernel fills it with as many entries as fit.
++const BUFFER_SIZE: usize = 64 * 1024;
++
++/// Attributes that send an entry to the regular per-entry traversal: the enumeration cannot
++/// reproduce how that path accounts for them (`--count-links` on a symlink, `-x` on a
++/// junction's target, compressed and sparse allocation).
++const LEGACY_ATTRIBUTES: u32 =
++    FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_SPARSE_FILE;
++
++/// One directory entry, copied out of the enumeration buffer.
++struct DirEntry {
++    name: OsString,
++    attributes: u32,
++    file_id: u64,
++    allocation_size: u64,
++    end_of_file: u64,
++    creation_time: i64,
++    last_access_time: i64,
++    last_write_time: i64,
++}
++
++impl DirEntry {
++    fn is_dir(&self) -> bool {
++        self.attributes & FILE_ATTRIBUTE_DIRECTORY != 0
++    }
++
++    /// Whether this entry needs the regular per-entry traversal, and why is not reported:
++    /// the answer is the same for every reason and the totals stay identical either way.
++    fn needs_regular_stat(&self) -> bool {
++        if self.attributes & LEGACY_ATTRIBUTES != 0 {
++            return true;
++        }
++        // A filesystem that does not report allocation (some SMB implementations and cloud
++        // placeholders) would claim a non-empty file occupies nothing. Let the per-entry path
++        // ask the file itself instead of trusting the number.
++        self.end_of_file > 0 && self.allocation_size == 0
++    }
++
++    fn latest_time(&self, options: &TraversalOptions) -> Option<SystemTime> {
++        let field = options.time?;
++        let ticks = match field {
++            MetadataTimeField::Modification => self.last_write_time,
++            MetadataTimeField::Access => self.last_access_time,
++            MetadataTimeField::Birth => self.creation_time,
++            // `metadata_get_time` has no change time on Windows, so this traversal has none
++            // either; the printer shows `???` exactly as it does for the regular path.
++            MetadataTimeField::Change => return None,
++        };
++        Some(system_time_from_filetime(ticks))
++    }
++
++    /// The `Stat` of this entry, without opening it.
++    fn into_stat(self, parent: &Path, dev_id: u64, options: &TraversalOptions) -> Stat {
++        let is_dir = self.is_dir();
++        let latest_time = self.latest_time(options);
++        Stat {
++            path: parent.join(&self.name),
++            size: if is_dir { 0 } else { self.end_of_file },
++            // `blocks` counts 512-byte units, the same unit `get_blocks` converts to.
++            blocks: self.allocation_size / 1024 * 2,
++            inodes: 1,
++            inode: Some(FileInfo {
++                file_id: self.file_id as u128,
++                dev_id,
++            }),
++            is_dir,
++            latest_time,
++        }
++    }
++}
++
++/// An open directory handle and the entries the enumeration reports for it.
++struct DirReader {
++    handle: File,
++    volume_serial: u64,
++    allocation: u64,
++}
++
++impl DirReader {
++    fn open(path: &Path) -> io::Result<Self> {
++        // `FILE_LIST_DIRECTORY` is the access `fs::read_dir` asks for, so a directory that may be
++        // listed but not read is still traversed, exactly like the per-entry path.
++        let handle = fs::OpenOptions::new()
++            .access_mode(FILE_LIST_DIRECTORY)
++            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
++            .open(path)?;
++        Ok(Self {
++            volume_serial: volume_serial(&handle)?,
++            allocation: file_allocation(&handle)?,
++            handle,
++        })
++    }
++
++    /// The serial of the volume the entries live on, which is what `-x` compares.
++    fn volume_serial(&self) -> u64 {
++        self.volume_serial
++    }
++
++    /// The directory's own allocated size, in 512-byte units like every other `blocks` value.
++    ///
++    /// A directory index has its own allocation, and `du` counts it; the value a parent's
++    /// enumeration reports for a subdirectory entry is not that number.
++    fn directory_blocks(&self) -> u64 {
++        self.allocation / 1024 * 2
++    }
++
++    /// Every entry of the directory except `.` and `..`.
++    ///
++    /// The buffer is owned here; entries are copied out so the caller can recurse while the
++    /// directory handle stays open. `ERROR_NO_MORE_FILES` is how the kernel reports the end of
++    /// the enumeration: it arrives on the call after the last buffer.
++    fn entries(&self) -> io::Result<Vec<DirEntry>> {
++        let mut buffer: Box<AlignedBuffer> = Box::new(AlignedBuffer([0; BUFFER_SIZE]));
++        let mut entries = Vec::new();
++        loop {
++            // SAFETY: the handle is valid for the lifetime of `self`, and the buffer is a
++            // writable, 8-byte aligned allocation of the length passed to the kernel.
++            let success = unsafe {
++                GetFileInformationByHandleEx(
++                    self.handle.as_raw_handle() as HANDLE,
++                    FileIdBothDirectoryInfo,
++                    buffer.0.as_mut_ptr().cast(),
++                    BUFFER_SIZE as u32,
++                )
++            };
++            if success == 0 {
++                let error = io::Error::last_os_error();
++                if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
++                    return Ok(entries);
++                }
++                return Err(error);
++            }
++
++            let mut offset = 0;
++            loop {
++                // `offset` comes from the kernel, but a malformed or truncated buffer must not be
++                // read out of bounds: the fixed fields and then the name are range-checked.
++                let header_size = offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
++                if offset + header_size > BUFFER_SIZE {
++                    return Ok(entries);
++                }
++                // SAFETY: `offset + header_size` is inside the allocation (checked above), and the
++                // fixed fields are copied out byte-wise, so their alignment in the buffer, where
++                // the kernel chains entries on 4-byte boundaries, does not matter.
++                let raw = unsafe {
++                    let mut raw: FILE_ID_BOTH_DIR_INFO = zeroed();
++                    std::ptr::copy_nonoverlapping(
++                        buffer.0.as_ptr().add(offset),
++                        (&raw mut raw).cast::<u8>(),
++                        header_size,
++                    );
++                    raw
++                };
++                let name_length = raw.FileNameLength as usize;
++                let name_start = offset + header_size;
++                if name_length > 0
++                    && name_length % 2 == 0
++                    && name_start + name_length <= BUFFER_SIZE
++                {
++                    // SAFETY: the check above keeps the name inside the allocation, and the name
++                    // starts on an even offset, so it is aligned for `u16`.
++                    let wide = unsafe {
++                        std::slice::from_raw_parts(
++                            buffer.0.as_ptr().add(name_start).cast::<u16>(),
++                            name_length / 2,
++                        )
++                    };
++                    let name = OsString::from_wide(wide);
++                    // '.' and '..' are the directory itself and its parent: the traversal never
++                    // descends into them, and the root's own entry is accounted by the caller.
++                    if name != OsStr::new(".") && name != OsStr::new("..") {
++                        entries.push(DirEntry {
++                            name,
++                            attributes: raw.FileAttributes,
++                            file_id: raw.FileId as u64,
++                            allocation_size: raw.AllocationSize as u64,
++                            end_of_file: raw.EndOfFile as u64,
++                            creation_time: raw.CreationTime,
++                            last_access_time: raw.LastAccessTime,
++                            last_write_time: raw.LastWriteTime,
++                        });
++                    }
++                }
++                if raw.NextEntryOffset == 0 {
++                    break;
++                }
++                offset = match offset.checked_add(raw.NextEntryOffset as usize) {
++                    Some(next) if next < BUFFER_SIZE => next,
++                    _ => break,
++                };
++            }
++        }
++    }
++}
++
++/// The allocated size of an open handle, in bytes.
++fn file_allocation(handle: &File) -> io::Result<u64> {
++    let mut info: FILE_STANDARD_INFO = unsafe { zeroed() };
++    // SAFETY: the handle is open for the lifetime of the borrow and `info` is a valid
++    // out-buffer of exactly the size passed.
++    let success = unsafe {
++        GetFileInformationByHandleEx(
++            handle.as_raw_handle() as HANDLE,
++            FileStandardInfo,
++            (&raw mut info).cast(),
++            size_of::<FILE_STANDARD_INFO>() as u32,
++        )
++    };
++    if success == 0 {
++        Err(io::Error::last_os_error())
++    } else {
++        Ok(info.AllocationSize as u64)
++    }
++}
++
++/// The volume serial number of an open handle, as `FileInfo::dev_id` stores it.
++fn volume_serial(handle: &File) -> io::Result<u64> {
++    let mut info: FILE_ID_INFO = unsafe { zeroed() };
++    // SAFETY: the handle is open for the lifetime of the borrow and `info` is a valid
++    // out-buffer of exactly the size passed.
++    let success = unsafe {
++        GetFileInformationByHandleEx(
++            handle.as_raw_handle() as HANDLE,
++            FileIdInfo,
++            (&raw mut info).cast(),
++            size_of::<FILE_ID_INFO>() as u32,
++        )
++    };
++    if success == 0 {
++        Err(io::Error::last_os_error())
++    } else {
++        Ok(info.VolumeSerialNumber)
++    }
++}
++
++/// A buffer the directory enumeration writes into.
++///
++/// The kernel writes `LARGE_INTEGER` fields, so the buffer must be at least 8-byte aligned;
++/// `Vec<u8>` only guarantees 1. The buffer lives on the heap because the traversal recurses.
++#[repr(align(8))]
++struct AlignedBuffer([u8; BUFFER_SIZE]);
++
++/// Convert a Windows `FILETIME` (`100ns` ticks since 1601-01-01) to a `SystemTime`.
++fn system_time_from_filetime(ticks: i64) -> SystemTime {
++    const TICKS_PER_SECOND: u64 = 10_000_000;
++    const TICKS_TO_UNIX_EPOCH: u64 = 116_444_736_000_000_000;
++    let ticks = ticks as u64;
++    let (seconds, nanos) = if ticks >= TICKS_TO_UNIX_EPOCH {
++        let delta = ticks - TICKS_TO_UNIX_EPOCH;
++        (delta / TICKS_PER_SECOND, (delta % TICKS_PER_SECOND) * 100)
++    } else {
++        let delta = TICKS_TO_UNIX_EPOCH - ticks;
++        (delta / TICKS_PER_SECOND, (delta % TICKS_PER_SECOND) * 100)
++    };
++    let duration = Duration::new(seconds, nanos as u32);
++    if ticks >= TICKS_TO_UNIX_EPOCH {
++        UNIX_EPOCH + duration
++    } else {
++        UNIX_EPOCH - duration
++    }
++}
++
++/// Traverse one directory and account for all of its entries.
++///
++/// Equivalent to `du_regular`, except that entries come from one batched enumeration of the
++/// directory instead of two `CreateFile` calls per entry. Entries the enumeration cannot
++/// describe exactly are handled by `du_regular`'s per-entry path, including their subtrees.
++pub(super) fn walk(
++    mut my_stat: Stat,
++    options: &TraversalOptions,
++    depth: usize,
++    seen_inodes: &mut HashSet<FileInfo>,
++    print_tx: &mpsc::Sender<UResult<StatPrintInfo>>,
++    ancestors: Option<&mut HashSet<FileInfo>>,
++) -> Result<Stat, Box<mpsc::SendError<UResult<StatPrintInfo>>>> {
++    let mut default_ancestors = HashSet::default();
++    let ancestors = ancestors.unwrap_or(&mut default_ancestors);
++    let my_inode = if my_stat.is_dir { my_stat.inode } else { None };
++    if let Some(inode) = my_inode {
++        ancestors.insert(inode);
++    }
++
++    let walked = if my_stat.is_dir {
++        match DirReader::open(&my_stat.path) {
++            Ok(reader) => {
++                // The directory's own blocks are part of its total, and the value a parent's
++                // enumeration reports for a subdirectory entry is not it: ask the handle the
++                // traversal already has instead of opening the path a second time.
++                my_stat.blocks = reader.directory_blocks();
++                let dev_id = reader.volume_serial();
++                match reader.entries() {
++                    Ok(entries) => {
++                        for entry in entries {
++                            let entry_name = entry.name.clone();
++                            let entry_path = my_stat.path.join(&entry_name);
++                            if entry.needs_regular_stat() {
++                                // One per-entry stat reproduces exactly what the regular traversal
++                                // would compute for this path, so its totals and its recursion stay
++                                // identical: the subtree is walked by `du_regular`.
++                                match Stat::new(&entry_path, None, options) {
++                                    Ok(this_stat) => {
++                                        process_entry(
++                                            this_stat,
++                                            &entry_name,
++                                            options,
++                                            depth,
++                                            seen_inodes,
++                                            print_tx,
++                                            Some(&mut *ancestors),
++                                            0,
++                                            WalkMode::Legacy,
++                                            &mut my_stat,
++                                        )?;
++                                    }
++                                    Err(e) => {
++                                        print_tx.send(Err(e.map_err_context(|| {
++                                        translate!("du-error-cannot-access", "path" => entry_path.quote())
++                                    })))?;
++                                    }
++                                }
++                            } else {
++                                let this_stat = entry.into_stat(&my_stat.path, dev_id, options);
++                                process_entry(
++                                    this_stat,
++                                    &entry_name,
++                                    options,
++                                    depth,
++                                    seen_inodes,
++                                    print_tx,
++                                    Some(&mut *ancestors),
++                                    0,
++                                    WalkMode::Fast,
++                                    &mut my_stat,
++                                )?;
++                            }
++                        }
++                    }
++                    Err(e) => {
++                        print_tx.send(Err(e.map_err_context(|| {
++                            translate!("du-error-cannot-read-directory", "path" => my_stat.path.quote())
++                        })))?;
++                    }
++                }
++                Ok(my_stat)
++            }
++            Err(_) => {
++                // The directory handle could not be opened. Hand the directory back to the
++                // per-entry traversal, which opens it the way `fs::read_dir` does and reports
++                // the same error, so its totals and its recursion stay identical.
++                match Stat::new(&my_stat.path, None, options) {
++                    Ok(stat) => du_walk(
++                        WalkMode::Legacy,
++                        stat,
++                        options,
++                        depth,
++                        seen_inodes,
++                        print_tx,
++                        Some(&mut *ancestors),
++                        None,
++                    ),
++                    Err(e) => {
++                        print_tx.send(Err(e.map_err_context(
++                            || translate!("du-error-cannot-access", "path" => my_stat.path.quote()),
++                        )))?;
++                        Ok(my_stat)
++                    }
++                }
++            }
++        }
++    } else {
++        Ok(my_stat)
++    };
++
++    if let Some(inode) = my_inode {
++        ancestors.remove(&inode);
++    }
++    walked
++}
