@@ -63,7 +63,12 @@ jobs:
     # score against, so an expectation that drifted from GNU has to fail somewhere before it can
     # excuse a Windows deviation. No Node and no build: the suite is plain bash and the runner has
     # every program it asks for.
-    runs-on: ubuntu-latest
+    #
+    # Pinned to 24.04: `ubuntu-latest` moved to 26.04, whose default coreutils is uutils. The corpus
+    # calls the plain names (`tail`, `yes`, ...), so on 26.04 this job would score uutils against
+    # expectations that describe GNU — the exact bug class the corpus exists to separate. Keep the GNU
+    # reference on 24.04 until the runner resolves explicit GNU program paths.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Corpus on GNU bash
