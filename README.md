@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.1-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
@@ -115,7 +115,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.2-rc.1实测）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.2-rc.5实测）</td>
     </tr>
     <tr>
       <td><b>持久终端组件</b></td>
@@ -139,7 +139,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，MIT），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 14 MB）随包提交。
+引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，伟大无需多言），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 14 MB）随包提交。
 
 > 兼容 **MSYS 的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑也能成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 

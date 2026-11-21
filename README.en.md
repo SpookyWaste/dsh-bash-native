@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.1-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -115,7 +115,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.2-rc.1 tested)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.2-rc.5 tested)</td>
     </tr>
     <tr>
       <td><b>Persistent-terminal component</b></td>
@@ -139,7 +139,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 
 ## ⚙️ Engine
 
-The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, MIT). This repository builds it from source, applies three patches (`150-001`–`150-003`) at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 14 MB).
+The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, its greatness speaks for itself). This repository builds it from source, applies three patches (`150-001`–`150-003`) at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 14 MB).
 
 > Compatible with the **MSYS `uname -s` identity** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
