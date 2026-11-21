@@ -46,8 +46,8 @@ is the same over-report an English host already produces through the provider's 
 | Build | Where `uucore` comes from | How the patch is applied |
 |---|---|---|
 | Engine (`brush`) | crates.io — `brush-coreutils-builtins` compiles about ninety `uu_*` crates into the engine | `scripts/uucore-override.mjs` vendors the resolved version into the build cache, applies this patch to that copy, and points `[patch.crates-io]` at it |
-| Toolchain `grep` / `sed` / `findutils` | crates.io — a different resolved version each (0.10.0, 0.5.0, 0.9.0) | the same helper, from `scripts/build-toolchain.mjs` |
-| Toolchain `coreutils` | in-repo `src/uucore`, version 0.12.0 | `patches/toolchain/coreutils/0002-keep-the-os-error-code.patch`, applied by that component's own patch machinery |
+| Toolchain `grep` / `sed` / `findutils` | crates.io — a different resolved version each (grep 0.10.0, sed 0.12.0, findutils 0.12.0) | the same helper, from `scripts/build-toolchain.mjs` |
+| Toolchain `coreutils` | in-repo `src/uucore`, version 0.13.0 | `patches/toolchain/coreutils/0002-keep-the-os-error-code.patch`, applied by that component's own patch machinery |
 
 The in-repo copy needs its own patch file only because its path differs (`src/uucore/src/lib/mods/error.rs`);
 the edit is the same three lines plus the guard, and both files carry this header so neither drifts

@@ -7,11 +7,11 @@
     {
       "name": "coreutils",
       "repo": "https://github.com/uutils/coreutils",
-      "tag": "0.12.0",
+      "tag": "0.13.0",
       "features": [
         "windows"
       ],
-      "why": "Provides the programs a pipeline needs as real executables, which `xargs` and `find -exec` require because they cannot invoke shell builtins, plus `kill` and `timeout`. `stat`, `chmod` and `id` are opt-in features: enabling `stat` does not compile (uutils 0.12.0 then imports `uucore::fs::major`/`minor` and `uucore::fsext::statfs`, which that crate does not export for this feature combination), so it stays off and is recorded as a residual gap instead. `chmod` and `id` stay off deliberately (README records the residual-command decisions). Patch `0005` gives `du` a Windows directory-enumeration traversal (one handle per directory instead of two opens per file) and keeps the per-entry traversal for `-L`/`-D`, for reparse points and for compressed or sparse entries; see `patches/toolchain/coreutils/README.md`.",
+      "why": "Provides the programs a pipeline needs as real executables, which `xargs` and `find -exec` require because they cannot invoke shell builtins, plus `kill` and `timeout`. `stat`, `chmod` and `id` are opt-in features and all three remain Unix-only in 0.13.0 (`uu_stat` imports `std::os::unix::fs::MetadataExt` and calls `uucore::fsext::statfs`, which is `#[cfg(unix)]`; `uu_chmod` is `#![cfg(unix)]`), so they stay off and are recorded as residual gaps. `chmod` and `id` stay off deliberately (README records the residual-command decisions). Patch `0005` gives `du` a Windows directory-enumeration traversal (one handle per directory instead of two opens per file) and keeps the per-entry traversal for `-L`/`-D`, for reparse points and for compressed or sparse entries; see `patches/toolchain/coreutils/README.md`. The 0.12.0 `tail` first-block patch is retired because 0.13.0 carries that fix upstream.",
       "pathAlias": true,
       "uucoreErrno": true
     },
@@ -88,10 +88,10 @@
   ],
   "packaged": {
     "path": "toolchain/win32-x64/manifest.json",
-    "sha256": "7015f46a7d5b22a0aceda2b14f116b076d7a8270c2a3798e3d7cd8dfdca195ef",
+    "sha256": "045bfe59951ac6660174b3fdc2e157826f517ffc6b0b4ac42bf5375dad3defc3",
     "bytes": 5979,
     "files": 14,
     "names": 101,
-    "bytesTotal": 37364224
+    "bytesTotal": 37079552
   }
 }

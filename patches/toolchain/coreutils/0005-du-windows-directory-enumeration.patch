@@ -1,8 +1,8 @@
 diff --git a/src/uu/du/src/du.rs b/src/uu/du/src/du.rs
-index ed98f19..2304a92 100644
+index 42d9d3a..34adb34 100644
 --- a/src/uu/du/src/du.rs
 +++ b/src/uu/du/src/du.rs
-@@ -76,8 +76,13 @@ mod options {
+@@ -77,8 +77,13 @@ mod options {
      pub const FILES0_FROM: &str = "files0-from";
      pub const VERBOSE: &str = "verbose";
      pub const FILE: &str = "FILE";
@@ -16,7 +16,7 @@ index ed98f19..2304a92 100644
  struct TraversalOptions {
      all: bool,
      separate_dirs: bool,
-@@ -129,8 +134,13 @@ struct Stat {
+@@ -141,8 +146,13 @@ struct Stat {
      blocks: u64,
      inodes: u64,
      inode: Option<FileInfo>,
@@ -31,7 +31,7 @@ index ed98f19..2304a92 100644
  }
  
  impl Stat {
-@@ -162,15 +172,18 @@ impl Stat {
+@@ -167,15 +177,18 @@ impl Stat {
          let latest_time = options
              .time
              .and_then(|time| metadata_get_time(&metadata, time));
@@ -52,7 +52,7 @@ index ed98f19..2304a92 100644
          })
      }
  
-@@ -209,6 +222,7 @@ impl Stat {
+@@ -214,6 +227,7 @@ impl Stat {
              blocks,
              inodes: 1,
              inode: file_info_option,
@@ -60,7 +60,7 @@ index ed98f19..2304a92 100644
              metadata: std_metadata,
              latest_time,
          })
-@@ -412,7 +426,7 @@ fn safe_du(
+@@ -448,7 +462,7 @@ fn safe_du(
              }
          }
      };
@@ -69,7 +69,7 @@ index ed98f19..2304a92 100644
          return Ok(my_stat);
      }
  
-@@ -502,6 +516,7 @@ fn safe_du(
+@@ -540,6 +554,7 @@ fn safe_du(
                  blocks: entry_stat.st_blocks as u64,
                  inodes: 1,
                  inode: file_info,
@@ -77,7 +77,7 @@ index ed98f19..2304a92 100644
                  // We need a fake metadata - create one from symlink_metadata of parent
                  // This is a workaround since we can't get real metadata without the full path
                  metadata: my_stat.metadata.clone(),
-@@ -517,6 +532,7 @@ fn safe_du(
+@@ -555,6 +570,7 @@ fn safe_du(
                  blocks: entry_stat.st_blocks as u64,
                  inodes: 1,
                  inode: file_info,
@@ -85,7 +85,7 @@ index ed98f19..2304a92 100644
                  metadata: my_stat.metadata.clone(),
                  latest_time,
              }
-@@ -602,6 +618,149 @@ fn safe_du(
+@@ -640,6 +656,149 @@ fn safe_du(
      Ok(my_stat)
  }
  
@@ -112,9 +112,9 @@ index ed98f19..2304a92 100644
 +    entry_name: &OsStr,
 +    options: &TraversalOptions,
 +    depth: usize,
-+    seen_inodes: &mut HashSet<FileInfo>,
++    seen_inodes: &mut FxHashSet<FileInfo>,
 +    print_tx: &mpsc::Sender<UResult<StatPrintInfo>>,
-+    ancestors: Option<&mut HashSet<FileInfo>>,
++    ancestors: Option<&mut FxHashSet<FileInfo>>,
 +    symlink_depth: usize,
 +    walk_mode: WalkMode,
 +    my_stat: &mut Stat,
@@ -210,9 +210,9 @@ index ed98f19..2304a92 100644
 +    my_stat: Stat,
 +    options: &TraversalOptions,
 +    depth: usize,
-+    seen_inodes: &mut HashSet<FileInfo>,
++    seen_inodes: &mut FxHashSet<FileInfo>,
 +    print_tx: &mpsc::Sender<UResult<StatPrintInfo>>,
-+    ancestors: Option<&mut HashSet<FileInfo>>,
++    ancestors: Option<&mut FxHashSet<FileInfo>>,
 +    symlink_depth: Option<usize>,
 +) -> Result<Stat, Box<mpsc::SendError<UResult<StatPrintInfo>>>> {
 +    match walk_mode {
@@ -235,7 +235,7 @@ index ed98f19..2304a92 100644
  // this takes `my_stat` to avoid having to stat files multiple times.
  // Only used on non-Linux platforms
  // Regular traversal using std::fs
-@@ -624,16 +783,12 @@ fn du_regular(
+@@ -659,16 +818,12 @@ fn du_regular(
      let symlink_depth = symlink_depth.unwrap_or(0);
  
      // Add current directory to ancestors if it's a directory
@@ -254,7 +254,7 @@ index ed98f19..2304a92 100644
          let read = match fs::read_dir(&my_stat.path) {
              Ok(read) => read,
              Err(e) => {
-@@ -648,6 +803,7 @@ fn du_regular(
+@@ -683,6 +838,7 @@ fn du_regular(
              match f {
                  Ok(entry) => {
                      let entry_path = entry.path();
@@ -262,7 +262,7 @@ index ed98f19..2304a92 100644
  
                      // Check if this is a symlink when using -L
                      let mut current_symlink_depth = symlink_depth;
-@@ -677,7 +833,7 @@ fn du_regular(
+@@ -712,7 +868,7 @@ fn du_regular(
                              // Check if symlink with -L points to an ancestor (cycle detection)
                              if is_symlink
                                  && options.dereference == Deref::All
@@ -271,7 +271,7 @@ index ed98f19..2304a92 100644
                                  && let Some(inode) = this_stat.inode
                                  && ancestors.contains(&inode)
                              {
-@@ -685,87 +841,18 @@ fn du_regular(
+@@ -720,84 +876,18 @@ fn du_regular(
                                  continue 'file_loop;
                              }
  
@@ -295,14 +295,11 @@ index ed98f19..2304a92 100644
 -                                }
 -                            }
 -
--                            if let Some(inode) = this_stat.inode {
--                                // Check if the inode has been seen before and if we should skip it
--                                if seen_inodes.contains(&inode) && !options.count_links {
--                                    // Skip further processing for this inode
--                                    continue;
--                                }
--                                // Mark this inode as seen
--                                seen_inodes.insert(inode);
+-                            if let Some(inode) = this_stat.inode
+-                                && !seen_inodes.insert(inode)
+-                                && !options.count_links
+-                            {
+-                                continue;
 -                            }
 -
 -                            if this_stat.metadata.is_dir() {
@@ -371,7 +368,7 @@ index ed98f19..2304a92 100644
                          }
                          Err(e) => {
                              print_tx.send(Err(e.map_err_context(
-@@ -1196,6 +1283,20 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+@@ -1272,6 +1362,20 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
          #[cfg(not(all(unix, not(target_os = "redox"))))]
          let use_safe_traversal = false;
  
@@ -392,7 +389,7 @@ index ed98f19..2304a92 100644
          // Pre-populate seen_inodes with the starting directory to detect cycles
          let stat = Stat::new(&path, None, &traversal_options);
          if let Ok(stat) = stat.as_ref()
-@@ -1240,7 +1341,8 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+@@ -1315,7 +1419,8 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
          } else {
              // Use regular traversal (non-Linux or when -L is used)
              if let Ok(stat) = stat {
@@ -402,7 +399,7 @@ index ed98f19..2304a92 100644
                      stat,
                      &traversal_options,
                      0,
-@@ -1563,6 +1665,16 @@ pub fn uu_app() -> Command {
+@@ -1651,6 +1756,16 @@ pub fn uu_app() -> Command {
                  .value_parser(clap::value_parser!(OsString))
                  .action(ArgAction::Append),
          )

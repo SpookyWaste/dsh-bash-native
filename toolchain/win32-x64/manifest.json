@@ -28,10 +28,10 @@
     },
     {
       "file": "coreutils.exe",
-      "sha256": "7cd3274a17f1f476101e4c27c4493a6a9b025cdc0c96450801da814ebacc7cd4",
-      "bytes": 11618816,
+      "sha256": "49aec20a6f7920b2e6363423c6fdec1be4225dca76add996028a4c263a51c495",
+      "bytes": 11334144,
       "component": "coreutils",
-      "version": "0.12.0",
+      "version": "0.13.0",
       "license": "MIT",
       "source": "https://github.com/uutils/coreutils",
       "names": [

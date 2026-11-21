@@ -124,12 +124,12 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
   </tbody>
 </table>
 
---- 
 ## 📝 Changelog
 
 - **0.3.1**: the engine moved from `brush` to `rubash`, fixing a list of known defects and offering better native POSIX compatibility
 - **0.3.3**: the engine moved to `rubash` 1.5.0 — three patches `150-001`–`150-003`; the old patches were retired with upstream merges
 - **0.3.5**: `jaq` and `findutils` on the toolchain moved to their latest releases, and a new `du` patch speeds up accounting across many files (below).
+- **0.3.6**: the toolchain's `coreutils` moved to 0.13.0; the first-block `tail` fix is upstream now, so that patch is retired; the `du` Windows-enumeration patch was re-cut against the upstream refactor, and the lock and packaged toolchain were refreshed.
 
 | Tree | Before (per entry) | Patched (enumeration) |
 |---|---|---|
@@ -175,7 +175,6 @@ The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash),
 
 > 💡 Every resolution verifies the artifact against the **sha256** in the lock, and a **stamp** skips the repeated work: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and while they are unchanged those 14 MB are not read again (`verifyArtifacts: 'always'` restores hashing on every resolution).
 
----
 
 ## 🔧 Implementation
 
@@ -287,7 +286,7 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
 <br>
 
 | Kind | Contents |
-|---|---|---|
+|---|---|
 | **Advertised** (20) | `grep`, `sed`, `awk`, `jq`, `find`, `xargs`, `diff`, `cmp`, `which`, `timeout`, `stat`, `ps`, plus `tty`, `nohup`, `nice`, `uptime`, `hostid`, `pathchk`, `locate`, `updatedb` |
 | **Installed, not advertised** (81) | The 88 programs of uutils `coreutils` (`cat`, `ls`, `rm`, `cp`, `head`, `tail`, `wc`, `sort`, `seq`, …: the engine no longer bundles them), plus the program form of the shell builtins `echo`, `printf`, `pwd`, `test`, `true`, `false`, `kill` |
 

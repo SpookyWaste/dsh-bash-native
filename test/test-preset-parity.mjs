@@ -67,13 +67,20 @@ const ENABLED_BASH_ROWS = {
  * and the run fails until someone decides it is right. Changed text fails the same way, and so does an
  * entry that upstream removed.
  *
- * `standard.patch.yml` at `@deepseek-ai/dsh-web-app` 0.2.2-alpha.2 (reviewed 2026-11-02): the model-facing
- * plugin-manager tools are disabled in a session that has no profile context. It reads a root service the
- * preset's mount context already sees, and it is the host's row — neither the shell surface nor anything
- * this bundle provides.
+ * `standard.patch.yml` at `@deepseek-ai/dsh-web-app` 0.2.2-rc.5 (reviewed 2026-11-21): the
+ * `skill-filesystem` row resolves the agent-preset package's `skills` directory for `customSkillDirs`,
+ * and the model-facing plugin-manager tools are disabled in a session that has no profile context. Each
+ * reads a root service or path the preset's mount context already sees, and both are the host's rows —
+ * neither the shell surface nor anything this bundle provides.
  */
 const REVIEWED_SHIPPED_EXPRESSIONS = {
-  "bash-native": new Map([["tool-plugin-manager.disabled", "!ctx.get('profileContext')"]]),
+  "bash-native": new Map([
+    [
+      "skill-filesystem.config.customSkillDirs[0]",
+      "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')",
+    ],
+    ["tool-plugin-manager.disabled", "!ctx.get('profileContext')"],
+  ]),
   "bash-native-minimal": new Map(),
 };
 

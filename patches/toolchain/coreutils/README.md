@@ -1,10 +1,9 @@
 # uutils/coreutils patches
 
-The pinned release is **0.12.0**, built with the `windows` feature. Five patches live here; `0001`–`0004` predate this note and are summarized below, `0005` is described in full because it changes how the default `du` traversal works.
+The pinned release is **0.13.0**, built with the `windows` feature. Four patches live here; `0001`, `0002` and `0004` predate this note and are summarized below, `0005` is described in full because it changes how the default `du` traversal works. Patch `0003` (`tail`'s first block) was retired because 0.13.0 merged that fix upstream ([#15090](https://github.com/uutils/coreutils/pull/15090)). `0005` was re-cut for 0.13.0, which rewrote `du_regular`'s symlink/dedup loop and dropped the `HashSet` alias; the Windows enumeration and its fallback rules are unchanged.
 
 - `0001-path-alias-in-argv.patch` translates the engine's path aliases (`/tmp/...`, `/<letter>/...`) once, in the multi-call binary's `argv` entry point. `find -exec`, `xargs` and `timeout` start real programs with no shell in between, so the binary has to do the translation itself instead of inheriting a shell's.
 - `0002-keep-the-os-error-code.patch` keeps the `(os error N)` suffix of a `PermissionDenied` message in `uucore`'s `strip_errno`. The plugin recognizes a file-policy refusal by that code, the only part of the message that does not depend on the host language.
-- `0003-tail-reads-the-last-block.patch` fixes `tail -n` on a file whose size is a whole multiple of the block size: the chunk closest to the start of the file was read as empty, so the lines it carried were missing.
 - `0004-refuse-a-final-dot.patch` refuses `rmdir dir/.` on Windows: Win32 folds `dir/.` into `dir` and would remove the directory, where POSIX treats a final `.` as invalid (MSYS2 also refuses it).
 - `0005-du-windows-directory-enumeration.patch` gives `du` a directory-enumeration traversal on Windows. It is the patch this note is mostly about.
 

@@ -124,12 +124,12 @@ https://github.com/SpookyWaste/dsh-bash-native
   </tbody>
 </table>
 
---- 
 ## 📝 Changelog
 
 - **0.3.1**：引擎由 `brush` 更换为 `rubash` ，修复多项已知缺陷，提供更好的原生 POSIX 兼容
 - **0.3.3**：引擎升级到 `rubash` 1.5.0——三笔补丁 `150-001`–`150-003`，旧补丁随上游合入退役
 - **0.3.5**：更新工具链`jaq`和 `findutils` 到最新 release 。为 `du` 命令添加新补丁，优化多文件的统计速度（见下）。
+- **0.3.6**：工具链 `coreutils` 升级到 0.13.0；`tail` 首块修复已由上游合入，旧补丁退役；`du` 的 Windows 枚举补丁按上游重构重切，lock 与工具链产物同步更新。
 
 | 树 | 旧（逐条目） | 补丁（枚举） |
 |---|---|---|
@@ -175,7 +175,6 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 > 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 14 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
----
 
 ## 🔧 实现
 
@@ -287,7 +286,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 <br>
 
 | 类别 | 内容 |
-|---|---|---|
+|---|---|
 | **公布**（20） | `grep`、`sed`、`awk`、`jq`、`find`、`xargs`、`diff`、`cmp`、`which`、`timeout`、`stat`、`ps`，以及 `tty`、`nohup`、`nice`、`uptime`、`hostid`、`pathchk`、`locate`、`updatedb` |
 | **只装不公布**（81） | uutils `coreutils` 的 88 个程序（`cat`、`ls`、`rm`、`cp`、`head`、`tail`、`wc`、`sort`、`seq` 等——引擎不再自带这些），以及 shell 内建要用的程序形态 `echo`、`printf`、`pwd`、`test`、`true`、`false`、`kill` |
 
