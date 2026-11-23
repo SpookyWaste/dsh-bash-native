@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0%20--%200.2.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 [**中文**](README.md) &nbsp;·&nbsp; **English**
@@ -115,7 +115,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.2-rc.5 tested)</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code> (0.2.0-rc.2 - 0.2.3-alpha.2 tested)</td>
     </tr>
     <tr>
       <td><b>Persistent-terminal component</b></td>
@@ -130,6 +130,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 - **0.3.3**: the engine moved to `rubash` 1.5.0 — three patches `150-001`–`150-003`; the old patches were retired with upstream merges
 - **0.3.5**: `jaq` and `findutils` on the toolchain moved to their latest releases, and a new `du` patch speeds up accounting across many files (below).
 - **0.3.6**: the toolchain's `coreutils` moved to 0.13.0; the first-block `tail` fix is upstream now, so that patch is retired; the `du` Windows-enumeration patch was re-cut against the upstream refactor, and the lock and packaged toolchain were refreshed.
+- **0.3.7**: the engine moved to `rubash` 1.5.1 — the three patches were re-cut as `151-001`–`151-003`, and two new ones: `151-004` keeps the executable suffix on `command -v` answers, `151-005` makes diagnostics lead with the reader name (`bash` or the `-c` name operand) instead of the engine's install path.
 
 | Tree | Before (per entry) | Patched (enumeration) |
 |---|---|---|
@@ -139,7 +140,7 @@ After a restart, set **Native Bash (Windows)** as the default preset under **Set
 
 ## ⚙️ Engine
 
-The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, its greatness speaks for itself). This repository builds it from source, applies three patches (`150-001`–`150-003`) at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 14 MB).
+The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash), a bash-5.3-compatible shell written in Rust, its greatness speaks for itself). This repository builds it from source, applies five patches (`151-001`–`151-005`) at the commit pinned in `engine.lock.json`, and ships the result as `engine/win32-x64/rubash.exe` (about 16 MB).
 
 > Compatible with the **MSYS `uname -s` identity** (`MSYS_NT-…`), so scripts that branch on MSYS keep working; concurrency, cancellation and job semantics are the engine's own and depend on no MSYS runtime.
 
@@ -157,23 +158,31 @@ The engine is **rubash** ([`unixwin/rubash`](https://github.com/unixwin/rubash),
   </thead>
   <tbody>
     <tr>
-      <td><code>150-001-cd-into-virtual-roots-with-a-real-directory</code></td>
-      <td>A <code>cd</code> into a virtual root that has <b>a real directory behind it</b> (<code>/tmp</code>) now moves the <b>session cwd</b> as well (1.5.0 keeps cwd in session state, not in the process): the bridge used to rewrite <code>PWD</code> and stop, so <code>pwd</code> reported the new directory while relative operands and child processes stayed in the old one. <code>PWD</code>, <code>pwd -P</code> and <code>DIRSTACK</code> still show <code>/tmp</code>; <code>/usr</code>, <code>/etc</code> and <code>/bin</code> have no directory to move to and <code>/</code> names no single one, so those four keep the logical-only behaviour.</td>
+      <td><code>151-001-cd-into-virtual-roots-with-a-real-directory</code></td>
+      <td>A <code>cd</code> into a virtual root that has <b>a real directory behind it</b> (<code>/tmp</code>) now moves the <b>session cwd</b> as well (1.5.1 keeps cwd in session state, not in the process): the bridge used to rewrite <code>PWD</code> and stop, so <code>pwd</code> reported the new directory while relative operands and child processes stayed in the old one. <code>PWD</code>, <code>pwd -P</code> and <code>DIRSTACK</code> still show <code>/tmp</code>; <code>/usr</code>, <code>/etc</code> and <code>/bin</code> have no directory to move to and <code>/</code> names no single one, so those four keep the logical-only behaviour.</td>
     </tr>
     <tr>
-      <td><code>150-002-default-a-unset-locale-family-to-utf-8-on-windows</code></td>
-      <td>With no <code>LC_ALL</code>/<code>LC_CTYPE</code>/<code>LANG</code> set, Windows defaults to UTF-8 character semantics: <code>${#中文}</code> is 2, <code>[[:alpha:]]</code> matches CJK, and <code>${v:0:2}</code> slices two characters. 1.5.0 reads an empty locale family as the C locale (bytes); this restores the 1.4.3 default. An explicit <code>LC_ALL=C</code> still means bytes.</td>
+      <td><code>151-002-default-a-unset-locale-family-to-utf-8-on-windows</code></td>
+      <td>With no <code>LC_ALL</code>/<code>LC_CTYPE</code>/<code>LANG</code> set, Windows defaults to UTF-8 character semantics: <code>${#中文}</code> is 2, <code>[[:alpha:]]</code> matches CJK, and <code>${v:0:2}</code> slices two characters. 1.5.1 reads an empty locale family as the C locale (bytes); this restores the 1.4.3 default. An explicit <code>LC_ALL=C</code> still means bytes.</td>
     </tr>
     <tr>
-      <td><code>150-003-identity-tools-answer-without-a-path-program</code></td>
-      <td><code>uname</code>/<code>arch</code> answer from the engine process even when no program of that name resolves (the MSYS persona): 1.5.0 gates its in-process emulations on PATH resolution and otherwise defers to a spawn that is bound to fail. The resolvable side is unchanged — a same-named script on <code>PATH</code> still runs.</td>
+      <td><code>151-003-identity-tools-answer-without-a-path-program</code></td>
+      <td><code>uname</code>/<code>arch</code> answer from the engine process even when no program of that name resolves (the MSYS persona): 1.5.1 gates its in-process emulations on PATH resolution and otherwise defers to a spawn that is bound to fail. The resolvable side is unchanged — a same-named script on <code>PATH</code> still runs.</td>
+    </tr>
+    <tr>
+      <td><code>151-004-command-lookup-names-the-real-file</code></td>
+      <td><code>command -v</code>/<code>type -P</code> answers keep the real file name: 1.5.1 trims the probed <code>.exe</code> to mimic Git Bash's display, but this deployment's <code>PATH</code> holds only <code>&lt;name&gt;.exe</code>, so the trimmed path is not a file and idioms such as <code>cp "$(command -v grep)" x</code> fail.</td>
+    </tr>
+    <tr>
+      <td><code>151-005-diagnostics-name-the-reader-not-the-install-path</code></td>
+      <td>Diagnostics lead with the <b>reader name</b>: 1.5.1 consults <code>$0</code> first, and this plugin spawns the engine by absolute path, so every failed command started with the install path; this patch gives the reader name <code>-c</code> writes into <code>__RUBASH_SCRIPT_NAME</code> (the explicit name operand, or <code>bash</code>) precedence again, back to <code>bash: line 1:</code>.</td>
     </tr>
   </tbody>
 </table>
 
 </details>
 
-> 💡 Every resolution verifies the artifact against the **sha256** in the lock, and a **stamp** skips the repeated work: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and while they are unchanged those 14 MB are not read again (`verifyArtifacts: 'always'` restores hashing on every resolution).
+> 💡 Every resolution verifies the artifact against the **sha256** in the lock, and a **stamp** skips the repeated work: the artifact's size and mtime go into `%LOCALAPPDATA%\dsh-bash-native\verified\`, and while they are unchanged those 16 MB are not read again (`verifyArtifacts: 'always'` restores hashing on every resolution).
 
 
 ## 🔧 Implementation
@@ -269,7 +278,7 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
     <tr>
       <td><code>verifyArtifacts</code></td>
       <td><code>'stamped'</code></td>
-      <td>Verification strength: <code>stamped</code> re-hashes only when the artifact's or the runtime copy's size/mtime changed; <code>always</code> hashes on every resolution (14 MB engine, 37 MB toolchain)</td>
+      <td>Verification strength: <code>stamped</code> re-hashes only when the artifact's or the runtime copy's size/mtime changed; <code>always</code> hashes on every resolution (16 MB engine, 37 MB toolchain)</td>
     </tr>
   </tbody>
 </table>
@@ -303,6 +312,8 @@ This component and the built-in **persistent terminal** (@deepseek-ai/dsh-experi
 ---
 
 ## ⚠️ Known limitations
+
+- **Path spellings are not shared across tools**: `bash` accepts POSIX spellings (`/d/...`, `/tmp/...`, where `/tmp` is the session temp directory), while DSH's own `read`, `grep`, `glob` and `edit` only take native paths (`D:\...`) or workspace-relative ones — for them `/tmp/x` is `\tmp\x` on the current drive. Mixing the two spellings in one session produces path errors, and when `\tmp\x` exists they read a different file. 0.3.7 records this in the documentation only; it does not translate arguments for those tools.
 
 - **Two platform differences unrelated to the in-process copies**:
 

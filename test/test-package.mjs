@@ -283,15 +283,15 @@ try {
     check("uname reports the MSYS-compatible persona", /^MSYS_NT-\d/.test(uname), JSON.stringify(uname));
   }
   // One implementation, two ways in: `rm` is the packaged toolchain's program (the engine bundles none), so a
-  // direct call and one a child process execs by name (`xargs`) have to reach the same file. The engine
-  // answers the direct call from an in-process emulation of that file, so the file is asked for with `type -P`
-  // — the engine's disclosure shape for an emulated name is `type -V`'s long sentence, and `command -v` prints
-  // the bare name there (a documented difference in the README, not a second implementation).
+  // direct call and one a child process execs by name (`xargs`) have to reach the same file. The engine names
+  // that file on the describe faces: v1.5.1 answers `command -V rm` as `rm is <path>` where v1.5.0 disclosed
+  // `rm is a shell emulation of <path>` — both shapes name the packaged toolchain, which is what is pinned
+  // here (the sentence changed upstream, the file did not).
   const rmDigest = basename(dirname(toolchainDir));
   const rmPath = shell("type -P rm").stdout.trim();
   check("rm resolves to the packaged toolchain", rmPath.toLowerCase().includes(rmDigest.toLowerCase()), rmPath);
   const rmDisclosure = shell("command -V rm").stdout.trim();
-  check("the direct call discloses which file it emulates", rmDisclosure.includes("emulation of") && rmDisclosure.toLowerCase().includes(rmDigest.toLowerCase()), rmDisclosure);
+  check("the direct call discloses which file it uses", /rm\.exe\b/i.test(rmDisclosure) && rmDisclosure.toLowerCase().includes(rmDigest.toLowerCase()), rmDisclosure);
   writeFileSync(join(cwd, "rmprobe.txt"), "x\n");
   checkRun("rm deletes a file", "rm rmprobe.txt && test -f rmprobe.txt || echo gone", "gone\n");
   writeFileSync(join(cwd, "rmprobe.txt"), "x\n");

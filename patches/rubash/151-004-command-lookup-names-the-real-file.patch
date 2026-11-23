@@ -1,0 +1,38 @@
+diff --git a/src/executor/path.rs b/src/executor/path.rs
+index 979a64d..bf4f150 100644
+--- a/src/executor/path.rs
++++ b/src/executor/path.rs
+@@ -1610,23 +1610,17 @@ pub(crate) fn recorded_resolution_spelling(
+ /// resolution keeps the real filename. Unconditional: the unix walk
+ /// never produces a `name.exe` hit for a bare `name`, so the helper
+ /// is inert off Windows by construction.
++///
++/// dsh-bash-native patch: the suffix is NOT dropped in this deployment. The PATH it runs on holds only
++/// `<name>.exe` files — the packaged toolchain publishes no extension-less twin, and no host program has
++/// one — so the trimmed spelling `/c/.../grep` names no file: `cp "$(command -v grep)" x` and
++/// `cat "$(type -P ls)"` answered a path that never exists. GNU's display answer is the execve filename
++/// every spawn route uses (execute_cmd.c:5810 hands that string to `execve` unchanged), so the suffix the
++/// search resolved stays.
+ pub(crate) fn drop_exe_probe_suffix(name: &str, display: String) -> String {
+-    let name_bytes = name.as_bytes();
+-    if name_bytes.len() >= 4 && name_bytes[name_bytes.len() - 4..].eq_ignore_ascii_case(b".exe") {
+-        return display;
+-    }
+-    let tail = format!("{name}.exe");
+-    let disp = display.as_bytes();
+-    if disp.len() > tail.len()
+-        && disp[disp.len() - tail.len()..].eq_ignore_ascii_case(tail.as_bytes())
+-        && matches!(disp[disp.len() - tail.len() - 1], b'/' | b'\\')
+-    {
+-        let mut display = display;
+-        display.truncate(display.len() - 4);
+-        display
+-    } else {
+-        display
+-    }
++    // dsh-bash-native patch: see the note above — the display keeps the file name the walk resolved.
++    let _ = name;
++    display
+ }
+ 
+ /// rubash#2442: the one filename-resolution funnel every external

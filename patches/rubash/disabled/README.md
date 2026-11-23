@@ -6,6 +6,8 @@
 
 **暂停于** 2026-11-04（插件 0.3.3 周期）。
 
+**切自** v1.5.0 的源码；2026-11-23 的 pin 升到 v1.5.1 后没有重切——实测 `git apply --check` 在 `src/executor/external_file_builtins.rs:19` 已经冲突。恢复前要按当时的 pin 重切，并在 1.5.1 上重新核对 `command_registry.rs` 的两行与门闸位置。
+
 **它做什么**：把 `chmod`/`mkfifo` 的不可解析轴从 `FailClosed` 改成 `Unchecked`（没有外部程序时也由进程内副本作答），并把 `handle_external_file_builtins` 的门闸从裸谓词改成查注册表的双轴策略。
 
 **为什么暂停**：

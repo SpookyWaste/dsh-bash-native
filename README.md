@@ -17,7 +17,7 @@
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/zh/plugins/spookywaste/dsh-bash-native)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-bash-native.svg)](https://www.npmjs.com/package/dsh-bash-native)
 [![npm](https://img.shields.io/npm/v/dsh-bash-native?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-bash-native)
-[![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2%20--%200.2.2--rc.5-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.0%20--%200.2.3-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![Powered by rubash](https://img.shields.io/badge/powered%20by-rubash-64CEF7)](https://github.com/unixwin/rubash)
 
 **中文** &nbsp;·&nbsp; [**English**](README.en.md)
@@ -115,7 +115,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     </tr>
     <tr>
       <td><b>DSH</b></td>
-      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.2-rc.5实测）</td>
+      <td><code>&gt;=0.2.0-rc.2 &lt;0.3.0-0</code>（0.2.0-rc.2 - 0.2.3-alpha.2实测）</td>
     </tr>
     <tr>
       <td><b>持久终端组件</b></td>
@@ -130,6 +130,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 - **0.3.3**：引擎升级到 `rubash` 1.5.0——三笔补丁 `150-001`–`150-003`，旧补丁随上游合入退役
 - **0.3.5**：更新工具链`jaq`和 `findutils` 到最新 release 。为 `du` 命令添加新补丁，优化多文件的统计速度（见下）。
 - **0.3.6**：工具链 `coreutils` 升级到 0.13.0；`tail` 首块修复已由上游合入，旧补丁退役；`du` 的 Windows 枚举补丁按上游重构重切，lock 与工具链产物同步更新。
+- **0.3.7**：引擎升级到 `rubash` 1.5.1——三笔补丁按新 pin 重切为 `151-001`–`151-003`，新增 `151-004` 让 `command -v` 的答案保留可执行文件后缀、`151-005` 让诊断重新以读者名（`bash`/`-c` 的名字操作数）打头，而不是引擎安装路径.
 
 | 树 | 旧（逐条目） | 补丁（枚举） |
 |---|---|---|
@@ -139,7 +140,7 @@ https://github.com/SpookyWaste/dsh-bash-native
 
 ## ⚙️ 引擎
 
-引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，伟大无需多言），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用三笔补丁，产物 `engine/win32-x64/rubash.exe`（约 14 MB）随包提交。
+引擎是 **rubash**（[`unixwin/rubash`](https://github.com/unixwin/rubash)，Rust 写的 bash 5.3 兼容 shell，伟大无需多言），本仓库从源码构建它、按 `engine.lock.json` 里的 commit 应用五笔补丁，产物 `engine/win32-x64/rubash.exe`（约 16 MB）随包提交。
 
 > 兼容 **MSYS 的 `uname -s` 身份**（`MSYS_NT-…`），所以脚本里按 MSYS 分支的逻辑也能成立；并发、取消与作业语义由引擎自己实现，跟 MSYS 运行时无关。
 
@@ -157,23 +158,31 @@ https://github.com/SpookyWaste/dsh-bash-native
   </thead>
   <tbody>
     <tr>
-      <td><code>150-001-cd-into-virtual-roots-with-a-real-directory</code></td>
-      <td><code>cd</code> 进 <code>/tmp</code> 这类<b>背后有真实目录</b>的虚拟根时，把<b>会话 cwd</b> 也一起移动（1.5.0 里 cwd 是会话状态，不再是进程 cwd）：原来只改 <code>PWD</code> 就返回，于是 <code>pwd</code> 报新目录、相对操作数与子进程却还在旧目录。<code>PWD</code>、<code>pwd -P</code>、<code>DIRSTACK</code> 仍然显示 <code>/tmp</code>；<code>/usr</code>、<code>/etc</code>、<code>/bin</code> 没有目录可去，<code>/</code> 没有唯一目标，这四个名字保持只改逻辑状态。</td>
+      <td><code>151-001-cd-into-virtual-roots-with-a-real-directory</code></td>
+      <td><code>cd</code> 进 <code>/tmp</code> 这类<b>背后有真实目录</b>的虚拟根时，把<b>会话 cwd</b> 也一起移动(1.5.1 里 cwd 是会话状态，不再是进程 cwd）：原来只改 <code>PWD</code> 就返回，于是 <code>pwd</code> 报新目录、相对操作数与子进程却还在旧目录。<code>PWD</code>、<code>pwd -P</code>、<code>DIRSTACK</code> 仍然显示 <code>/tmp</code>；<code>/usr</code>、<code>/etc</code>、<code>/bin</code> 没有目录可去，<code>/</code> 没有唯一目标，这四个名字保持只改逻辑状态。</td>
     </tr>
     <tr>
-      <td><code>150-002-default-a-unset-locale-family-to-utf-8-on-windows</code></td>
-      <td>没设 <code>LC_ALL</code>/<code>LC_CTYPE</code>/<code>LANG</code> 时，Windows 上默认按 UTF-8 字符语义：<code>${#中文}</code> 是 2、<code>[[:alpha:]]</code> 认 CJK、<code>${v:0:2}</code> 切两个字符。1.5.0 把空的 locale 族解释成 C locale（按字节），这条把它改回 1.4.3 的默认；显式写 <code>LC_ALL=C</code> 仍然按字节。</td>
+      <td><code>151-002-default-a-unset-locale-family-to-utf-8-on-windows</code></td>
+      <td>没设 <code>LC_ALL</code>/<code>LC_CTYPE</code>/<code>LANG</code> 时，Windows 上默认按 UTF-8 字符语义：<code>${#中文}</code> 是 2、<code>[[:alpha:]]</code> 认 CJK、<code>${v:0:2}</code> 切两个字符。1.5.1 把空的 locale 族解释成 C locale（按字节），这条把它改回 1.4.3 的默认；显式写 <code>LC_ALL=C</code> 仍然按字节。</td>
     </tr>
     <tr>
-      <td><code>150-003-identity-tools-answer-without-a-path-program</code></td>
-      <td><code>PATH</code> 上没有 <code>uname</code>/<code>arch</code> 程序时仍由引擎作答（MSYS 人设）：1.5.0 的进程内仿真要先解析到程序，否则让位给一次必然失败的 spawn。可解析的一侧不变——<code>PATH</code> 上的同名脚本仍然会运行。</td>
+      <td><code>151-003-identity-tools-answer-without-a-path-program</code></td>
+      <td><code>PATH</code> 上没有 <code>uname</code>/<code>arch</code> 程序时仍由引擎作答（MSYS 人设）：1.5.1 的进程内仿真要先解析到程序，否则让位给一次必然失败的 spawn。可解析的一侧不变——<code>PATH</code> 上的同名脚本仍然会运行。</td>
+    </tr>
+    <tr>
+      <td><code>151-004-command-lookup-names-the-real-file</code></td>
+      <td><code>command -v</code>/<code>type -P</code> 的答案保留真实文件名：1.5.1 为模仿 Git Bash 的显示会剪掉探测到的 <code>.exe</code>，但本部署的 <code>PATH</code> 上只有 <code>&lt;name&gt;.exe</code>，剪出来的路径不是文件，<code>cp "$(command -v grep)" x</code> 这类惯用式会失败。</td>
+    </tr>
+    <tr>
+      <td><code>151-005-diagnostics-name-the-reader-not-the-install-path</code></td>
+      <td>诊断前缀用<b>读者名</b>：1.5.1 先查 <code>$0</code>，而本插件按绝对路径启动引擎，于是每条失败命令都以安装路径开头；这一笔让 <code>-c</code> 写进 <code>__RUBASH_SCRIPT_NAME</code> 的读者名（显式名字操作数或 <code>bash</code>）重新优先，回到 <code>bash: line 1:</code>。</td>
     </tr>
   </tbody>
 </table>
 
 </details>
 
-> 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 14 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
+> 💡 每次解析都按 lock 里的 **sha256** 校验产物，并按**盖章**跳过重复校验：产物的 size 与 mtime 记进 `%LOCALAPPDATA%\dsh-bash-native\verified\`，没变就不再读那 16 MB（`verifyArtifacts: 'always'` 可恢复每次都哈希）。
 
 
 ## 🔧 实现
@@ -269,7 +278,7 @@ https://github.com/SpookyWaste/dsh-bash-native
     <tr>
       <td><code>verifyArtifacts</code></td>
       <td><code>'stamped'</code></td>
-      <td>校验力度：<code>stamped</code> 只在产物或运行副本的 size/mtime 变化时重新哈希；<code>always</code> 每次解析都哈希（引擎 14 MB、工具链 37 MB）</td>
+      <td>校验力度：<code>stamped</code> 只在产物或运行副本的 size/mtime 变化时重新哈希；<code>always</code> 每次解析都哈希（引擎 16 MB、工具链 37 MB）</td>
     </tr>
   </tbody>
 </table>
@@ -303,6 +312,8 @@ https://github.com/SpookyWaste/dsh-bash-native
 ---
 
 ## ⚠️ 已知限制
+
+- **跨工具的路径拼写不是同一套**：`bash` 接受 POSIX 拼写（`/d/...`、`/tmp/...`，其中 `/tmp` 是会话临时目录），但 DSH 自带的 `read`、`grep`、`glob`、`edit` 只认原生路径（`D:\...`）或工作区相对路径——`/tmp/x` 在它们那里是当前盘的 `\tmp\x`。模型在同一会话里混用两种拼写会收到路径错误；同名的 `\tmp\x` 已存在时，读到的是另一个文件。0.3.7 只在文档记录这一点，没有替这些工具翻译参数。
 
 - **两条与进程内副本无关的平台差异**：
 

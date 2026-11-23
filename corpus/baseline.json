@@ -1,12 +1,12 @@
 {
-  "generated": "2026-11-04T04:52:00.902Z",
+  "generated": "2026-11-23T04:32:00.947Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "engine-only",
   "counts": {
-    "total": 229,
+    "total": 230,
     "pass": 93,
     "fail": 0,
-    "skip": 114,
+    "skip": 115,
     "collision": 14,
     "knownGap": 3,
     "platform": 5,
@@ -73,6 +73,7 @@
     "coreutils-cut": "missing cut",
     "coreutils-uniq-count": "missing uniq",
     "coreutils-wc": "missing wc",
+    "coreutils-du-apparent-size": "missing du",
     "coreutils-head-tail": "missing head, tail",
     "coreutils-md5sum-shape": "missing cut, md5sum, wc",
     "coreutils-base64": "missing base64",
@@ -153,7 +154,7 @@
   "platform": {
     "platform-uname": {
       "status": 0,
-      "stdout": "MSYS_NT-10.0-26200\n"
+      "stdout": "MSYS_NT-10.0-26300\n"
     },
     "platform-dev-stdin": {
       "status": 127,

@@ -2706,11 +2706,12 @@
       "id": "platform-drive-mount-root",
       "category": "platform-difference",
       "severity": "must-match",
+      "note": "v1.5.0 echoed the mount root with a trailing slash (`/c/`); v1.5.1 and GNU both print `/c`, so this case follows GNU.",
       "snippet": "cd /c && pwd",
       "expect": {
         "status": 0,
         "stdout": {
-          "equals": "/c/\n"
+          "equals": "/c\n"
         }
       }
     },
@@ -3221,15 +3222,14 @@
       "id": "process-pipeline-builtin-failure-honors-its-stderr-redirect",
       "category": "process",
       "severity": "must-match",
-      "note": "The diagnostic belongs to the stage, so the stage's `2>` keeps it. Measured before the fix: the message was written on the shell's own stderr, `err.txt` stayed empty, and the `test` after the pipeline never ran.",
+      "note": "The diagnostic belongs to the stage, so the stage's `2>` keeps it. Measured before the fix: the message was written on the shell's own stderr, `err.txt` stayed empty, and the `test` after the pipeline never ran. Closed by the v1.5.1 redirect wave.",
       "snippet": "cd /definitely/absent 2>err.txt | cat; test -s err.txt && echo nonempty || echo empty",
       "expect": {
         "status": 0,
         "stdout": {
           "equals": "nonempty\n"
         }
-      },
-      "knownGap": "docs/research.md「rubash 的已知差异」的「自带工具层：管道里内建命令的重定向诊断」"
+      }
     },
     {
       "id": "process-pipeline-status-is-its-last-stage",

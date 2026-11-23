@@ -3,6 +3,8 @@ pnpm-lock.yaml
 package-lock.json
 *.log
 .DS_Store
+# Agent worktrees and scratch DSH keeps beside the checkout (`create_worktree` puts them under .agents/worktrees/)
+.agents/
 engine-scratch-*/
 corpus/report.md
 target/

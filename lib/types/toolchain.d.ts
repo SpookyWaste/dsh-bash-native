@@ -43,7 +43,7 @@ export declare const TOOLCHAIN_COMMANDS: readonly ['grep', 'sed', 'awk', 'jq', '
 export declare const NOTABLE_ADDITIONS: readonly ['tty', 'nohup', 'nice', 'uptime', 'hostid', 'pathchk', 'locate', 'updatedb'];
 /**
  * `uname` and `arch` are answered inside the engine process, and this build keeps answering them when no
- * program of that name resolves (engine patch 150-003). A toolchain copy would be a second opinion about which
+ * program of that name resolves (engine patch 151-003). A toolchain copy would be a second opinion about which
  * platform this is, so none is published.
  */
 export declare const ENGINE_BUILTINS: readonly ['arch', 'uname'];

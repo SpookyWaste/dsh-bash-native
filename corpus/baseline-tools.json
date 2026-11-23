@@ -1,10 +1,10 @@
 {
-  "generated": "2026-11-04T04:52:16.708Z",
+  "generated": "2026-11-23T04:32:14.069Z",
   "engine": "GNU bash, version 5.3.20(1)-release (x86_64-pc-msys)",
   "toolchain": "<HOME>\\AppData\\Local\\dsh-bash-native\\tools\\bin",
   "counts": {
-    "total": 229,
-    "pass": 217,
+    "total": 230,
+    "pass": 218,
     "fail": 0,
     "skip": 0,
     "collision": 0,
@@ -24,7 +24,7 @@
   "platform": {
     "platform-uname": {
       "status": 0,
-      "stdout": "MSYS_NT-10.0-26200\n"
+      "stdout": "MSYS_NT-10.0-26300\n"
     },
     "platform-ls-long": {
       "status": 0,

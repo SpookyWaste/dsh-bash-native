@@ -1,0 +1,103 @@
+diff --git a/src/executor/builtin_diag.rs b/src/executor/builtin_diag.rs
+index fc4a1c1..88967cc 100644
+--- a/src/executor/builtin_diag.rs
++++ b/src/executor/builtin_diag.rs
+@@ -206,6 +206,14 @@ pub(crate) fn error_report_name(
+     if let Some(name) = file_name.as_ref().filter(|name| !name.is_empty()) {
+         return name.clone();
+     }
++    // dsh-bash-native patch: same reader-name preference as
++    // Executor::error_report_name_with_file — see the note there.
++    if let Some(reader) = variables
++        .get("__RUBASH_SCRIPT_NAME")
++        .filter(|name| !name.is_empty())
++    {
++        return reader.clone();
++    }
+     // rubash#3355: same presence-based $0 step as
+     // Executor::error_report_name_with_file — GNU error.c:90-120
+     // get_name_for_error stops at dollar_vars[0] itself, so a
+diff --git a/src/executor/public_accessors.rs b/src/executor/public_accessors.rs
+index 098dc16..c84afcc 100644
+--- a/src/executor/public_accessors.rs
++++ b/src/executor/public_accessors.rs
+@@ -3764,6 +3764,21 @@ impl Executor {
+         if let Some(name) = file_name.as_ref().filter(|name| !name.is_empty()) {
+             return name.clone();
+         }
++        // dsh-bash-native patch: the invocation's reader name outranks `$0`. A `-c` invocation seeds
++        // `__RUBASH_SCRIPT_NAME` with the caller's name operand, or `bash` when none was given
++        // (invocation.rs), and v1.5.0 answered that name here; v1.5.1 reaches `$0` first, and this
++        // deployment spawns the engine by absolute path, so every diagnostic would carry the install
++        // path (`D:\...\rubash.exe: line 1: ...`) where a bash reports `bash: line 1: ...`. An explicit
++        // `-c` name operand still names the diagnostic, and a script/sourced file is answered by
++        // `file_name` above, so only the defaulted argv[0] stops leaking.
++        if let Some(reader) = self
++            .shell_state
++            .env_vars
++            .get("__RUBASH_SCRIPT_NAME")
++            .filter(|name| !name.is_empty())
++        {
++            return reader.clone();
++        }
+         // rubash#3355: GNU error.c:90-120 get_name_for_error stops at
+         // dollar_vars[0] itself — it is always a non-NULL string, so a
+         // present-but-empty $0 (empty argv[0]) IS the verdict and the
+diff --git a/src/invocation.rs b/src/invocation.rs
+index 0fb181e..c6d5aa4 100644
+--- a/src/invocation.rs
++++ b/src/invocation.rs
+@@ -521,19 +521,9 @@ impl ShellInvocation {
+             // PROGRAM. Internal respawns (coproc / async `&` children)
+             // carry the parent's script name through init.rs — GNU's
+             // forked subshell keeps $0, so do not clobber it here.
+-            // Owned copy: get_env borrows the executor, set_env needs
+-            // it mutably.
+-            let invocation_name: Option<String> =
+-                executor.get_env("BASH_ARGV0").map(str::to_string);
+-            match invocation_name.as_deref() {
+-                Some(value) if !value.is_empty() => {
+-                    executor.set_env("__RUBASH_SCRIPT_NAME", value);
+-                }
+-                Some(_) => {}
+-                None => {
+-                    executor.set_env("__RUBASH_SCRIPT_NAME", "bash");
+-                }
+-            }
++            // dsh-bash-native patch: same reader-name ruling as main.rs's twin site — the persona,
++            // not the host's argv[0] (`$0`/BASH_ARGV0 is untouched).
++            executor.set_env("__RUBASH_SCRIPT_NAME", "bash");
+         }
+         if self.command.is_some() {
+             executor.set_env("__RUBASH_IS_C", "1");
+diff --git a/src/main.rs b/src/main.rs
+index acfa96f..212195e 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1078,19 +1078,13 @@ fn run_args(
+                         // the carrier absent so the $0 arm owns the
+                         // prolog (BASH_SOURCE[0] is empty for -c in
+                         // GNU too).
+-                        // Owned copy: get_env borrows the executor,
+-                        // set_env needs it mutably.
+-                        let invocation_name: Option<String> =
+-                            executor.get_env("BASH_ARGV0").map(str::to_string);
+-                        match invocation_name.as_deref() {
+-                            Some(value) if !value.is_empty() => {
+-                                executor.set_env("__RUBASH_SCRIPT_NAME", value);
+-                            }
+-                            Some(_) => {}
+-                            None => {
+-                                executor.set_env("__RUBASH_SCRIPT_NAME", "bash");
+-                            }
+-                        }
++                        // dsh-bash-native patch: the reader name a `-c` diagnostic reports is the
++                        // persona, not the host's argv[0]. v1.5.0 planted the literal "bash" here; v1.5.1
++                        // (rubash#2714) forwards the invocation `$0` instead, and this deployment spawns
++                        // the engine by absolute path, so every failed command read
++                        // `D:\...\rubash.exe: line 1: ...`. `$0`/BASH_ARGV0 is untouched — only the
++                        // reader-name carrier a prolog is built from.
++                        executor.set_env("__RUBASH_SCRIPT_NAME", "bash");
+                     }
+                     executor.set_env("__RUBASH_IS_C", "1");
+                     apply_interactive_alias_default(executor, alias_expansion_override);

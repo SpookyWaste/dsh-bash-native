@@ -88,7 +88,7 @@ function shell(id, script, files, options = {}) {
   pass("0002/0004/0009: /tmp and /c aliases hold for the shell and for child arguments");
 }
 
-// engine 150-001 — `cd` into a virtual root that has a real directory behind it. The bridge writes PWD and stops,
+// engine 151-001 — `cd` into a virtual root that has a real directory behind it. The bridge writes PWD and stops,
 // so the session cwd stayed in the previous directory: relative operands then failed while `pwd` reported
 // `/tmp`. The display value is expected to stay `/tmp`, so both halves are asserted.
 {
@@ -97,7 +97,7 @@ function shell(id, script, files, options = {}) {
   assert.equal(moved.stdout, "/tmp\n/tmp\nalias", "cd /tmp moves the process and keeps reporting the virtual name");
   const dir = shell("cd-into-tmp-dir", "cd /tmp && ls -d . >/dev/null && echo ok");
   assert.equal(dir.stdout, "ok", "cd /tmp leaves the shell in a directory it can list");
-  pass("engine 150-001: cd into a virtual root with a real directory behind it moves the session cwd");
+  pass("engine 151-001: cd into a virtual root with a real directory behind it moves the session cwd");
 }
 
 // 0003 — an ERR trap fires in the scope that set it.
@@ -279,7 +279,7 @@ function shell(id, script, files, options = {}) {
 // POSIX-correct outcome this engine can reach yet, and each run is bounded so a change in the surrounding
 // facts shows up in the log without hanging the suite.
 {
-  // `pushd`/`popd` are further behind `cd` than patch 150-001 covers: they record the target on the directory
+  // `pushd`/`popd` are further behind `cd` than patch 151-001 covers: they record the target on the directory
   // stack and in PWD, and 1.5.0 moves the session cwd for the bridged names, but `popd`, `pwd -P` and the
   // general path still disagree with GNU. `pwd -P` reads the session cwd, so the pair of lines shows the
   // split directly.
